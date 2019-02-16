@@ -6,3 +6,4 @@ repository = "https://github.com/rust-vmm/vm-memory"
 license = "Apache-2.0"
 
 [dependencies]
+libc = ">=0.2.39"
