@@ -22,6 +22,10 @@ extern crate libc;
 use std::mem::size_of;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 
+#[macro_use]
+mod address_space;
+pub use address_space::*;
+
 pub mod endian;
 pub use endian::*;
 
