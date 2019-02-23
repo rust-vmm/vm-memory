@@ -55,6 +55,8 @@ pub enum Error {
 
     /// Syscall returned the given error.
     SystemCallFailed(io::Error),
+    /// failure happened in backend operations
+    BackendOpFailed,
     /// Requested backend address is out of range.
     InvalidBackendAddress,
     /// Requested offset is out of range.
@@ -101,6 +103,7 @@ impl Display for Error {
                 completed, expected,
             ),
             Error::SystemCallFailed(e) => write!(f, "syscall failed due to {}", e),
+            Error::BackendOpFailed => write!(f, "backend operation failed"),
             Error::InvalidBackendAddress => write!(f, "invalid backend address"),
             Error::InvalidBackendOffset => write!(f, "invalid backend offset"),
             Error::InvalidBackendOperation => write!(f, "invalid backend operation"),
