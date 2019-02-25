@@ -26,43 +26,21 @@ use std::ops::{BitAnd, BitOr};
 #[allow(missing_docs)]
 #[derive(Debug)]
 pub enum Error {
-    /// No memory region found.
-    NoMemoryRegion,
-    /// Some of the memory regions intersect with each other.
-    MemoryRegionOverlap,
     /// Failure in finding a guest address in any memory regions mapped by this guest.
     InvalidGuestAddress(GuestAddress),
     /// Failure in finding a guest address range in any memory regions mapped by this guest.
     InvalidGuestAddressRange(GuestAddress, GuestAddressValue),
-    /// Writing to memory failed
-    WriteToMemory(io::Error),
-    /// Reading from memory failed
-    ReadFromMemory(io::Error),
-    /// Couldn't write to the given target.
-    WriteToTarget(io::Error),
-    /// Couldn't read from the given source.
-    ReadFromSource(io::Error),
-    /// Incomplete write
-    ShortWrite {
+    /// Couldn't read/write from the given source.
+    IOError(io::Error),
+    /// Incomplete read or write
+    PartialBuffer {
         expected: GuestAddressValue,
         completed: GuestAddressValue,
     },
-    /// Incomplete read
-    ShortRead {
-        expected: GuestAddressValue,
-        completed: GuestAddressValue,
-    },
-
-    /// Syscall returned the given error.
-    SystemCallFailed(io::Error),
-    /// failure happened in backend operations
-    BackendOpFailed,
     /// Requested backend address is out of range.
     InvalidBackendAddress,
     /// Requested offset is out of range.
     InvalidBackendOffset,
-    /// Backend doesn't support the operation.
-    InvalidBackendOperation,
 }
 
 impl std::error::Error for Error {}
@@ -71,8 +49,6 @@ impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Guest memory error: ")?;
         match self {
-            Error::NoMemoryRegion => write!(f, "no region found"),
-            Error::MemoryRegionOverlap => write!(f, "overlapping memory regions"),
             Error::InvalidGuestAddress(addr) => {
                 write!(f, "invalid guest address {}", addr.raw_value())
             }
@@ -82,31 +58,17 @@ impl Display for Error {
                 base.raw_value(),
                 size,
             ),
-            Error::WriteToMemory(_) => write!(f, "couldn't write to memory"),
-            Error::ReadFromMemory(_) => write!(f, "couldn't read from memory"),
-            Error::WriteToTarget(_) => write!(f, "couldn't write to target"),
-            Error::ReadFromSource(_) => write!(f, "couldn't read from source"),
-            Error::ShortWrite {
+            Error::IOError(error) => write!(f, "{}", error),
+            Error::PartialBuffer {
                 expected,
                 completed,
             } => write!(
                 f,
-                "incomplete write of {} instead of {} bytes",
+                "only used {} bytes in {} long buffer",
                 completed, expected,
             ),
-            Error::ShortRead {
-                expected,
-                completed,
-            } => write!(
-                f,
-                "incomplete read of {} instead of {} bytes",
-                completed, expected,
-            ),
-            Error::SystemCallFailed(e) => write!(f, "syscall failed due to {}", e),
-            Error::BackendOpFailed => write!(f, "backend operation failed"),
             Error::InvalidBackendAddress => write!(f, "invalid backend address"),
             Error::InvalidBackendOffset => write!(f, "invalid backend offset"),
-            Error::InvalidBackendOperation => write!(f, "invalid backend operation"),
         }
     }
 }
