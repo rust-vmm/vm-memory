@@ -80,12 +80,18 @@ pub trait Address:
     /// Returns the result of the add or None if there is overflow.
     fn checked_add(&self, other: Self::V) -> Option<Self>;
 
+    /// Returns the result of the add and a flag identifying whether there was overflow
+    fn overflowing_add(&self, other: Self::V) -> (Self, bool);
+
     /// Returns the result of the base address + the size.
     /// Only use this when `offset` is guaranteed not to overflow.
     fn unchecked_add(&self, offset: Self::V) -> Self;
 
     /// Returns the result of the subtraction or None if there is underflow.
     fn checked_sub(&self, other: Self::V) -> Option<Self>;
+
+    /// Returns the result of the subtraction and a flag identifying whether there was overflow
+    fn overflowing_sub(&self, other: Self::V) -> (Self, bool);
 
     /// Returns the result of the subtraction.
     /// Only use this when `other` is guaranteed not to underflow.
@@ -115,12 +121,22 @@ macro_rules! impl_address_ops {
                 self.0.checked_add(other).map($T)
             }
 
+            fn overflowing_add(&self, other: $V) -> ($T, bool) {
+                let (t, ovf) = self.0.overflowing_add(other);
+                ($T(t), ovf)
+            }
+
             fn unchecked_add(&self, offset: $V) -> $T {
                 $T(self.0 + offset)
             }
 
             fn checked_sub(&self, other: $V) -> Option<$T> {
                 self.0.checked_sub(other).map($T)
+            }
+
+            fn overflowing_sub(&self, other: $V) -> ($T, bool) {
+                let (t, ovf) = self.0.overflowing_sub(other);
+                ($T(t), ovf)
             }
 
             fn unchecked_sub(&self, other: $V) -> $T {
