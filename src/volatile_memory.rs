@@ -25,7 +25,7 @@ use std::io::{self, Read, Write};
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::ptr::copy;
-use std::ptr::{null_mut, read_volatile, write_volatile};
+use std::ptr::{read_volatile, write_volatile};
 use std::result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::{isize, usize};
@@ -83,9 +83,22 @@ pub fn calc_offset(base: usize, offset: usize) -> Result<usize> {
 
 /// Trait for types that support raw volatile access to their data.
 pub trait VolatileMemory {
+    /// Gets the size of this slice.
+    fn len(&self) -> usize;
+
+    /// Check whether the region is empty.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Gets a slice of memory at `offset` that is `count` bytes in length and supports volatile
     /// access.
     fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice>;
+
+    /// Gets a slice of memory for the entire region that supports volatile access.
+    fn as_volatile_slice(&self) -> VolatileSlice {
+        self.get_slice(0, self.len()).unwrap()
+    }
 
     /// Gets a `VolatileRef` at `offset`.
     fn get_ref<T: DataInit>(&self, offset: usize) -> Result<VolatileRef<T>> {
@@ -95,14 +108,24 @@ pub trait VolatileMemory {
             phantom: PhantomData,
         })
     }
-}
 
-impl<'a> VolatileMemory for &'a mut [u8] {
-    fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice> {
-        let mem_end = calc_offset(offset, count)?;
+    /// Check that addr + count is valid and return the sum.
+    fn region_end(&self, base: usize, offset: usize) -> Result<usize> {
+        let mem_end = calc_offset(base, offset)?;
         if mem_end > self.len() {
             return Err(Error::OutOfBounds { addr: mem_end });
         }
+        Ok(mem_end)
+    }
+}
+
+impl<'a> VolatileMemory for &'a mut [u8] {
+    fn len(&self) -> usize {
+        <[u8]>::len(self)
+    }
+
+    fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice> {
+        let _ = self.region_end(offset, count)?;
         Ok(unsafe { VolatileSlice::new((self.as_ptr() as usize + offset) as *mut _, count) })
     }
 }
@@ -113,16 +136,6 @@ pub struct VolatileSlice<'a> {
     addr: *mut u8,
     size: usize,
     phantom: PhantomData<&'a u8>,
-}
-
-impl<'a> Default for VolatileSlice<'a> {
-    fn default() -> VolatileSlice<'a> {
-        VolatileSlice {
-            addr: null_mut(),
-            size: 0,
-            phantom: PhantomData,
-        }
-    }
 }
 
 impl<'a> VolatileSlice<'a> {
@@ -386,11 +399,12 @@ impl<'a> VolatileSlice<'a> {
 }
 
 impl<'a> VolatileMemory for VolatileSlice<'a> {
+    fn len(&self) -> usize {
+        self.size
+    }
+
     fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice> {
-        let mem_end = calc_offset(offset, count)?;
-        if mem_end > self.size {
-            return Err(Error::OutOfBounds { addr: mem_end });
-        }
+        let _ = self.region_end(offset, count)?;
         Ok(VolatileSlice {
             addr: (self.addr as usize + offset) as *mut _,
             size: count,
@@ -497,11 +511,12 @@ mod tests {
     }
 
     impl VolatileMemory for VecMem {
+        fn len(&self) -> usize {
+            self.mem.len()
+        }
+
         fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice> {
-            let mem_end = calc_offset(offset, count)?;
-            if mem_end > self.mem.len() {
-                return Err(Error::OutOfBounds { addr: mem_end });
-            }
+            let _ = self.region_end(offset, count)?;
             Ok(unsafe {
                 VolatileSlice::new((self.mem.as_ptr() as usize + offset) as *mut _, count)
             })
