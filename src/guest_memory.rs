@@ -42,6 +42,9 @@ pub enum Error {
     InvalidBackendOffset,
 }
 
+/// Result of guest memory operations
+pub type Result<T> = std::result::Result<T, Error>;
+
 impl std::error::Error for Error {}
 
 impl Display for Error {
@@ -107,15 +110,15 @@ pub trait GuestMemory {
 
     /// Perform the specified action on each region.
     /// It only walks children of current region and do not step into sub regions.
-    fn with_regions<F>(&self, cb: F) -> Result<(), Error>
+    fn with_regions<F>(&self, cb: F) -> Result<()>
     where
-        F: Fn(usize, &Self::R) -> Result<(), Error>;
+        F: Fn(usize, &Self::R) -> Result<()>;
 
     /// Perform the specified action on each region mutably.
     /// It only walks children of current region and do not step into sub regions.
-    fn with_regions_mut<F>(&self, cb: F) -> Result<(), Error>
+    fn with_regions_mut<F>(&self, cb: F) -> Result<()>
     where
-        F: FnMut(usize, &Self::R) -> Result<(), Error>;
+        F: FnMut(usize, &Self::R) -> Result<()>;
 
     /// Invoke callback `f` to handle data in the address range [addr, addr + count).
     ///
@@ -125,9 +128,9 @@ pub trait GuestMemory {
     /// - error code returned by the callback 'f'
     /// - size of data already handled when encountering the first hole
     /// - size of data already handled when the whole range has been handled
-    fn try_access<F>(&self, count: usize, addr: GuestAddress, mut f: F) -> Result<usize, Error>
+    fn try_access<F>(&self, count: usize, addr: GuestAddress, mut f: F) -> Result<usize>
     where
-        F: FnMut(GuestAddressOffset, usize, GuestAddress, &Self::R) -> Result<usize, Error>,
+        F: FnMut(GuestAddressOffset, usize, GuestAddress, &Self::R) -> Result<usize>,
     {
         let mut cur = addr;
         let mut total = 0;

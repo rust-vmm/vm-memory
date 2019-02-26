@@ -27,8 +27,6 @@ use guest_memory::*;
 use volatile_memory::*;
 use Bytes;
 
-type Result<T> = std::result::Result<T, Error>;
-
 /// Represents an offset into a memory mapped area.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct MmapAddress(pub usize);
