@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use address::{Address, AddressValue};
 use guest_memory::*;
-use volatile_memory::*;
+use volatile_memory::{self, calc_offset, VolatileMemory, VolatileSlice};
 use Bytes;
 
 /// Represents an offset into a memory mapped area.
@@ -326,10 +326,10 @@ impl Bytes<MmapAddress> for MmapRegion {
 }
 
 impl VolatileMemory for MmapRegion {
-    fn get_slice(&self, offset: usize, count: usize) -> VolatileMemoryResult<VolatileSlice> {
+    fn get_slice(&self, offset: usize, count: usize) -> volatile_memory::Result<VolatileSlice> {
         let end = calc_offset(offset, count)?;
         if end > self.size {
-            return Err(VolatileMemoryError::OutOfBounds { addr: end });
+            return Err(volatile_memory::Error::OutOfBounds { addr: end });
         }
 
         // Safe because we checked that offset + count was within our range and we only ever hand
@@ -766,7 +766,7 @@ mod tests {
         let res = m.get_slice(std::usize::MAX, 3).unwrap_err();
         assert_eq!(
             res,
-            VolatileMemoryError::Overflow {
+            volatile_memory::Error::Overflow {
                 base: std::usize::MAX,
                 offset: 3,
             }
@@ -777,7 +777,7 @@ mod tests {
     fn slice_oob_error() {
         let m = MmapRegion::new(5).unwrap();
         let res = m.get_slice(3, 3).unwrap_err();
-        assert_eq!(res, VolatileMemoryError::OutOfBounds { addr: 6 });
+        assert_eq!(res, volatile_memory::Error::OutOfBounds { addr: 6 });
     }
 
     #[test]
