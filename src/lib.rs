@@ -49,7 +49,7 @@ pub use volatile_memory::*;
 /// any type that includes a reference.
 ///
 /// Implementing this trait guarantees that it is safe to instantiate the struct with random data.
-pub unsafe trait DataInit: Copy + Send + Sync {
+pub unsafe trait DataInit: Copy + Default + Send + Sync {
     /// Converts a slice of raw data into a reference of `Self`.
     ///
     /// The value of `data` is not copied. Instead a reference is made from the given slice. The
@@ -165,13 +165,18 @@ pub trait Bytes<A> {
 
     /// Writes an object to the region at the specified address.
     /// Returns Ok(()) if the object fits, or Err if it extends past the end.
-    fn write_obj<T: DataInit>(&self, val: T, addr: A) -> Result<(), Self::E>;
+    fn write_obj<T: DataInit>(&self, val: T, addr: A) -> Result<(), Self::E> {
+        self.write_slice(val.as_slice(), addr)
+    }
 
     /// Reads an object from the region at the given address.
     /// Reading from a volatile area isn't strictly safe as it could change mid-read.
     /// However, as long as the type T is plain old data and can handle random initialization,
     /// everything will be OK.
-    fn read_obj<T: DataInit>(&self, addr: A) -> Result<T, Self::E>;
+    fn read_obj<T: DataInit>(&self, addr: A) -> Result<T, Self::E> {
+        let mut result: T = Default::default();
+        self.read_slice(result.as_mut_slice(), addr).map(|_| result)
+    }
 
     /// Writes data from a readable object like a File and writes it to the region.
     ///

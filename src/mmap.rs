@@ -17,7 +17,6 @@
 
 use libc;
 use std::io::{self, Read, Write};
-use std::mem;
 use std::ops::{BitAnd, BitOr};
 use std::os::unix::io::AsRawFd;
 use std::ptr::null_mut;
@@ -27,7 +26,6 @@ use address_space::{Address, AddressRegion, AddressSpace, AddressValue};
 use guest_memory::*;
 use volatile_memory::*;
 use Bytes;
-use DataInit;
 
 type MmapAddressValue = <MmapAddress as AddressValue>::V;
 type Result<T> = std::result::Result<T, Error>;
@@ -277,59 +275,6 @@ impl Bytes<MmapAddress> for MmapRegion {
         Ok(())
     }
 
-    /// Writes an object to the region at the specified address.
-    /// Returns Ok(()) if the object fits, or Err if it extends past the end.
-    ///
-    /// # Examples
-    /// * Write a u64 at offset 16.
-    ///
-    /// ```
-    /// #   use vm_memory::{Bytes, MmapAddress, MmapRegion};
-    /// #   let mut mem_map = MmapRegion::new(1024).unwrap();
-    ///     let res = mem_map.write_obj(55u64, MmapAddress(16));
-    ///     assert!(res.is_ok());
-    /// ```
-    fn write_obj<T: DataInit>(&self, val: T, addr: MmapAddress) -> Result<()> {
-        unsafe {
-            // Guest memory can't strictly be modeled as a slice because it is
-            // volatile.  Writing to it with what compiles down to a memcpy
-            // won't hurt anything as long as we get the bounds checks right.
-            self.region_end(addr.raw_value(), mem::size_of::<T>())?;
-            std::ptr::write_volatile(
-                &mut self.as_mut_slice()[addr.raw_value()..] as *mut _ as *mut T,
-                val,
-            );
-            Ok(())
-        }
-    }
-
-    /// Reads an object from the region at the given address.
-    /// Reading from a volatile area isn't strictly safe as it could change mid-read.
-    /// However, as long as the type T is plain old data and can handle random initialization,
-    /// everything will be OK.
-    ///
-    /// # Examples
-    /// * Read a u64 written to offset 32.
-    ///
-    /// ```
-    /// #   use vm_memory::{Bytes, MmapAddress, MmapRegion};
-    /// #   let mut mem_map = MmapRegion::new(1024).unwrap();
-    ///     let res = mem_map.write_obj(55u64, MmapAddress(32));
-    ///     assert!(res.is_ok());
-    ///     let num: u64 = mem_map.read_obj(MmapAddress(32)).unwrap();
-    ///     assert_eq!(55, num);
-    /// ```
-    fn read_obj<T: DataInit>(&self, addr: MmapAddress) -> Result<T> {
-        self.region_end(addr.raw_value(), mem::size_of::<T>())?;
-        unsafe {
-            // This is safe because by definition Copy types can have their bits
-            // set arbitrarily and still be valid.
-            Ok(std::ptr::read_volatile(
-                &self.as_slice()[addr.raw_value()..] as *const _ as *const T,
-            ))
-        }
-    }
-
     /// Writes data from a readable object like a File and writes it to the region.
     ///
     /// # Examples
@@ -495,16 +440,6 @@ impl Bytes<GuestAddress> for GuestRegionMmap {
     fn read_slice(&self, buf: &mut [u8], addr: GuestAddress) -> Result<()> {
         let maddr = self.to_mmap_addr(addr)?;
         self.mapping.read_slice(buf, maddr)
-    }
-
-    fn write_obj<T: DataInit>(&self, val: T, addr: GuestAddress) -> Result<()> {
-        let maddr = self.to_mmap_addr(addr)?;
-        self.mapping.write_obj::<T>(val, maddr)
-    }
-
-    fn read_obj<T: DataInit>(&self, addr: GuestAddress) -> Result<T> {
-        let maddr = self.to_mmap_addr(addr)?;
-        self.mapping.read_obj::<T>(maddr)
     }
 
     fn write_from_stream<F>(&self, addr: GuestAddress, src: &mut F, count: usize) -> Result<()>
@@ -710,50 +645,6 @@ impl Bytes<GuestAddress> for GuestMemoryMmap {
             });
         }
         Ok(())
-    }
-
-    /// ```
-    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
-    /// # fn test_write_u64() -> Result<(), ()> {
-    /// #   let start_addr = GuestAddress(0x1000);
-    /// #   let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
-    ///     gm.write_obj(55u64, GuestAddress(0x1100)).map_err(|_| ())
-    /// # }
-    /// ```
-    fn write_obj<T: DataInit>(&self, val: T, addr: GuestAddress) -> Result<()> {
-        // Do we need to support write_volatile acrossing region boundary?
-        if let Some(region) = self.find_region(addr) {
-            region.write_obj(val, addr)
-        } else {
-            Err(Error::InvalidGuestAddressRange(
-                addr,
-                mem::size_of::<T>() as GuestAddressValue,
-            ))
-        }
-    }
-
-    /// # Examples
-    /// * Read a u64 from two areas of guest memory backed by separate mappings.
-    ///
-    /// ```
-    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
-    /// # fn test_read_u64() -> Result<u64, ()> {
-    /// #     let start_addr1 = GuestAddress(0x0);
-    /// #     let start_addr2 = GuestAddress(0x400);
-    /// #     let mut gm = GuestMemoryMmap::new(&vec![(start_addr1, 0x400), (start_addr2, 0x400)])
-    /// #         .map_err(|_| ())?;
-    ///       let num1: u64 = gm.read_obj(GuestAddress(32)).map_err(|_| ())?;
-    ///       let num2: u64 = gm.read_obj(GuestAddress(0x400+32)).map_err(|_| ())?;
-    /// #     Ok(num1 + num2)
-    /// # }
-    /// ```
-    fn read_obj<T: DataInit>(&self, addr: GuestAddress) -> Result<T> {
-        // Do we need to support read_volatile acrossing region boundary?
-        if let Some(region) = self.find_region(addr) {
-            region.read_obj(addr)
-        } else {
-            Err(Error::InvalidGuestAddress(addr))
-        }
     }
 
     /// # Examples
@@ -1104,6 +995,7 @@ mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let bad_addr = GuestAddress(0x2001);
         let bad_addr2 = GuestAddress(0x1ffc);
+        let max_addr = GuestAddress(0x2000);
 
         let gm = GuestMemoryMmap::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
 
@@ -1111,15 +1003,15 @@ mod tests {
         let val2: u64 = 0x55aa55aa55aa55aa;
         assert_eq!(
             format!("{:?}", gm.write_obj(val1, bad_addr).err().unwrap()),
-            format!(
-                "InvalidGuestAddressRange({:?}, {:?})",
-                bad_addr,
-                std::mem::size_of::<u64>()
-            )
+            format!("InvalidGuestAddress({:?})", bad_addr,)
         );
         assert_eq!(
             format!("{:?}", gm.write_obj(val1, bad_addr2).err().unwrap()),
-            format!("InvalidBackendAddress")
+            format!(
+                "PartialBuffer {{ expected: {:?}, completed: {:?} }}",
+                mem::size_of::<u64>(),
+                max_addr.checked_offset_from(bad_addr2).unwrap()
+            )
         );
 
         gm.write_obj(val1, GuestAddress(0x500)).unwrap();
