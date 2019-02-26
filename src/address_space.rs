@@ -165,7 +165,7 @@ macro_rules! impl_address_ops {
 /// [min_addr(), max_addr()).
 ///
 /// The trait provides two categories of methods to access the object:
-/// - get attribute of the region: size(), min_addr(), max_addr(), is_valid(), address_in_range()
+/// - get attribute of the region: len(), min_addr(), max_addr(), is_valid(), address_in_range()
 ///   and checked_offset().
 /// - access content: read(), write(), read_slice(), write_slice(), read_obj(), write_obj(),
 /// read_from_stream(), write_to_stream().
@@ -183,7 +183,7 @@ pub trait AddressRegion {
     type E;
 
     /// Get size of the region, excluding possible holes.
-    fn size(&self) -> <Self::A as AddressValue>::V;
+    fn len(&self) -> <Self::A as AddressValue>::V;
 
     /// Get minimum (inclusive) address managed by the region.
     fn min_addr(&self) -> Self::A {
