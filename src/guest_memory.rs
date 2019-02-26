@@ -28,8 +28,6 @@ use std::ops::{BitAnd, BitOr};
 pub enum Error {
     /// Failure in finding a guest address in any memory regions mapped by this guest.
     InvalidGuestAddress(GuestAddress),
-    /// Failure in finding a guest address range in any memory regions mapped by this guest.
-    InvalidGuestAddressRange(GuestAddress, GuestAddressValue),
     /// Couldn't read/write from the given source.
     IOError(io::Error),
     /// Incomplete read or write
@@ -52,12 +50,6 @@ impl Display for Error {
             Error::InvalidGuestAddress(addr) => {
                 write!(f, "invalid guest address {}", addr.raw_value())
             }
-            Error::InvalidGuestAddressRange(base, size) => write!(
-                f,
-                "invalid address range, base {}/size {}",
-                base.raw_value(),
-                size,
-            ),
             Error::IOError(error) => write!(f, "{}", error),
             Error::PartialBuffer {
                 expected,
@@ -133,7 +125,11 @@ pub trait GuestMemory: AddressSpace<GuestAddress, Error> {
                 break;
             }
         }
-        Ok(total)
+        if total == 0 {
+            Err(Error::InvalidGuestAddress(addr))
+        } else {
+            Ok(total)
+        }
     }
 }
 
