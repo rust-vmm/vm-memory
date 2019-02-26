@@ -18,6 +18,7 @@
 //!
 //! Traits and Structs
 //! - GuestAddress: represents a guest physical address (GPA).
+//! - MemoryRegionAddress: represents an offset inside a region.
 //! - GuestMemoryRegion: represent a continuous region of guest's physical memory.
 //! - GuestMemory:  represent a collection of GuestMemoryRegion objects. The main responsibilities
 //!   of the GuestMemory trait are:
@@ -27,11 +28,13 @@
 
 use std::convert::From;
 use std::fmt::{self, Display};
-use std::io;
+use std::io::{self, Read, Write};
 use std::ops::{BitAnd, BitOr};
 
 use super::{Address, AddressValue, Bytes};
 use volatile_memory;
+
+static MAX_ACCESS_CHUNK: usize = 4096;
 
 /// Errors associated with handling guest memory accesses.
 #[allow(missing_docs)]
@@ -42,10 +45,7 @@ pub enum Error {
     /// Couldn't read/write from the given source.
     IOError(io::Error),
     /// Incomplete read or write
-    PartialBuffer {
-        expected: GuestAddressValue,
-        completed: GuestAddressValue,
-    },
+    PartialBuffer { expected: usize, completed: usize },
     /// Requested backend address is out of range.
     InvalidBackendAddress,
     /// Requested offset is out of range.
@@ -62,8 +62,8 @@ impl From<volatile_memory::Error> for Error {
                 expected,
                 completed,
             } => Error::PartialBuffer {
-                expected: expected as u64,
-                completed: completed as u64,
+                expected,
+                completed,
             },
         }
     }
@@ -106,6 +106,11 @@ impl Display for Error {
 pub struct GuestAddress(pub u64);
 impl_address_ops!(GuestAddress, u64);
 
+/// Represents an offset inside a region.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct MemoryRegionAddress(pub u64);
+impl_address_ops!(MemoryRegionAddress, u64);
+
 /// Type of the raw value stored in a GuestAddress object.
 pub type GuestAddressValue = <GuestAddress as AddressValue>::V;
 
@@ -113,7 +118,47 @@ pub type GuestAddressValue = <GuestAddress as AddressValue>::V;
 pub type GuestAddressOffset = <GuestAddress as AddressValue>::V;
 
 /// Represents a continuous region of guest physical memory.
-pub trait GuestMemoryRegion: Bytes<GuestAddress, E = Error> {}
+#[allow(clippy::len_without_is_empty)]
+pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
+    /// Get the size of the region.
+    fn len(&self) -> GuestAddressValue;
+
+    /// Get minimum (inclusive) address managed by the region.
+    fn min_addr(&self) -> GuestAddress;
+
+    /// Get maximum (exclusive) address managed by the region.
+    fn max_addr(&self) -> GuestAddress {
+        // unchecked_add is safe as the region bounds were checked when it was created.
+        self.min_addr().unchecked_add(self.len())
+    }
+
+    /// Convert an absolute address into an address space (GuestMemory)
+    /// to a relative address within this region, or return an error if
+    /// it is out of bounds.
+    fn to_region_addr(&self, addr: GuestAddress) -> Result<MemoryRegionAddress> {
+        let offset = addr
+            .checked_offset_from(self.min_addr())
+            .ok_or_else(|| Error::InvalidGuestAddress(addr))?;
+        if offset >= self.len() {
+            return Err(Error::InvalidGuestAddress(addr));
+        }
+        Ok(MemoryRegionAddress(offset))
+    }
+
+    /// Return a slice corresponding to the data in the region; unsafe because of
+    /// possible aliasing.  Return None if the region does not support slice-based
+    /// access.
+    unsafe fn as_slice(&self) -> Option<&[u8]> {
+        None
+    }
+
+    /// Return a mutable slice corresponding to the data in the region; unsafe because of
+    /// possible aliasing.  Return None if the region does not support slice-based
+    /// access.
+    unsafe fn as_mut_slice(&self) -> Option<&mut [u8]> {
+        None
+    }
+}
 
 /// Represents a container for a collection of GuestMemoryRegion objects.
 ///
@@ -125,7 +170,7 @@ pub trait GuestMemoryRegion: Bytes<GuestAddress, E = Error> {}
 /// Note: all regions in a GuestMemory object must not intersect with each other.
 pub trait GuestMemory {
     /// Type of objects hosted by the address space.
-    type R: Bytes<GuestAddress, E = Error>;
+    type R: GuestMemoryRegion;
 
     /// Returns the number of regions in the collection.
     fn num_regions(&self) -> usize;
@@ -155,13 +200,16 @@ pub trait GuestMemory {
     /// - size of data already handled when the whole range has been handled
     fn try_access<F>(&self, count: usize, addr: GuestAddress, mut f: F) -> Result<usize>
     where
-        F: FnMut(GuestAddressOffset, usize, GuestAddress, &Self::R) -> Result<usize>,
+        F: FnMut(usize, usize, MemoryRegionAddress, &Self::R) -> Result<usize>,
     {
         let mut cur = addr;
         let mut total = 0;
         while total < count {
             if let Some(region) = self.find_region(cur) {
-                match f(total as GuestAddressOffset, count - total, cur, region) {
+                let start = region.to_region_addr(cur)?;
+                let cap = region.len() as usize;
+                let len = std::cmp::min(cap, count - total);
+                match f(total, len, start, region) {
                     // no more data
                     Ok(0) => break,
                     // made some progress
@@ -184,6 +232,147 @@ pub trait GuestMemory {
         } else {
             Ok(total)
         }
+    }
+}
+
+impl<T: GuestMemory> Bytes<GuestAddress> for T {
+    type E = Error;
+
+    fn write(&self, buf: &[u8], addr: GuestAddress) -> Result<usize> {
+        self.try_access(
+            buf.len(),
+            addr,
+            |offset, _count, caddr, region| -> Result<usize> {
+                if offset >= buf.len() {
+                    return Err(Error::InvalidBackendOffset);
+                }
+                region.write(&buf[offset as usize..], caddr)
+            },
+        )
+    }
+
+    fn read(&self, buf: &mut [u8], addr: GuestAddress) -> Result<usize> {
+        self.try_access(
+            buf.len(),
+            addr,
+            |offset, _count, caddr, region| -> Result<usize> {
+                if offset >= buf.len() {
+                    return Err(Error::InvalidBackendOffset);
+                }
+                region.read(&mut buf[offset as usize..], caddr)
+            },
+        )
+    }
+
+    fn write_slice(&self, buf: &[u8], addr: GuestAddress) -> Result<()> {
+        let res = self.try_access(
+            buf.len(),
+            addr,
+            |offset, _count, caddr, region| -> Result<usize> {
+                if offset >= buf.len() {
+                    return Err(Error::InvalidBackendOffset);
+                }
+                region.write(&buf[offset as usize..], caddr)
+            },
+        )?;
+        if res != buf.len() {
+            return Err(Error::PartialBuffer {
+                expected: buf.len(),
+                completed: res,
+            });
+        }
+        Ok(())
+    }
+
+    fn read_slice(&self, buf: &mut [u8], addr: GuestAddress) -> Result<()> {
+        let res = self.try_access(
+            buf.len(),
+            addr,
+            |offset, _count, caddr, region| -> Result<usize> {
+                if offset >= buf.len() {
+                    return Err(Error::InvalidBackendOffset);
+                }
+                region.read(&mut buf[offset as usize..], caddr)
+            },
+        )?;
+        if res != buf.len() {
+            return Err(Error::PartialBuffer {
+                expected: buf.len(),
+                completed: res,
+            });
+        }
+        Ok(())
+    }
+
+    fn write_from_stream<F>(&self, addr: GuestAddress, src: &mut F, count: usize) -> Result<()>
+    where
+        F: Read,
+    {
+        let res = self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
+            // Something bad happened...
+            if offset >= count {
+                return Err(Error::InvalidBackendOffset);
+            }
+            if let Some(dst) = unsafe { region.as_mut_slice() } {
+                // This is safe cause `start` and `len` are within the `region`.
+                let start = caddr.raw_value() as usize;
+                let end = start + len;
+                src.read_exact(&mut dst[start..end])
+                    .map_err(Error::IOError)?;
+                Ok(len)
+            } else {
+                let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
+                let mut buf = vec![0u8; len].into_boxed_slice();
+                src.read_exact(&mut buf[..]).map_err(Error::IOError)?;
+                let bytes_written = region.write(&buf, caddr)?;
+                assert_eq!(bytes_written, len);
+                Ok(len)
+            }
+        })?;
+        if res != count {
+            return Err(Error::PartialBuffer {
+                expected: count,
+                completed: res,
+            });
+        }
+        Ok(())
+    }
+
+    fn read_into_stream<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<()>
+    where
+        F: Write,
+    {
+        let res = self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
+            // Something bad happened...
+            if offset >= count {
+                return Err(Error::InvalidBackendOffset);
+            }
+            if let Some(src) = unsafe { region.as_slice() } {
+                // This is safe cause `start` and `len` are within the `region`.
+                let start = caddr.raw_value() as usize;
+                let end = start + len;
+                // It is safe to read from volatile memory. Accessing the guest
+                // memory as a slice is OK because nothing assumes another thread
+                // won't change what is loaded.
+                dst.write_all(&src[start as usize..end])
+                    .map_err(Error::IOError)?;
+                Ok(len)
+            } else {
+                let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
+                let mut buf = vec![0u8; len].into_boxed_slice();
+                let bytes_read = region.read(&mut buf, caddr)?;
+                assert_eq!(bytes_read, len);
+                dst.write_all(&buf).map_err(Error::IOError)?;
+                Ok(len)
+            }
+        })?;
+        if res != count {
+            return Err(Error::PartialBuffer {
+                expected: count,
+                completed: res,
+            });
+        }
+        Ok(())
     }
 }
 
