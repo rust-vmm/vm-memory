@@ -24,6 +24,10 @@ use std::mem::size_of;
 use std::result::Result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 
+#[cfg(test)]
+#[macro_use]
+extern crate matches;
+
 #[macro_use]
 mod address;
 pub use address::*;

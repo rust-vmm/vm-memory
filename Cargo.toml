@@ -13,4 +13,5 @@ backend-mmap = []
 libc = ">=0.2.39"
 
 [dev-dependencies]
+matches = ">=0"
 tempfile = ">=3.0.2"

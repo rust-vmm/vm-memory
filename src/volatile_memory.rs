@@ -28,18 +28,23 @@ use std::ptr::copy;
 use std::ptr::{read_volatile, write_volatile};
 use std::result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
-use std::{isize, usize};
+use std::usize;
 
+use Bytes;
 use DataInit;
 
 /// VolatileMemory related error codes
 #[allow(missing_docs)]
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Debug)]
 pub enum Error {
     /// `addr` is out of bounds of the volatile memory slice.
     OutOfBounds { addr: usize },
     /// Taking a slice at `base` with `offset` would overflow `usize`.
     Overflow { base: usize, offset: usize },
+    /// Writing to memory failed
+    IOError(io::Error),
+    /// Incomplete read or write
+    PartialBuffer { expected: usize, completed: usize },
 }
 
 impl fmt::Display for Error {
@@ -50,6 +55,15 @@ impl fmt::Display for Error {
                 f,
                 "address 0x{:x} offset by 0x{:x} would overflow",
                 base, offset
+            ),
+            Error::IOError(error) => write!(f, "{}", error),
+            Error::PartialBuffer {
+                expected,
+                completed,
+            } => write!(
+                f,
+                "only used {} bytes in {} long buffer",
+                completed, expected
             ),
         }
     }
@@ -398,6 +412,190 @@ impl<'a> VolatileSlice<'a> {
     }
 }
 
+impl<'a> Bytes<usize> for VolatileSlice<'a> {
+    type E = Error;
+
+    /// Writes a slice to the region at the specified address.
+    /// Returns the number of bytes written. The number of bytes written can
+    /// be less than the length of the slice if there isn't enough room in the
+    /// region.
+    ///
+    /// # Examples
+    /// * Write a slice at offset 256.
+    ///
+    /// ```
+    /// #   use vm_memory::{Bytes, VolatileMemory};
+    /// #   let mut mem = [0u8; 1024];
+    /// #   let mut mem_ref = &mut mem[..];
+    /// #   let vslice = mem_ref.as_volatile_slice();
+    ///     let res = vslice.write(&[1,2,3,4,5], 1020);
+    ///     assert!(res.is_ok());
+    ///     assert_eq!(res.unwrap(), 4);
+    /// ```
+    fn write(&self, buf: &[u8], addr: usize) -> Result<usize> {
+        if addr >= self.size {
+            return Err(Error::OutOfBounds { addr });
+        }
+        unsafe {
+            // Guest memory can't strictly be modeled as a slice because it is
+            // volatile.  Writing to it with what compiles down to a memcpy
+            // won't hurt anything as long as we get the bounds checks right.
+            let mut slice: &mut [u8] = &mut self.as_mut_slice()[addr..];
+            Ok(slice.write(buf).map_err(Error::IOError)?)
+        }
+    }
+
+    /// Reads to a slice from the region at the specified address.
+    /// Returns the number of bytes read. The number of bytes read can be less than the length
+    /// of the slice if there isn't enough room in the region.
+    ///
+    /// # Examples
+    /// * Read a slice of size 16 at offset 256.
+    ///
+    /// ```
+    /// #   use vm_memory::{Bytes, VolatileMemory};
+    /// #   let mut mem = [0u8; 1024];
+    /// #   let mut mem_ref = &mut mem[..];
+    /// #   let vslice = mem_ref.as_volatile_slice();
+    ///     let buf = &mut [0u8; 16];
+    ///     let res = vslice.read(buf, 1010);
+    ///     assert!(res.is_ok());
+    ///     assert_eq!(res.unwrap(), 14);
+    /// ```
+    fn read(&self, mut buf: &mut [u8], addr: usize) -> Result<usize> {
+        if addr >= self.size {
+            return Err(Error::OutOfBounds { addr });
+        }
+        unsafe {
+            // Guest memory can't strictly be modeled as a slice because it is
+            // volatile.  Writing to it with what compiles down to a memcpy
+            // won't hurt anything as long as we get the bounds checks right.
+            let slice: &[u8] = &self.as_slice()[addr..];
+            Ok(buf.write(slice).map_err(Error::IOError)?)
+        }
+    }
+
+    /// Writes a slice to the region at the specified address.
+    ///
+    /// # Examples
+    /// * Write a slice at offset 256.
+    ///
+    /// ```
+    /// #   use vm_memory::{Bytes, VolatileMemory};
+    /// #   let mut mem = [0u8; 1024];
+    /// #   let mut mem_ref = &mut mem[..];
+    /// #   let vslice = mem_ref.as_volatile_slice();
+    ///     let res = vslice.write_slice(&[1,2,3,4,5], 256);
+    ///     assert!(res.is_ok());
+    ///     assert_eq!(res.unwrap(), ());
+    /// ```
+    fn write_slice(&self, buf: &[u8], addr: usize) -> Result<()> {
+        let len = self.write(buf, addr)?;
+        if len != buf.len() {
+            return Err(Error::PartialBuffer {
+                expected: buf.len(),
+                completed: len,
+            });
+        }
+        Ok(())
+    }
+
+    /// Reads to a slice from the region at the specified address.
+    ///
+    /// # Examples
+    /// * Read a slice of size 16 at offset 256.
+    ///
+    /// ```
+    /// #   use vm_memory::{Bytes, VolatileMemory};
+    /// #   let mut mem = [0u8; 1024];
+    /// #   let mut mem_ref = &mut mem[..];
+    /// #   let vslice = mem_ref.as_volatile_slice();
+    ///     let buf = &mut [0u8; 16];
+    ///     let res = vslice.read_slice(buf, 256);
+    ///     assert!(res.is_ok());
+    ///     assert_eq!(res.unwrap(), ());
+    /// ```
+    fn read_slice(&self, buf: &mut [u8], addr: usize) -> Result<()> {
+        let len = self.read(buf, addr)?;
+        if len != buf.len() {
+            return Err(Error::PartialBuffer {
+                expected: buf.len(),
+                completed: len,
+            });
+        }
+        Ok(())
+    }
+
+    /// Writes data from a readable object like a File and writes it to the region.
+    ///
+    /// # Examples
+    ///
+    /// * Read bytes from /dev/urandom
+    ///
+    /// ```
+    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// # use std::fs::File;
+    /// # use std::path::Path;
+    /// # fn test_read_random() -> Result<u32, ()> {
+    /// #     let mut mem = [0u8; 1024];
+    /// #     let mut mem_ref = &mut mem[..];
+    /// #     let vslice = mem_ref.as_volatile_slice();
+    ///       let mut file = File::open(Path::new("/dev/urandom")).map_err(|_| ())?;
+    ///       vslice.write_from_stream(32, &mut file, 128).map_err(|_| ())?;
+    ///       let rand_val: u32 = vslice.read_obj(40).map_err(|_| ())?;
+    /// #     Ok(rand_val)
+    /// # }
+    /// ```
+    fn write_from_stream<F>(&self, addr: usize, src: &mut F, count: usize) -> Result<()>
+    where
+        F: Read,
+    {
+        let end = self.region_end(addr, count)?;
+        unsafe {
+            // It is safe to overwrite the volatile memory. Accessing the guest
+            // memory as a mutable slice is OK because nothing assumes another
+            // thread won't change what is loaded.
+            let dst = &mut self.as_mut_slice()[addr..end];
+            src.read_exact(dst).map_err(Error::IOError)?;
+        }
+        Ok(())
+    }
+
+    /// Reads data from the region to a writable object.
+    ///
+    /// # Examples
+    ///
+    /// * Write 128 bytes to /dev/null
+    ///
+    /// ```
+    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// # use std::fs::File;
+    /// # use std::path::Path;
+    /// # fn test_write_null() -> Result<(), ()> {
+    /// #     let mut mem = [0u8; 1024];
+    /// #     let mut mem_ref = &mut mem[..];
+    /// #     let vslice = mem_ref.as_volatile_slice();
+    ///       let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
+    ///       vslice.read_into_stream(32, &mut file, 128).map_err(|_| ())?;
+    /// #     Ok(())
+    /// # }
+    /// ```
+    fn read_into_stream<F>(&self, addr: usize, dst: &mut F, count: usize) -> Result<()>
+    where
+        F: Write,
+    {
+        let end = self.region_end(addr, count)?;
+        unsafe {
+            // It is safe to read from volatile memory. Accessing the guest
+            // memory as a slice is OK because nothing assumes another thread
+            // won't change what is loaded.
+            let src = &self.as_mut_slice()[addr..end];
+            dst.write_all(src).map_err(Error::IOError)?;
+        }
+        Ok(())
+    }
+}
+
 impl<'a> VolatileMemory for VolatileSlice<'a> {
     fn len(&self) -> usize {
         self.size
@@ -491,11 +689,17 @@ impl<'a, T: DataInit> VolatileRef<'a, T> {
 
 #[cfg(test)]
 mod tests {
+    extern crate tempfile;
+
     use super::*;
 
+    use self::tempfile::tempfile;
     use std::sync::Arc;
     use std::thread::{sleep, spawn};
     use std::time::Duration;
+
+    use std::fs::File;
+    use std::path::Path;
 
     #[derive(Clone)]
     struct VecMem {
@@ -630,7 +834,7 @@ mod tests {
         use std::usize::MAX;
         let a = VecMem::new(1);
         let res = a.get_slice(MAX, 1).unwrap_err();
-        assert_eq!(
+        assert_matches!(
             res,
             Error::Overflow {
                 base: MAX,
@@ -644,7 +848,7 @@ mod tests {
         let a = VecMem::new(100);
         a.get_slice(50, 50).unwrap();
         let res = a.get_slice(55, 50).unwrap_err();
-        assert_eq!(res, Error::OutOfBounds { addr: 105 });
+        assert_matches!(res, Error::OutOfBounds { addr: 105 });
     }
 
     #[test]
@@ -652,7 +856,7 @@ mod tests {
         use std::usize::MAX;
         let a = VecMem::new(1);
         let res = a.get_ref::<u8>(MAX).unwrap_err();
-        assert_eq!(
+        assert_matches!(
             res,
             Error::Overflow {
                 base: MAX,
@@ -666,13 +870,85 @@ mod tests {
         let a = VecMem::new(100);
         a.get_ref::<u8>(99).unwrap();
         let res = a.get_ref::<u16>(99).unwrap_err();
-        assert_eq!(res, Error::OutOfBounds { addr: 101 });
+        assert_matches!(res, Error::OutOfBounds { addr: 101 });
     }
 
     #[test]
     fn ref_oob_too_large() {
         let a = VecMem::new(3);
         let res = a.get_ref::<u32>(0).unwrap_err();
-        assert_eq!(res, Error::OutOfBounds { addr: 4 });
+        assert_matches!(res, Error::OutOfBounds { addr: 4 });
+    }
+
+    #[test]
+    fn slice_store() {
+        let a = VecMem::new(5);
+        let s = a.as_volatile_slice();
+        let r = a.get_ref(2).unwrap();
+        r.store(9u16);
+        assert_eq!(s.read_obj::<u16>(2).unwrap(), 9);
+    }
+
+    #[test]
+    fn test_write_past_end() {
+        let a = VecMem::new(5);
+        let s = a.as_volatile_slice();
+        let res = s.write(&[1, 2, 3, 4, 5, 6], 0);
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), 5);
+    }
+
+    #[test]
+    fn slice_read_and_write() {
+        let a = VecMem::new(5);
+        let s = a.as_volatile_slice();
+        let sample_buf = [1, 2, 3];
+        assert!(s.write(&sample_buf, 5).is_err());
+        assert!(s.write(&sample_buf, 2).is_ok());
+        let mut buf = [0u8; 3];
+        assert!(s.read(&mut buf, 5).is_err());
+        assert!(s.read_slice(&mut buf, 2).is_ok());
+        assert_eq!(buf, sample_buf);
+    }
+
+    #[test]
+    fn obj_read_and_write() {
+        let a = VecMem::new(5);
+        let s = a.as_volatile_slice();
+        assert!(s.write_obj(55u16, 4).is_err());
+        assert!(s.write_obj(55u16, core::usize::MAX).is_err());
+        assert!(s.write_obj(55u16, 2).is_ok());
+        assert_eq!(s.read_obj::<u16>(2).unwrap(), 55u16);
+        assert!(s.read_obj::<u16>(4).is_err());
+        assert!(s.read_obj::<u16>(core::usize::MAX).is_err());
+    }
+
+    #[test]
+    fn mem_read_and_write() {
+        let a = VecMem::new(5);
+        let s = a.as_volatile_slice();
+        assert!(s.write_obj(!0u32, 1).is_ok());
+        let mut file = File::open(Path::new("/dev/zero")).unwrap();
+        assert!(s.write_from_stream(2, &mut file, size_of::<u32>()).is_err());
+        assert!(s
+            .write_from_stream(core::usize::MAX, &mut file, size_of::<u32>())
+            .is_err());
+
+        assert!(s.write_from_stream(1, &mut file, size_of::<u32>()).is_ok());
+
+        let mut f = tempfile().unwrap();
+        assert!(s.write_from_stream(1, &mut f, size_of::<u32>()).is_err());
+        format!("{:?}", s.write_from_stream(1, &mut f, size_of::<u32>()));
+
+        assert_eq!(s.read_obj::<u32>(1).unwrap(), 0);
+
+        let mut sink = Vec::new();
+        assert!(s.read_into_stream(1, &mut sink, size_of::<u32>()).is_ok());
+        assert!(s.read_into_stream(2, &mut sink, size_of::<u32>()).is_err());
+        assert!(s
+            .read_into_stream(core::usize::MAX, &mut sink, size_of::<u32>())
+            .is_err());
+        format!("{:?}", s.read_into_stream(2, &mut sink, size_of::<u32>()));
+        assert_eq!(sink, vec![0; size_of::<u32>()]);
     }
 }
