@@ -204,27 +204,23 @@ pub trait GuestMemory {
     {
         let mut cur = addr;
         let mut total = 0;
-        while total < count {
-            if let Some(region) = self.find_region(cur) {
-                let start = region.to_region_addr(cur)?;
-                let cap = region.len() as usize;
-                let len = std::cmp::min(cap, count - total);
-                match f(total, len, start, region) {
-                    // no more data
-                    Ok(0) => break,
-                    // made some progress
-                    Ok(len) => {
-                        cur = cur
-                            .checked_add(len as GuestAddressValue)
-                            .ok_or_else(|| Error::InvalidGuestAddress(cur))?;
-                        total += len;
+        while let Some(region) = self.find_region(cur) {
+            let start = region.to_region_addr(cur).unwrap();
+            let cap = region.len() as usize;
+            let len = std::cmp::min(cap, count - total);
+            match f(total, len, start, region) {
+                // no more data
+                Ok(0) => break,
+                // made some progress
+                Ok(len) => {
+                    total += len;
+                    if total == count {
+                        break;
                     }
-                    // error happened
-                    e => return e,
+                    cur = cur.checked_add(len as GuestAddressValue).unwrap();
                 }
-            } else {
-                // no region for address found
-                break;
+                // error happened
+                e => return e,
             }
         }
         if total == 0 {
