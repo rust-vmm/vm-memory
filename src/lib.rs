@@ -25,8 +25,8 @@ use std::result::Result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 
 #[macro_use]
-mod address_space;
-pub use address_space::*;
+mod address;
+pub use address::*;
 
 pub mod endian;
 pub use endian::*;

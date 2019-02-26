@@ -17,10 +17,11 @@
 //! - map a request address to a GuestMemoryRegion object and relay the request to it.
 //! - handle cases where an access request spanning two or more GuestMemoryRegion objects.
 
-use address_space::{Address, AddressRegion, AddressSpace, AddressValue};
+use address::{Address, AddressValue};
 use std::fmt::{self, Display};
 use std::io;
 use std::ops::{BitAnd, BitOr};
+use Bytes;
 
 /// Errors associated with handling guest memory accesses.
 #[allow(missing_docs)]
@@ -82,26 +83,51 @@ pub type GuestAddressValue = <GuestAddress as AddressValue>::V;
 pub type GuestAddressOffset = <GuestAddress as AddressValue>::V;
 
 /// Represents a continuous region of guest physical memory.
-pub trait GuestMemoryRegion: AddressRegion<A = GuestAddress, E = Error> {}
+pub trait GuestMemoryRegion: Bytes<GuestAddress, E = Error> {}
 
 /// Represents a collection of GuestMemoryRegion objects.
+///
+/// Container for a set of GuestMemoryRegion objects and methods to access those objects.
 ///
 /// The main responsibilities of the GuestMemory trait are:
 /// - hide the detail of accessing guest's physical address.
 /// - map a request address to a GuestMemoryRegion object and relay the request to it.
 /// - handle cases where an access request spanning two or more GuestMemoryRegion objects.
-pub trait GuestMemory: AddressSpace<GuestAddress, Error> {
+///
+/// Note: all regions in a GuestMemory object must not intersect with each other.
+pub trait GuestMemory {
+    /// Type of objects hosted by the address space.
+    type R: Bytes<GuestAddress, E = Error>;
+
+    /// Returns the number of regions in the collection.
+    fn num_regions(&self) -> usize;
+
+    /// Return the region containing the specified address or None.
+    fn find_region(&self, GuestAddress) -> Option<&Self::R>;
+
+    /// Perform the specified action on each region.
+    /// It only walks children of current region and do not step into sub regions.
+    fn with_regions<F>(&self, cb: F) -> Result<(), Error>
+    where
+        F: Fn(usize, &Self::R) -> Result<(), Error>;
+
+    /// Perform the specified action on each region mutably.
+    /// It only walks children of current region and do not step into sub regions.
+    fn with_regions_mut<F>(&self, cb: F) -> Result<(), Error>
+    where
+        F: FnMut(usize, &Self::R) -> Result<(), Error>;
+
     /// Invoke callback `f` to handle data in the address range [addr, addr + count).
     ///
-    /// The address range [addr, addr + count) may span more than one AddressRegion objects, or
-    /// even has holes within it. So try_access() invokes the callback 'f' for each AddressRegion
+    /// The address range [addr, addr + count) may span more than one GuestMemoryRegion objects, or
+    /// even has holes within it. So try_access() invokes the callback 'f' for each GuestMemoryRegion
     /// object involved and returns:
     /// - error code returned by the callback 'f'
     /// - size of data already handled when encountering the first hole
     /// - size of data already handled when the whole range has been handled
     fn try_access<F>(&self, count: usize, addr: GuestAddress, mut f: F) -> Result<usize, Error>
     where
-        F: FnMut(GuestAddressOffset, usize, GuestAddress, &Self::T) -> Result<usize, Error>,
+        F: FnMut(GuestAddressOffset, usize, GuestAddress, &Self::R) -> Result<usize, Error>,
     {
         let mut cur = addr;
         let mut total = 0;
