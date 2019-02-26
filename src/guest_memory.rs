@@ -8,20 +8,30 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-//! Traits to track and access memory regions that are mapped to a virtual machine.
+//! Traits to track and access guest's physical memory.
 //!
-//! The GuestMemoryRegion trait is used to represent a continuous region of guest's physical memory.
-//! And the GuestMemory trait is used to represent a collection of GuestMemoryRegion objects.
-//! The main responsibilities of the GuestMemory trait are:
-//! - hide the detail of accessing guest's physical address.
-//! - map a request address to a GuestMemoryRegion object and relay the request to it.
-//! - handle cases where an access request spanning two or more GuestMemoryRegion objects.
+//! To make the abstraction as generic as possible, all the core traits defined here only
+//! define methods to access the address space are defined here, and they never define
+//! methods to manage (create, delete, insert, remove etc) address spaces. By this way,
+//! the address space consumers (virtio device drivers, vhost drivers and boot loaders
+//! etc) may be decoupled from the address space provider (typically a hypervisor).
+//!
+//! Traits and Structs
+//! - GuestAddress: represents a guest physical address (GPA).
+//! - GuestMemoryRegion: represent a continuous region of guest's physical memory.
+//! - GuestMemory:  represent a collection of GuestMemoryRegion objects. The main responsibilities
+//!   of the GuestMemory trait are:
+//!     - hide the detail of accessing guest's physical address.
+//!     - map a request address to a GuestMemoryRegion object and relay the request to it.
+//!     - handle cases where an access request spanning two or more GuestMemoryRegion objects.
 
-use address::{Address, AddressValue};
+use std::convert::From;
 use std::fmt::{self, Display};
 use std::io;
 use std::ops::{BitAnd, BitOr};
-use Bytes;
+
+use super::{Address, AddressValue, Bytes};
+use volatile_memory;
 
 /// Errors associated with handling guest memory accesses.
 #[allow(missing_docs)]
@@ -40,6 +50,23 @@ pub enum Error {
     InvalidBackendAddress,
     /// Requested offset is out of range.
     InvalidBackendOffset,
+}
+
+impl From<volatile_memory::Error> for Error {
+    fn from(e: volatile_memory::Error) -> Self {
+        match e {
+            volatile_memory::Error::OutOfBounds { .. } => Error::InvalidBackendAddress,
+            volatile_memory::Error::Overflow { .. } => Error::InvalidBackendAddress,
+            volatile_memory::Error::IOError(e) => Error::IOError(e),
+            volatile_memory::Error::PartialBuffer {
+                expected,
+                completed,
+            } => Error::PartialBuffer {
+                expected: expected as u64,
+                completed: completed as u64,
+            },
+        }
+    }
 }
 
 /// Result of guest memory operations
@@ -88,9 +115,7 @@ pub type GuestAddressOffset = <GuestAddress as AddressValue>::V;
 /// Represents a continuous region of guest physical memory.
 pub trait GuestMemoryRegion: Bytes<GuestAddress, E = Error> {}
 
-/// Represents a collection of GuestMemoryRegion objects.
-///
-/// Container for a set of GuestMemoryRegion objects and methods to access those objects.
+/// Represents a container for a collection of GuestMemoryRegion objects.
 ///
 /// The main responsibilities of the GuestMemory trait are:
 /// - hide the detail of accessing guest's physical address.
