@@ -26,6 +26,7 @@ use std::sync::Arc;
 use address_space::{Address, AddressRegion, AddressSpace, AddressValue};
 use guest_memory::*;
 use volatile_memory::*;
+use Bytes;
 use DataInit;
 
 type MmapAddressValue = <MmapAddress as AddressValue>::V;
@@ -168,6 +169,10 @@ impl AddressRegion for MmapRegion {
     fn is_valid(&self) -> bool {
         !self.addr.is_null() && self.addr != libc::MAP_FAILED as *mut u8
     }
+}
+
+impl Bytes<MmapAddress> for MmapRegion {
+    type E = Error;
 
     /// Writes a slice to the region at the specified address.
     /// Returns the number of bytes written. The number of bytes written can
@@ -178,7 +183,7 @@ impl AddressRegion for MmapRegion {
     /// * Write a slice at offset 256.
     ///
     /// ```
-    /// #   use vm_memory::{AddressRegion, MmapAddress, MmapRegion};
+    /// #   use vm_memory::{AddressRegion, Bytes, MmapAddress, MmapRegion};
     /// #   let mut mem_map = MmapRegion::new(1024).unwrap();
     ///     let res = mem_map.write(&[1,2,3,4,5], MmapAddress(1020));
     ///     assert!(res.is_ok());
@@ -205,7 +210,7 @@ impl AddressRegion for MmapRegion {
     /// * Read a slice of size 16 at offset 256.
     ///
     /// ```
-    /// #   use vm_memory::{AddressRegion, MmapAddress, MmapRegion};
+    /// #   use vm_memory::{AddressRegion, Bytes, MmapAddress, MmapRegion};
     /// #   let mut mem_map = MmapRegion::new(1024).unwrap();
     ///     let buf = &mut [0u8; 16];
     ///     let res = mem_map.read(buf, MmapAddress(1010));
@@ -231,7 +236,7 @@ impl AddressRegion for MmapRegion {
     /// * Write a slice at offset 256.
     ///
     /// ```
-    /// #   use vm_memory::{AddressRegion, MmapAddress, MmapRegion};
+    /// #   use vm_memory::{AddressRegion, Bytes, MmapAddress, MmapRegion};
     /// #   let mut mem_map = MmapRegion::new(1024).unwrap();
     ///     let res = mem_map.write_slice(&[1,2,3,4,5], MmapAddress(256));
     ///     assert!(res.is_ok());
@@ -254,7 +259,7 @@ impl AddressRegion for MmapRegion {
     /// * Read a slice of size 16 at offset 256.
     ///
     /// ```
-    /// #   use vm_memory::{AddressRegion, MmapAddress, MmapRegion};
+    /// #   use vm_memory::{AddressRegion, Bytes, MmapAddress, MmapRegion};
     /// #   let mut mem_map = MmapRegion::new(1024).unwrap();
     ///     let buf = &mut [0u8; 16];
     ///     let res = mem_map.read_slice(buf, MmapAddress(256));
@@ -279,7 +284,7 @@ impl AddressRegion for MmapRegion {
     /// * Write a u64 at offset 16.
     ///
     /// ```
-    /// #   use vm_memory::{AddressRegion, MmapAddress, MmapRegion};
+    /// #   use vm_memory::{Bytes, MmapAddress, MmapRegion};
     /// #   let mut mem_map = MmapRegion::new(1024).unwrap();
     ///     let res = mem_map.write_obj(55u64, MmapAddress(16));
     ///     assert!(res.is_ok());
@@ -307,7 +312,7 @@ impl AddressRegion for MmapRegion {
     /// * Read a u64 written to offset 32.
     ///
     /// ```
-    /// #   use vm_memory::{AddressRegion, MmapAddress, MmapRegion};
+    /// #   use vm_memory::{Bytes, MmapAddress, MmapRegion};
     /// #   let mut mem_map = MmapRegion::new(1024).unwrap();
     ///     let res = mem_map.write_obj(55u64, MmapAddress(32));
     ///     assert!(res.is_ok());
@@ -332,7 +337,7 @@ impl AddressRegion for MmapRegion {
     /// * Read bytes from /dev/urandom
     ///
     /// ```
-    /// # use vm_memory::{AddressRegion, MmapAddress, MmapRegion};
+    /// # use vm_memory::{Bytes, MmapAddress, MmapRegion};
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # fn test_read_random() -> Result<u32, ()> {
@@ -365,7 +370,7 @@ impl AddressRegion for MmapRegion {
     /// * Write 128 bytes to /dev/null
     ///
     /// ```
-    /// # use vm_memory::{AddressRegion, MmapAddress, MmapRegion};
+    /// # use vm_memory::{Bytes, MmapAddress, MmapRegion};
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # fn test_write_null() -> Result<(), ()> {
@@ -467,6 +472,10 @@ impl AddressRegion for GuestRegionMmap {
         self.guest_base
             .unchecked_add(self.mapping.size() as GuestAddressValue)
     }
+}
+
+impl Bytes<GuestAddress> for GuestRegionMmap {
+    type E = Error;
 
     fn write(&self, buf: &[u8], addr: GuestAddress) -> Result<usize> {
         let maddr = self.to_mmap_addr(addr)?;
@@ -543,7 +552,7 @@ impl GuestMemoryMmap {
                 }
             }
 
-            let mapping = MmapRegion::new(range.1).map_err(|e| { MmapError::SystemCallFailed(e) })?;
+            let mapping = MmapRegion::new(range.1).map_err(MmapError::SystemCallFailed)?;
             regions.push(GuestRegionMmap {
                 mapping,
                 guest_base: range.0,
@@ -605,12 +614,16 @@ impl AddressRegion for GuestMemoryMmap {
         }
         false
     }
+}
+
+impl Bytes<GuestAddress> for GuestMemoryMmap {
+    type E = Error;
 
     /// # Examples
     /// * Write a slice at guestaddress 0x200.
     ///
     /// ```
-    /// # use vm_memory::{AddressRegion, GuestAddress, GuestMemoryMmap};
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// # fn test_write_u64() -> Result<(), ()> {
     /// #   let start_addr = GuestAddress(0x1000);
     /// #   let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
@@ -636,7 +649,7 @@ impl AddressRegion for GuestMemoryMmap {
     /// * Read a slice of length 16 at guestaddress 0x200.
     ///
     /// ```
-    /// # use vm_memory::{AddressRegion, GuestAddress, GuestMemoryMmap};
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// # fn test_write_u64() -> Result<(), ()> {
     /// #   let start_addr = GuestAddress(0x1000);
     /// #   let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
@@ -700,7 +713,7 @@ impl AddressRegion for GuestMemoryMmap {
     }
 
     /// ```
-    /// # use vm_memory::{AddressRegion, GuestAddress, GuestMemoryMmap};
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// # fn test_write_u64() -> Result<(), ()> {
     /// #   let start_addr = GuestAddress(0x1000);
     /// #   let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
@@ -723,7 +736,7 @@ impl AddressRegion for GuestMemoryMmap {
     /// * Read a u64 from two areas of guest memory backed by separate mappings.
     ///
     /// ```
-    /// # use vm_memory::{AddressRegion, GuestAddress, GuestMemoryMmap};
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// # fn test_read_u64() -> Result<u64, ()> {
     /// #     let start_addr1 = GuestAddress(0x0);
     /// #     let start_addr2 = GuestAddress(0x400);
@@ -748,7 +761,7 @@ impl AddressRegion for GuestMemoryMmap {
     /// * Read bytes from /dev/urandom
     ///
     /// ```
-    /// # use vm_memory::{Address, AddressRegion, GuestAddress, GuestMemoryMmap};
+    /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # fn test_read_random() -> Result<u32, ()> {
@@ -796,13 +809,14 @@ impl AddressRegion for GuestMemoryMmap {
     /// * Write 128 bytes to /dev/null
     ///
     /// ```
-    /// # use vm_memory::{AddressRegion, MmapAddress, MmapRegion};
+    /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # fn test_write_null() -> Result<(), ()> {
-    /// #     let mut mem_map = MmapRegion::new(1024).unwrap();
+    /// #     let start_addr = GuestAddress(0x1000);
+    /// #     let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
     ///       let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
-    ///       mem_map.read_into_stream(MmapAddress(32), &mut file, 128).map_err(|_| ())?;
+    ///       gm.read_into_stream(start_addr, &mut file, 128).map_err(|_| ())?;
     /// #     Ok(())
     /// # }
     /// ```
@@ -886,6 +900,8 @@ mod tests {
     use std::mem;
     use std::os::unix::io::FromRawFd;
     use std::path::Path;
+
+    use Bytes;
 
     #[test]
     fn basic_map() {

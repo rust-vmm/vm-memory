@@ -29,9 +29,7 @@
 //! space provider (typically a hypervisor).
 
 use std::cmp::{Eq, Ord, PartialEq, PartialOrd};
-use std::io::{Read, Write};
 use std::ops::{Add, BitAnd, BitOr, Sub};
-use DataInit;
 
 /// Simple helper trait to store a raw address value.
 pub trait AddressValue {
@@ -221,59 +219,6 @@ pub trait AddressRegion {
         }
         None
     }
-
-    /// Writes a slice to the region at the specified address.
-    /// Returns the number of bytes written. The number of bytes written can
-    /// be less than the length of the slice if there isn't enough room in the
-    /// region.
-    fn write(&self, buf: &[u8], addr: Self::A) -> Result<usize, Self::E>;
-
-    /// Reads to a slice from the region at the specified address.
-    /// Returns the number of bytes read. The number of bytes read can be less than the length
-    /// of the slice if there isn't enough room in the region.
-    fn read(&self, buf: &mut [u8], addr: Self::A) -> Result<usize, Self::E>;
-
-    /// Writes the entire contents of a slice to the region at the specified address.
-    ///
-    /// Returns an error if there isn't enough room in the region to complete the entire write.
-    /// Part of the data may have been written nevertheless.
-    fn write_slice(&self, buf: &[u8], addr: Self::A) -> Result<(), Self::E>;
-
-    /// Reads from the regionbat the specified address to fill the entire buffer.
-    ///
-    /// Returns an error if there isn't enough room in the region to fill the entire buffer.
-    /// Part of the buffer may have been filled nevertheless.
-    fn read_slice(&self, buf: &mut [u8], addr: Self::A) -> Result<(), Self::E>;
-
-    /// Writes an object to the region at the specified address.
-    /// Returns Ok(()) if the object fits, or Err if it extends past the end.
-    fn write_obj<T: DataInit>(&self, val: T, addr: Self::A) -> Result<(), Self::E>;
-
-    /// Reads an object from the region at the given address.
-    /// Reading from a volatile area isn't strictly safe as it could change mid-read.
-    /// However, as long as the type T is plain old data and can handle random initialization,
-    /// everything will be OK.
-    fn read_obj<T: DataInit>(&self, addr: Self::A) -> Result<T, Self::E>;
-
-    /// Writes data from a readable object like a File and writes it to the region.
-    ///
-    /// # Arguments
-    /// * `addr` - Begin writing at this address.
-    /// * `src` - Read from `src` to the region.
-    /// * `count` - Read `count` bytes from `src` to the region.
-    fn write_from_stream<F>(&self, addr: Self::A, src: &mut F, count: usize) -> Result<(), Self::E>
-    where
-        F: Read;
-
-    /// Reads data from the region to a writable object.
-    ///
-    /// # Arguments
-    /// * `addr` - Begin reading from this addr.
-    /// * `dst` - Write from the region to `dst`.
-    /// * `count` - Read `count` bytes from the region to `dst`.
-    fn read_into_stream<F>(&self, addr: Self::A, dst: &mut F, count: usize) -> Result<(), Self::E>
-    where
-        F: Write;
 }
 
 /// Container for a set of AddressRegion objects and methods to access those objects.
