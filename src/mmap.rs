@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use address::Address;
 use guest_memory::*;
-use volatile_memory::{self, calc_offset, VolatileMemory, VolatileSlice};
+use volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
 use Bytes;
 
 /// A backend driver to access guest's physical memory by mmapping guest's memory into current
@@ -137,7 +137,7 @@ impl VolatileMemory for MmapRegion {
     }
 
     fn get_slice(&self, offset: usize, count: usize) -> volatile_memory::Result<VolatileSlice> {
-        let end = calc_offset(offset, count)?;
+        let end = compute_offset(offset, count)?;
         if end > self.size {
             return Err(volatile_memory::Error::OutOfBounds { addr: end });
         }
