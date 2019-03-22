@@ -244,22 +244,43 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
     ///   let mut file = File::open(Path::new("/dev/urandom")).unwrap();
     ///   let addr = GuestAddress(0x1010);
-    ///   gm.write_from_stream(addr, &mut file, 128).unwrap();
+    ///   gm.read_from(addr, &mut file, 128).unwrap();
     ///   let read_addr = addr.checked_add(8).unwrap();
     ///   let _: u32 = gm.read_obj(read_addr).unwrap();
     /// ```
-    fn write_from_stream<F>(
-        &self,
-        addr: MemoryRegionAddress,
-        src: &mut F,
-        count: usize,
-    ) -> Result<()>
+    fn read_from<F>(&self, addr: MemoryRegionAddress, src: &mut F, count: usize) -> Result<usize>
     where
         F: Read,
     {
         let maddr = addr.raw_value() as usize;
         self.as_volatile_slice()
-            .write_from_stream::<F>(maddr, src, count)
+            .read_from::<F>(maddr, src, count)
+            .map_err(Into::into)
+    }
+
+    /// # Examples
+    ///
+    /// * Read bytes from /dev/urandom
+    ///
+    /// ```
+    /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+    /// # use std::fs::File;
+    /// # use std::path::Path;
+    /// # let start_addr = GuestAddress(0x1000);
+    /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    ///   let mut file = File::open(Path::new("/dev/urandom")).unwrap();
+    ///   let addr = GuestAddress(0x1010);
+    ///   gm.read_exact_from(addr, &mut file, 128).unwrap();
+    ///   let read_addr = addr.checked_add(8).unwrap();
+    ///   let _: u32 = gm.read_obj(read_addr).unwrap();
+    /// ```
+    fn read_exact_from<F>(&self, addr: MemoryRegionAddress, src: &mut F, count: usize) -> Result<()>
+    where
+        F: Read,
+    {
+        let maddr = addr.raw_value() as usize;
+        self.as_volatile_slice()
+            .read_exact_from::<F>(maddr, src, count)
             .map_err(Into::into)
     }
 
@@ -276,20 +297,40 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
     ///   let mut file = OpenOptions::new().write(true).open("/dev/null").unwrap();
     ///   let mut mem = [0u8; 1024];
-    ///   gm.read_into_stream(start_addr, &mut file, 128).unwrap();
+    ///   gm.write_to(start_addr, &mut file, 128).unwrap();
     /// ```
-    fn read_into_stream<F>(
-        &self,
-        addr: MemoryRegionAddress,
-        dst: &mut F,
-        count: usize,
-    ) -> Result<()>
+    fn write_to<F>(&self, addr: MemoryRegionAddress, dst: &mut F, count: usize) -> Result<usize>
     where
         F: Write,
     {
         let maddr = addr.raw_value() as usize;
         self.as_volatile_slice()
-            .read_into_stream::<F>(maddr, dst, count)
+            .write_to::<F>(maddr, dst, count)
+            .map_err(Into::into)
+    }
+
+    /// Reads data from the region to a writable object.
+    ///
+    /// # Examples
+    ///
+    /// * Write 128 bytes to /dev/null
+    ///
+    /// ```
+    /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+    /// # use std::fs::OpenOptions;
+    /// # let start_addr = GuestAddress(0x1000);
+    /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    ///   let mut file = OpenOptions::new().write(true).open("/dev/null").unwrap();
+    ///   let mut mem = [0u8; 1024];
+    ///   gm.write_all_to(start_addr, &mut file, 128).unwrap();
+    /// ```
+    fn write_all_to<F>(&self, addr: MemoryRegionAddress, dst: &mut F, count: usize) -> Result<()>
+    where
+        F: Write,
+    {
+        let maddr = addr.raw_value() as usize;
+        self.as_volatile_slice()
+            .write_all_to::<F>(maddr, dst, count)
             .map_err(Into::into)
     }
 }
@@ -528,7 +569,7 @@ mod tests {
         let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0x1000), 0x400)]).unwrap();
         let addr = GuestAddress(0x1010);
         gm.write_obj(!0u32, addr).unwrap();
-        gm.write_from_stream(
+        gm.read_exact_from(
             addr,
             &mut File::open(Path::new("/dev/zero")).unwrap(),
             mem::size_of::<u32>(),
@@ -538,7 +579,7 @@ mod tests {
         assert_eq!(value, 0);
 
         let mut sink = Vec::new();
-        gm.read_into_stream(addr, &mut sink, mem::size_of::<u32>())
+        gm.write_all_to(addr, &mut sink, mem::size_of::<u32>())
             .unwrap();
         assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
     }

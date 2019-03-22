@@ -316,132 +316,6 @@ impl<'a> VolatileSlice<'a> {
         }
     }
 
-    /// Attempt to write all data from memory to a writable object and returns how many bytes were
-    /// actually written on success.
-    ///
-    /// # Arguments
-    /// * `w` - Write from memory to `w`.
-    ///
-    /// # Examples
-    ///
-    /// * Write some bytes to /dev/null
-    ///
-    /// ```
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// # use vm_memory::VolatileMemory;
-    /// # fn test_write_null() -> Result<(), ()> {
-    /// #     let mut mem = [0u8; 32];
-    /// #     let mem_ref = &mut mem[..];
-    /// #     let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
-    ///       let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
-    ///       vslice.write_to(&mut file).map_err(|_| ())?;
-    /// #     Ok(())
-    /// # }
-    /// ```
-    pub fn write_to<T: Write>(&self, w: &mut T) -> io::Result<usize> {
-        // Safe because the pointers are range-checked when the slices
-        // are created, and they never escape the VolatileSlices.
-        // FIXME: Is it really okay to mix non-volatile operations such
-        // as write with read_volatile and write_volatile, since we don't
-        // know how this Write will read from the slice?
-        w.write(unsafe { self.as_slice() })
-    }
-
-    /// Writes all data from memory to a writable object via `Write::write_all`.
-    ///
-    /// # Arguments
-    /// * `w` - Write from memory to `w`.
-    ///
-    /// # Examples
-    ///
-    /// * Write some bytes to /dev/null
-    ///
-    /// ```
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// # use vm_memory::VolatileMemory;
-    /// # fn test_write_null() -> Result<(), ()> {
-    /// #     let mut mem = [0u8; 32];
-    /// #     let mem_ref = &mut mem[..];
-    /// #     let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
-    ///       let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
-    ///       vslice.write_all_to(&mut file).map_err(|_| ())?;
-    /// #     Ok(())
-    /// # }
-    /// ```
-    pub fn write_all_to<T: Write>(&self, w: &mut T) -> io::Result<()> {
-        // Safe because the pointers are range-checked when the slices
-        // are created, and they never escape the VolatileSlices.
-        // FIXME: Is it really okay to mix non-volatile operations such
-        // as write_all with read_volatile and write_volatile, since we don't
-        // know how this Write will read from the slice?
-        w.write_all(unsafe { self.as_slice() })
-    }
-
-    /// Reads up to this slice's size to memory from a readable object and returns how many bytes
-    /// were actually read on success.
-    ///
-    /// # Arguments
-    /// * `r` - Read from `r` to memory.
-    ///
-    /// # Examples
-    ///
-    /// * Read some bytes from /dev/zero
-    ///
-    /// ```
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// # use vm_memory::VolatileMemory;
-    /// # fn test_read_zero() -> Result<(), ()> {
-    /// #     let mut mem = [0u8; 32];
-    /// #     let mem_ref = &mut mem[..];
-    /// #     let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
-    ///       let mut file = File::open(Path::new("/dev/zero")).map_err(|_| ())?;
-    ///       vslice.read_from(&mut file).map_err(|_| ())?;
-    /// #     Ok(())
-    /// # }
-    /// ```
-    pub fn read_from<T: Read>(&self, r: &mut T) -> io::Result<usize> {
-        // Safe because the pointers are range-checked when the slices
-        // are created, and they never escape the VolatileSlices.
-        // FIXME: Is it really okay to mix non-volatile operations such
-        // as read with read_volatile and write_volatile, since we don't
-        // know how this Read will read from the slice?
-        r.read(unsafe { self.as_mut_slice() })
-    }
-
-    /// Read exactly this slice's size into memory from to a readable object via `Read::read_exact`.
-    ///
-    /// # Arguments
-    /// * `r` - Read to `r` to memory.
-    ///
-    /// # Examples
-    ///
-    /// * Read some bytes to /dev/zero
-    ///
-    /// ```
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// # use vm_memory::VolatileMemory;
-    /// # fn test_read_zero() -> Result<(), ()> {
-    /// #     let mut mem = [0u8; 32];
-    /// #     let mem_ref = &mut mem[..];
-    /// #     let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
-    ///       let mut file = File::open(Path::new("/dev/zero")).map_err(|_| ())?;
-    ///       vslice.read_exact_from(&mut file).map_err(|_| ())?;
-    /// #     Ok(())
-    /// # }
-    /// ```
-    pub fn read_exact_from<T: Read>(&self, r: &mut T) -> io::Result<()> {
-        // Safe because the pointers are range-checked when the slices
-        // are created, and they never escape the VolatileSlices.
-        // FIXME: Is it really okay to mix non-volatile operations such
-        // as read_exact with read_volatile and write_volatile, since we don't
-        // know how this Read will read from the slice?
-        r.read_exact(unsafe { self.as_mut_slice() })
-    }
-
     // These function are private and only used for the read/write functions. It is not valid in
     // general to take slices of volatile memory.
     unsafe fn as_slice(&self) -> &[u8] {
@@ -584,12 +458,46 @@ impl<'a> Bytes<usize> for VolatileSlice<'a> {
     /// #     let mut mem_ref = &mut mem[..];
     /// #     let vslice = mem_ref.as_volatile_slice();
     ///       let mut file = File::open(Path::new("/dev/urandom")).map_err(|_| ())?;
-    ///       vslice.write_from_stream(32, &mut file, 128).map_err(|_| ())?;
+    ///       vslice.read_from(32, &mut file, 128).map_err(|_| ())?;
     ///       let rand_val: u32 = vslice.read_obj(40).map_err(|_| ())?;
     /// #     Ok(rand_val)
     /// # }
     /// ```
-    fn write_from_stream<F>(&self, addr: usize, src: &mut F, count: usize) -> Result<()>
+    fn read_from<F>(&self, addr: usize, src: &mut F, count: usize) -> Result<usize>
+    where
+        F: Read,
+    {
+        let end = self.compute_end_offset(addr, count)?;
+        unsafe {
+            // It is safe to overwrite the volatile memory. Accessing the guest
+            // memory as a mutable slice is OK because nothing assumes another
+            // thread won't change what is loaded.
+            let dst = &mut self.as_mut_slice()[addr..end];
+            src.read(dst).map_err(Error::IOError)
+        }
+    }
+
+    /// Writes data from a readable object like a File and writes it to the region.
+    ///
+    /// # Examples
+    ///
+    /// * Read bytes from /dev/urandom
+    ///
+    /// ```
+    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// # use std::fs::File;
+    /// # use std::path::Path;
+    /// # fn test_read_random() -> Result<u32, ()> {
+    /// #     let mut mem = [0u8; 1024];
+    /// #     let mut mem_ref = &mut mem[..];
+    /// #     let vslice = mem_ref.as_volatile_slice();
+    ///       let mut file = File::open(Path::new("/dev/urandom")).map_err(|_| ())?;
+    ///       vslice.read_exact_from(32, &mut file, 128).map_err(|_| ())?;
+    ///       let rand_val: u32 = vslice.read_obj(40).map_err(|_| ())?;
+    /// #     Ok(rand_val)
+    /// # }
+    /// ```
+    fn read_exact_from<F>(&self, addr: usize, src: &mut F, count: usize) -> Result<()>
     where
         F: Read,
     {
@@ -619,11 +527,44 @@ impl<'a> Bytes<usize> for VolatileSlice<'a> {
     /// #     let mut mem_ref = &mut mem[..];
     /// #     let vslice = mem_ref.as_volatile_slice();
     ///       let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
-    ///       vslice.read_into_stream(32, &mut file, 128).map_err(|_| ())?;
+    ///       vslice.write_to(32, &mut file, 128).map_err(|_| ())?;
     /// #     Ok(())
     /// # }
     /// ```
-    fn read_into_stream<F>(&self, addr: usize, dst: &mut F, count: usize) -> Result<()>
+    fn write_to<F>(&self, addr: usize, dst: &mut F, count: usize) -> Result<usize>
+    where
+        F: Write,
+    {
+        let end = self.compute_end_offset(addr, count)?;
+        unsafe {
+            // It is safe to read from volatile memory. Accessing the guest
+            // memory as a slice is OK because nothing assumes another thread
+            // won't change what is loaded.
+            let src = &self.as_mut_slice()[addr..end];
+            dst.write(src).map_err(Error::IOError)
+        }
+    }
+
+    /// Reads data from the region to a writable object.
+    ///
+    /// # Examples
+    ///
+    /// * Write 128 bytes to /dev/null
+    ///
+    /// ```
+    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// # use std::fs::File;
+    /// # use std::path::Path;
+    /// # fn test_write_null() -> Result<(), ()> {
+    /// #     let mut mem = [0u8; 1024];
+    /// #     let mut mem_ref = &mut mem[..];
+    /// #     let vslice = mem_ref.as_volatile_slice();
+    ///       let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
+    ///       vslice.write_all_to(32, &mut file, 128).map_err(|_| ())?;
+    /// #     Ok(())
+    /// # }
+    /// ```
+    fn write_all_to<F>(&self, addr: usize, dst: &mut F, count: usize) -> Result<()>
     where
         F: Write,
     {
@@ -972,26 +913,26 @@ mod tests {
         let s = a.as_volatile_slice();
         assert!(s.write_obj(!0u32, 1).is_ok());
         let mut file = File::open(Path::new("/dev/zero")).unwrap();
-        assert!(s.write_from_stream(2, &mut file, size_of::<u32>()).is_err());
+        assert!(s.read_exact_from(2, &mut file, size_of::<u32>()).is_err());
         assert!(s
-            .write_from_stream(core::usize::MAX, &mut file, size_of::<u32>())
+            .read_exact_from(core::usize::MAX, &mut file, size_of::<u32>())
             .is_err());
 
-        assert!(s.write_from_stream(1, &mut file, size_of::<u32>()).is_ok());
+        assert!(s.read_exact_from(1, &mut file, size_of::<u32>()).is_ok());
 
         let mut f = tempfile().unwrap();
-        assert!(s.write_from_stream(1, &mut f, size_of::<u32>()).is_err());
-        format!("{:?}", s.write_from_stream(1, &mut f, size_of::<u32>()));
+        assert!(s.read_exact_from(1, &mut f, size_of::<u32>()).is_err());
+        format!("{:?}", s.read_exact_from(1, &mut f, size_of::<u32>()));
 
         assert_eq!(s.read_obj::<u32>(1).unwrap(), 0);
 
         let mut sink = Vec::new();
-        assert!(s.read_into_stream(1, &mut sink, size_of::<u32>()).is_ok());
-        assert!(s.read_into_stream(2, &mut sink, size_of::<u32>()).is_err());
+        assert!(s.write_all_to(1, &mut sink, size_of::<u32>()).is_ok());
+        assert!(s.write_all_to(2, &mut sink, size_of::<u32>()).is_err());
         assert!(s
-            .read_into_stream(core::usize::MAX, &mut sink, size_of::<u32>())
+            .write_all_to(core::usize::MAX, &mut sink, size_of::<u32>())
             .is_err());
-        format!("{:?}", s.read_into_stream(2, &mut sink, size_of::<u32>()));
+        format!("{:?}", s.write_all_to(2, &mut sink, size_of::<u32>()));
         assert_eq!(sink, vec![0; size_of::<u32>()]);
     }
 }
