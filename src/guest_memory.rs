@@ -31,7 +31,8 @@ use std::fmt::{self, Display};
 use std::io::{self, Read, Write};
 use std::ops::{BitAnd, BitOr};
 
-use super::{Address, AddressValue, Bytes};
+use address::{Address, AddressValue};
+use data_init::Bytes;
 use volatile_memory;
 
 static MAX_ACCESS_CHUNK: usize = 4096;
