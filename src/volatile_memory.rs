@@ -81,14 +81,14 @@ pub type Result<T> = result::Result<T, Error>;
 /// ```
 /// # use vm_memory::volatile_memory::*;
 /// # fn get_slice(offset: usize, count: usize) -> Result<()> {
-///   let mem_end = calc_offset(offset, count)?;
+///   let mem_end = compute_offset(offset, count)?;
 ///   if mem_end > 100 {
 ///       return Err(Error::OutOfBounds{addr: mem_end});
 ///   }
 /// # Ok(())
 /// # }
 /// ```
-pub fn calc_offset(base: usize, offset: usize) -> Result<usize> {
+pub fn compute_offset(base: usize, offset: usize) -> Result<usize> {
     match base.checked_add(offset) {
         None => Err(Error::Overflow { base, offset }),
         Some(m) => Ok(m),
@@ -117,15 +117,18 @@ pub trait VolatileMemory {
     /// Gets a `VolatileRef` at `offset`.
     fn get_ref<T: DataInit>(&self, offset: usize) -> Result<VolatileRef<T>> {
         let slice = self.get_slice(offset, size_of::<T>())?;
-        Ok(VolatileRef {
-            addr: slice.addr as *mut T,
-            phantom: PhantomData,
-        })
+        unsafe {
+            // This is safe because the pointer is range-checked by get_slice, and
+            // the lifetime is the same as self.
+            //
+            // FIXME: should we check that offset is properly aligned?
+            Ok(VolatileRef::new(slice.addr as *mut T))
+        }
     }
 
     /// Check that addr + count is valid and return the sum.
-    fn region_end(&self, base: usize, offset: usize) -> Result<usize> {
-        let mem_end = calc_offset(base, offset)?;
+    fn compute_end_offset(&self, base: usize, offset: usize) -> Result<usize> {
+        let mem_end = compute_offset(base, offset)?;
         if mem_end > self.len() {
             return Err(Error::OutOfBounds { addr: mem_end });
         }
@@ -139,8 +142,15 @@ impl<'a> VolatileMemory for &'a mut [u8] {
     }
 
     fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice> {
-        let _ = self.region_end(offset, count)?;
-        Ok(unsafe { VolatileSlice::new((self.as_ptr() as usize + offset) as *mut _, count) })
+        let _ = self.compute_end_offset(offset, count)?;
+        unsafe {
+            // This is safe because the pointer is range-checked by compute_end_offset, and
+            // the lifetime is the same as the original slice.
+            Ok(VolatileSlice::new(
+                (self.as_ptr() as usize + offset) as *mut _,
+                count,
+            ))
+        }
     }
 }
 
@@ -195,9 +205,11 @@ impl<'a> VolatileSlice<'a> {
             .size
             .checked_sub(count)
             .ok_or(Error::OutOfBounds { addr: new_addr })?;
-        // Safe because the memory has the same lifetime and points to a subset of the memory of the
-        // original slice.
-        unsafe { Ok(VolatileSlice::new(new_addr as *mut u8, new_size)) }
+        unsafe {
+            // Safe because the memory has the same lifetime and points to a subset of the
+            // memory of the original slice.
+            Ok(VolatileSlice::new(new_addr as *mut u8, new_size))
+        }
     }
 
     /// Copies `self.len()` or `buf.len()` times the size of `T` bytes, whichever is smaller, to
@@ -223,17 +235,21 @@ impl<'a> VolatileSlice<'a> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn copy_to<T>(&self, buf: &mut [T])
+    pub fn copy_to<T>(&self, buf: &mut [T]) -> usize
     where
         T: DataInit,
     {
         let mut addr = self.addr;
+        let mut i = 0;
         for v in buf.iter_mut().take(self.size / size_of::<T>()) {
             unsafe {
+                // FIXME: should we check that addr is correctly aligned?
                 *v = read_volatile(addr as *const T);
                 addr = addr.add(size_of::<T>());
-            }
+            };
+            i += 1;
         }
+        i
     }
 
     /// Copies `self.len()` or `slice.len()` bytes, whichever is smaller, to `slice`.
@@ -253,6 +269,10 @@ impl<'a> VolatileSlice<'a> {
     /// ```
     pub fn copy_to_volatile_slice(&self, slice: VolatileSlice) {
         unsafe {
+            // Safe because the pointers are range-checked when the slices
+            // are created, and they never escape the VolatileSlices.
+            // FIXME: ... however, is it really okay to mix non-volatile
+            // operations such as copy with read_volatile and write_volatile?
             copy(self.addr, slice.addr, min(self.size, slice.size));
         }
     }
@@ -287,6 +307,9 @@ impl<'a> VolatileSlice<'a> {
         let mut addr = self.addr;
         for &v in buf.iter().take(self.size / size_of::<T>()) {
             unsafe {
+                // Safe because the pointers are range-checked when the slices
+                // are created, and they never escape the VolatileSlices.
+                // FIXME: should we check that addr is correctly aligned?
                 write_volatile(addr as *mut T, v);
                 addr = addr.add(size_of::<T>());
             }
@@ -317,6 +340,11 @@ impl<'a> VolatileSlice<'a> {
     /// # }
     /// ```
     pub fn write_to<T: Write>(&self, w: &mut T) -> io::Result<usize> {
+        // Safe because the pointers are range-checked when the slices
+        // are created, and they never escape the VolatileSlices.
+        // FIXME: Is it really okay to mix non-volatile operations such
+        // as write with read_volatile and write_volatile, since we don't
+        // know how this Write will read from the slice?
         w.write(unsafe { self.as_slice() })
     }
 
@@ -343,6 +371,11 @@ impl<'a> VolatileSlice<'a> {
     /// # }
     /// ```
     pub fn write_all_to<T: Write>(&self, w: &mut T) -> io::Result<()> {
+        // Safe because the pointers are range-checked when the slices
+        // are created, and they never escape the VolatileSlices.
+        // FIXME: Is it really okay to mix non-volatile operations such
+        // as write_all with read_volatile and write_volatile, since we don't
+        // know how this Write will read from the slice?
         w.write_all(unsafe { self.as_slice() })
     }
 
@@ -350,26 +383,31 @@ impl<'a> VolatileSlice<'a> {
     /// were actually read on success.
     ///
     /// # Arguments
-    /// * `r` - Read to `r` to memory.
+    /// * `r` - Read from `r` to memory.
     ///
     /// # Examples
     ///
-    /// * Read some bytes to /dev/null
+    /// * Read some bytes from /dev/zero
     ///
     /// ```
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # use vm_memory::VolatileMemory;
-    /// # fn test_write_null() -> Result<(), ()> {
+    /// # fn test_read_zero() -> Result<(), ()> {
     /// #     let mut mem = [0u8; 32];
     /// #     let mem_ref = &mut mem[..];
     /// #     let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
-    ///       let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
+    ///       let mut file = File::open(Path::new("/dev/zero")).map_err(|_| ())?;
     ///       vslice.read_from(&mut file).map_err(|_| ())?;
     /// #     Ok(())
     /// # }
     /// ```
     pub fn read_from<T: Read>(&self, r: &mut T) -> io::Result<usize> {
+        // Safe because the pointers are range-checked when the slices
+        // are created, and they never escape the VolatileSlices.
+        // FIXME: Is it really okay to mix non-volatile operations such
+        // as read with read_volatile and write_volatile, since we don't
+        // know how this Read will read from the slice?
         r.read(unsafe { self.as_mut_slice() })
     }
 
@@ -380,22 +418,27 @@ impl<'a> VolatileSlice<'a> {
     ///
     /// # Examples
     ///
-    /// * Read some bytes to /dev/null
+    /// * Read some bytes to /dev/zero
     ///
     /// ```
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # use vm_memory::VolatileMemory;
-    /// # fn test_write_null() -> Result<(), ()> {
+    /// # fn test_read_zero() -> Result<(), ()> {
     /// #     let mut mem = [0u8; 32];
     /// #     let mem_ref = &mut mem[..];
     /// #     let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
-    ///       let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
-    ///       vslice.read_from(&mut file).map_err(|_| ())?;
+    ///       let mut file = File::open(Path::new("/dev/zero")).map_err(|_| ())?;
+    ///       vslice.read_exact_from(&mut file).map_err(|_| ())?;
     /// #     Ok(())
     /// # }
     /// ```
     pub fn read_exact_from<T: Read>(&self, r: &mut T) -> io::Result<()> {
+        // Safe because the pointers are range-checked when the slices
+        // are created, and they never escape the VolatileSlices.
+        // FIXME: Is it really okay to mix non-volatile operations such
+        // as read_exact with read_volatile and write_volatile, since we don't
+        // know how this Read will read from the slice?
         r.read_exact(unsafe { self.as_mut_slice() })
     }
 
@@ -550,7 +593,7 @@ impl<'a> Bytes<usize> for VolatileSlice<'a> {
     where
         F: Read,
     {
-        let end = self.region_end(addr, count)?;
+        let end = self.compute_end_offset(addr, count)?;
         unsafe {
             // It is safe to overwrite the volatile memory. Accessing the guest
             // memory as a mutable slice is OK because nothing assumes another
@@ -584,7 +627,7 @@ impl<'a> Bytes<usize> for VolatileSlice<'a> {
     where
         F: Write,
     {
-        let end = self.region_end(addr, count)?;
+        let end = self.compute_end_offset(addr, count)?;
         unsafe {
             // It is safe to read from volatile memory. Accessing the guest
             // memory as a slice is OK because nothing assumes another thread
@@ -602,11 +645,11 @@ impl<'a> VolatileMemory for VolatileSlice<'a> {
     }
 
     fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice> {
-        let _ = self.region_end(offset, count)?;
-        Ok(VolatileSlice {
-            addr: (self.addr as usize + offset) as *mut _,
-            size: count,
-            phantom: PhantomData,
+        let _ = self.compute_end_offset(offset, count)?;
+        Ok(unsafe {
+            // This is safe because the pointer is range-checked by compute_end_offset, and
+            // the lifetime is the same as self.
+            VolatileSlice::new((self.addr as usize + offset) as *mut u8, count)
         })
     }
 }
@@ -720,7 +763,7 @@ mod tests {
         }
 
         fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice> {
-            let _ = self.region_end(offset, count)?;
+            let _ = self.compute_end_offset(offset, count)?;
             Ok(unsafe {
                 VolatileSlice::new((self.mem.as_ptr() as usize + offset) as *mut _, count)
             })
