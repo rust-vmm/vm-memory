@@ -32,7 +32,7 @@
 
 use std::mem::{align_of, size_of};
 
-use DataInit;
+use data_init::DataInit;
 
 macro_rules! const_assert {
     ($condition:expr) => {

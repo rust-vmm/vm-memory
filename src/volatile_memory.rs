@@ -30,8 +30,8 @@ use std::result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::usize;
 
-use Bytes;
-use DataInit;
+use data_init::Bytes;
+use data_init::DataInit;
 
 /// VolatileMemory related error codes
 #[allow(missing_docs)]
