@@ -164,7 +164,17 @@ pub trait Bytes<A> {
     /// * `addr` - Begin writing at this address.
     /// * `src` - Copy from `src` into the container.
     /// * `count` - Copy `count` bytes from `src` into the container.
-    fn write_from_stream<F>(&self, addr: A, src: &mut F, count: usize) -> Result<(), Self::E>
+    fn read_from<F>(&self, addr: A, src: &mut F, count: usize) -> Result<usize, Self::E>
+    where
+        F: Read;
+
+    /// Writes data from a readable object like a File and writes it into the container.
+    ///
+    /// # Arguments
+    /// * `addr` - Begin writing at this address.
+    /// * `src` - Copy from `src` into the container.
+    /// * `count` - Copy `count` bytes from `src` into the container.
+    fn read_exact_from<F>(&self, addr: A, src: &mut F, count: usize) -> Result<(), Self::E>
     where
         F: Read;
 
@@ -174,7 +184,17 @@ pub trait Bytes<A> {
     /// * `addr` - Begin reading from this addr.
     /// * `dst` - Copy from the container to `dst`.
     /// * `count` - Copy `count` bytes from the container to `dst`.
-    fn read_into_stream<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<(), Self::E>
+    fn write_to<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<usize, Self::E>
+    where
+        F: Write;
+
+    /// Reads data from the container to a writable object.
+    ///
+    /// # Arguments
+    /// * `addr` - Begin reading from this addr.
+    /// * `dst` - Copy from the container to `dst`.
+    /// * `count` - Copy `count` bytes from the container to `dst`.
+    fn write_all_to<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<(), Self::E>
     where
         F: Write;
 }

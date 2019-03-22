@@ -305,11 +305,11 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
         Ok(())
     }
 
-    fn write_from_stream<F>(&self, addr: GuestAddress, src: &mut F, count: usize) -> Result<()>
+    fn read_from<F>(&self, addr: GuestAddress, src: &mut F, count: usize) -> Result<usize>
     where
         F: Read,
     {
-        let res = self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
+        self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
             // Something bad happened...
             if offset >= count {
                 return Err(Error::InvalidBackendOffset);
@@ -324,12 +324,19 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
             } else {
                 let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
                 let mut buf = vec![0u8; len].into_boxed_slice();
-                src.read_exact(&mut buf[..]).map_err(Error::IOError)?;
-                let bytes_written = region.write(&buf, caddr)?;
-                assert_eq!(bytes_written, len);
+                let bytes_read = src.read(&mut buf[..]).map_err(Error::IOError)?;
+                let bytes_written = region.write(&buf[0..bytes_read], caddr)?;
+                assert_eq!(bytes_written, bytes_read);
                 Ok(len)
             }
-        })?;
+        })
+    }
+
+    fn read_exact_from<F>(&self, addr: GuestAddress, src: &mut F, count: usize) -> Result<()>
+    where
+        F: Read,
+    {
+        let res = self.read_from(addr, src, count)?;
         if res != count {
             return Err(Error::PartialBuffer {
                 expected: count,
@@ -339,11 +346,11 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
         Ok(())
     }
 
-    fn read_into_stream<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<()>
+    fn write_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<usize>
     where
         F: Write,
     {
-        let res = self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
+        self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
             // Something bad happened...
             if offset >= count {
                 return Err(Error::InvalidBackendOffset);
@@ -355,18 +362,24 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
                 // It is safe to read from volatile memory. Accessing the guest
                 // memory as a slice is OK because nothing assumes another thread
                 // won't change what is loaded.
-                dst.write_all(&src[start as usize..end])
-                    .map_err(Error::IOError)?;
-                Ok(len)
+                let bytes_written = dst.write(&src[start..end]).map_err(Error::IOError)?;
+                Ok(bytes_written)
             } else {
                 let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
                 let mut buf = vec![0u8; len].into_boxed_slice();
                 let bytes_read = region.read(&mut buf, caddr)?;
                 assert_eq!(bytes_read, len);
-                dst.write_all(&buf).map_err(Error::IOError)?;
-                Ok(len)
+                let bytes_written = dst.write(&buf).map_err(Error::IOError)?;
+                Ok(bytes_written)
             }
-        })?;
+        })
+    }
+
+    fn write_all_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<()>
+    where
+        F: Write,
+    {
+        let res = self.write_to(addr, dst, count)?;
         if res != count {
             return Err(Error::PartialBuffer {
                 expected: count,
