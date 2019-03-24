@@ -5,17 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-//! Traits for allocating, handling and interacting with the VM's physical memory.
-//!
-//! For a typical hypervisor, there are seveval components, such as boot loader, virtual device
-//! drivers, virtio backend drivers and vhost drivers etc, that need to access VM's physical memory.
-//! This crate aims to provide a set of stable traits to decouple VM memory consumers from VM
-//! memory providers. Based on these traits, VM memory consumers could access VM's physical memory
-//! without knowing the implementation details of the VM memory provider. Thus hypervisor
-//! components, such as boot loader, virtual device drivers, virtio backend drivers and vhost
-//! drivers etc, could be shared and reused by multiple hypervisors.
-
-#![deny(missing_docs)]
+//! Define the DataInit trait to mark that it is safe to instantiate the struct with random data.
 
 use std::io::{Read, Write};
 use std::mem::size_of;
