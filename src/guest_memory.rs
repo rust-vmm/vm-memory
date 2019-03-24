@@ -10,18 +10,19 @@
 
 //! Traits to track and access guest's physical memory.
 //!
-//! To make the abstraction as generic as possible, all the core traits defined here only
-//! define methods to access the address space are defined here, and they never define
-//! methods to manage (create, delete, insert, remove etc) address spaces. By this way,
-//! the address space consumers (virtio device drivers, vhost drivers and boot loaders
-//! etc) may be decoupled from the address space provider (typically a hypervisor).
+//! To make the abstraction as generic as possible, all the core traits declared here only define
+//! methods to access guest's memory, and never define methods to manage (create, delete, insert,
+//! remove etc) guest's memory. By this way, the guest memory consumers (virtio device drivers,
+//! vhost drivers and boot loaders etc) may be decoupled from the guest memory provider (typically
+//! a hypervisor).
 //!
 //! Traits and Structs
-//! - GuestAddress: represents a guest physical address (GPA).
-//! - MemoryRegionAddress: represents an offset inside a region.
-//! - GuestMemoryRegion: represent a continuous region of guest's physical memory.
-//! - GuestMemory:  represent a collection of GuestMemoryRegion objects. The main responsibilities
-//!   of the GuestMemory trait are:
+//! - [GuestAddress](struct.GuestAddress.html): represents a guest physical address (GPA).
+//! - [MemoryRegionAddress](struct.MemoryRegionAddress.html): represents an offset inside a region.
+//! - [GuestMemoryRegion](trait.GuestMemoryRegion.html): represent a continuous region of guest's
+//! physical memory.
+//! - [GuestMemory](trait.GuestMemroy.html): represent a collection of GuestMemoryRegion objects.
+//! The main responsibilities of the GuestMemory trait are:
 //!     - hide the detail of accessing guest's physical address.
 //!     - map a request address to a GuestMemoryRegion object and relay the request to it.
 //!     - handle cases where an access request spanning two or more GuestMemoryRegion objects.

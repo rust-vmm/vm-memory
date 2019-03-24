@@ -25,21 +25,21 @@ extern crate matches;
 
 #[macro_use]
 pub mod address;
-pub use address::*;
+pub use address::{Address, AddressValue};
+
+pub mod data_init;
+pub use data_init::{Bytes, DataInit};
 
 pub mod endian;
-pub use endian::*;
+pub use endian::{Be16, Be32, Be64, BeSize, Le16, Le32, Le64, LeSize};
 
 pub mod guest_memory;
-pub use guest_memory::*;
+pub use guest_memory::{GuestAddress, GuestMemory, GuestMemoryRegion, MemoryRegionAddress};
 
 #[cfg(feature = "backend-mmap")]
 pub mod mmap;
 #[cfg(feature = "backend-mmap")]
-pub use mmap::*;
+pub use mmap::{GuestMemoryMmap, GuestRegionMmap, MmapRegion};
 
 pub mod volatile_memory;
 pub use volatile_memory::*;
-
-pub mod data_init;
-pub use data_init::*;

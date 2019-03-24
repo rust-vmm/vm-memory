@@ -8,12 +8,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-//! A default implementation of GuestMemory by mmap()-ing guest's memory into current process.
+//! A default implementation of the GuestMemory trait by mmap()-ing guest's memory into the current
+//! process.
 //!
 //! The main structs to access guest's memory are:
-//! - MmapRegion: mmap a continuous region of guest's memory into current process
-//! - GuestRegionMmap: map from guest physical address into mmapped offset
-//! - GuestMemoryMmap: manage a collection of GuestRegionMmap objects
+//! - [MmapRegion](struct.MmapRegion.html): mmap a continuous region of guest's memory into the
+//! current process
+//! - [GuestRegionMmap](struct.GuestRegionMmap.html): tracks a mapping of memory in the current
+//! process and the corresponding base address. It relays guest memory access requests to the
+//! underline [MmapRegion](struct.MmapRegion.html) object.
+//! - [GuestMemoryMmap](struct.GuestMemoryMmap.html): provides methods to access a collection of
+//! GuestRegionMmap objects.
 
 use libc;
 use std::io::{self, Read, Write};
@@ -26,7 +31,7 @@ use guest_memory::*;
 use volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
 use Bytes;
 
-/// A backend driver to access guest's physical memory by mmapping guest's memory into current
+/// A backend driver to access guest's physical memory by mmapping guest's memory into the current
 /// process.
 /// For a combination of 32-bit hypervisor and 64-bit virtual machine, only partial of guest's
 /// physical memory may be mapped into current process due to limited process virtual address
@@ -98,7 +103,7 @@ impl MmapRegion {
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED,
                 fd.as_raw_fd(),
-                offset as libc::off_t,
+                offset,
             )
         };
         if addr == libc::MAP_FAILED {
