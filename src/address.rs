@@ -11,17 +11,17 @@
 //! Traits to represent an address within an address space.
 //!
 //! Two traits are defined to present an address within an address space:
-//! - [GuestUsize](trait.GuestUsize.html): stores the raw value of an address. Typically u32,
+//! - [AddressValue](trait.AddressValue.html): stores the raw value of an address. Typically u32,
 //! u64 or usize is used to store the raw value. But pointers, such as *u8, can't be used because
 //! it doesn't implement the Add and Sub traits.
-//! - [Address](trait.Address.html): encapsulates an GuestUsize object and defines methods to
+//! - [Address](trait.Address.html): encapsulates an AddressValue object and defines methods to
 //! access and manipulate it.
 
 use std::cmp::{Eq, Ord, PartialEq, PartialOrd};
 use std::ops::{Add, BitAnd, BitOr, Sub};
 
 /// Simple helper trait used to store a raw address value.
-pub trait GuestUsize {
+pub trait AddressValue {
     /// Type of the address raw value.
     type V: Copy
         + PartialEq
@@ -36,7 +36,7 @@ pub trait GuestUsize {
 
 /// Trait to represent an address within an address space.
 ///
-/// To simplify the design and implementation, assume the same raw data type (GuestUsize::V)
+/// To simplify the design and implementation, assume the same raw data type (AddressValue::V)
 /// could be used to store address, size and offset for the address space. Thus the Address trait
 /// could be used to manage address, size and offset. On the other hand, type aliases may be
 /// defined to improve code readability.
@@ -44,9 +44,9 @@ pub trait GuestUsize {
 /// One design rule is applied to the Address trait that operators (+, -, &, | etc) are not
 /// supported and it forces clients to explicitly invoke corresponding methods. But there are
 /// always exceptions:
-///     Address (BitAnd|BitOr) GuestUsize are supported.
+///     Address (BitAnd|BitOr) AddressValue are supported.
 pub trait Address:
-    GuestUsize
+    AddressValue
     + Sized
     + Default
     + Copy
@@ -54,8 +54,8 @@ pub trait Address:
     + PartialEq
     + Ord
     + PartialOrd
-    + BitAnd<<Self as GuestUsize>::V, Output = Self>
-    + BitOr<<Self as GuestUsize>::V, Output = Self>
+    + BitAnd<<Self as AddressValue>::V, Output = Self>
+    + BitOr<<Self as AddressValue>::V, Output = Self>
 {
     /// Create an address from a raw address value.
     fn new(addr: Self::V) -> Self;
@@ -101,7 +101,7 @@ pub trait Address:
 
 macro_rules! impl_address_ops {
     ($T:ident, $V:ty) => {
-        impl GuestUsize for $T {
+        impl AddressValue for $T {
             type V = $V;
         }
 
