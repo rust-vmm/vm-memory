@@ -32,7 +32,7 @@ use std::fmt::{self, Display};
 use std::io::{self, Read, Write};
 use std::ops::{BitAnd, BitOr};
 
-use address::{Address, AddressValue};
+use address::{Address, GuestUsize};
 use bytes::Bytes;
 use volatile_memory;
 
@@ -114,10 +114,10 @@ pub struct MemoryRegionAddress(pub u64);
 impl_address_ops!(MemoryRegionAddress, u64);
 
 /// Type of the raw value stored in a GuestAddress object.
-pub type GuestAddressValue = <GuestAddress as AddressValue>::V;
+pub type GuestAddressValue = <GuestAddress as GuestUsize>::V;
 
 /// Type to encode offset in the guest physical address space.
-pub type GuestAddressOffset = <GuestAddress as AddressValue>::V;
+pub type GuestAddressOffset = <GuestAddress as GuestUsize>::V;
 
 /// Represents a continuous region of guest physical memory.
 #[allow(clippy::len_without_is_empty)]
