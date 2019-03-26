@@ -123,25 +123,46 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     fn len(&self) -> GuestUsize;
 
     /// Get minimum (inclusive) address managed by the region.
-    fn min_addr(&self) -> GuestAddress;
+    fn start_addr(&self) -> GuestAddress;
 
-    /// Get maximum (exclusive) address managed by the region.
-    fn max_addr(&self) -> GuestAddress {
+    /// Get maximum (inclusive) address managed by the region.
+    fn end_addr(&self) -> GuestAddress {
         // unchecked_add is safe as the region bounds were checked when it was created.
-        self.min_addr().unchecked_add(self.len())
+        self.start_addr().unchecked_add(self.len() - 1)
+    }
+
+    /// Returns the given address if it is within the memory range accessible
+    /// through this region.
+    fn check_address(&self, addr: MemoryRegionAddress) -> Option<MemoryRegionAddress> {
+        if self.address_in_range(addr) {
+            Some(addr)
+        } else {
+            None
+        }
+    }
+
+    /// Returns true if the given address is within the memory range accessible
+    /// through this region.
+    fn address_in_range(&self, addr: MemoryRegionAddress) -> bool {
+        addr.raw_value() < self.len()
+    }
+
+    /// Returns the address plus the offset if it is in range.
+    fn checked_offset(
+        &self,
+        base: MemoryRegionAddress,
+        offset: usize,
+    ) -> Option<MemoryRegionAddress> {
+        base.checked_add(offset as u64)
+            .and_then(|addr| self.check_address(addr))
     }
 
     /// Convert an absolute address into an address space (GuestMemory)
     /// to a relative address within this region, or return an error if
     /// it is out of bounds.
-    fn to_region_addr(&self, addr: GuestAddress) -> Result<MemoryRegionAddress> {
-        let offset = addr
-            .checked_offset_from(self.min_addr())
-            .ok_or_else(|| Error::InvalidGuestAddress(addr))?;
-        if offset >= self.len() {
-            return Err(Error::InvalidGuestAddress(addr));
-        }
-        Ok(MemoryRegionAddress(offset))
+    fn to_region_addr(&self, addr: GuestAddress) -> Option<MemoryRegionAddress> {
+        addr.checked_offset_from(self.start_addr())
+            .and_then(|offset| self.check_address(MemoryRegionAddress(offset)))
     }
 
     /// Return a slice corresponding to the data in the region; unsafe because of
@@ -175,19 +196,89 @@ pub trait GuestMemory {
     fn num_regions(&self) -> usize;
 
     /// Return the region containing the specified address or None.
-    fn find_region(&self, GuestAddress) -> Option<&Self::R>;
+    fn find_region(&self, addr: GuestAddress) -> Option<&Self::R>;
 
     /// Perform the specified action on each region.
     /// It only walks children of current region and do not step into sub regions.
-    fn with_regions<F>(&self, cb: F) -> Result<()>
+    fn with_regions<F, E>(&self, cb: F) -> std::result::Result<(), E>
     where
-        F: Fn(usize, &Self::R) -> Result<()>;
+        F: Fn(usize, &Self::R) -> std::result::Result<(), E>;
 
     /// Perform the specified action on each region mutably.
     /// It only walks children of current region and do not step into sub regions.
-    fn with_regions_mut<F>(&self, cb: F) -> Result<()>
+    fn with_regions_mut<F, E>(&self, cb: F) -> std::result::Result<(), E>
     where
-        F: FnMut(usize, &Self::R) -> Result<()>;
+        F: FnMut(usize, &Self::R) -> std::result::Result<(), E>;
+
+    /// Applies two functions, specified as callbacks, on the inner memory regions.
+    ///
+    /// # Arguments
+    /// * `init` - Starting value of the accumulator for the `foldf` function.
+    /// * `mapf` - "Map" function, applied to all the inner memory regions. It returns an array of
+    ///            the same size as the memory regions array, containing the function's results
+    ///            for each region.
+    /// * `foldf` - "Fold" function, applied to the array returned by `mapf`. It acts as an
+    ///             operator, applying itself to the `init` value and to each subsequent elemnent
+    ///             in the array returned by `mapf`.
+    ///
+    /// # Examples
+    ///
+    /// * Compute the total size of all memory mappings in KB by iterating over the memory regions
+    ///   and dividing their sizes to 1024, then summing up the values in an accumulator.
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # fn test_map_fold() -> Result<(), ()> {
+    /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryRegion, mmap::GuestMemoryMmap};
+    ///     let start_addr1 = GuestAddress(0x0);
+    ///     let start_addr2 = GuestAddress(0x400);
+    ///     let mem = GuestMemoryMmap::new(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
+    ///     let total_size = mem.map_and_fold(
+    ///         0,
+    ///         |(_, region)| region.len() / 1024,
+    ///         |acc, size| acc + size
+    ///     );
+    ///     println!("Total memory size = {} KB", total_size);
+    ///     Ok(())
+    /// # }
+    /// ```
+    fn map_and_fold<F, G, T>(&self, init: T, mapf: F, foldf: G) -> T
+    where
+        F: Fn((usize, &Self::R)) -> T,
+        G: Fn(T, T) -> T;
+
+    /// Get maximum (inclusive) address managed by the region.
+    fn end_addr(&self) -> GuestAddress {
+        self.map_and_fold(
+            GuestAddress(0),
+            |(_, region)| region.end_addr(),
+            std::cmp::max,
+        )
+    }
+
+    /// Convert an absolute address into an address space (GuestMemory)
+    /// to a relative address within this region, or return None if
+    /// it is out of bounds.
+    fn to_region_addr(&self, addr: GuestAddress) -> Option<(&Self::R, MemoryRegionAddress)> {
+        self.find_region(addr)
+            .map(|r| (r, r.to_region_addr(addr).unwrap()))
+    }
+
+    /// Returns true if the given address is within the memory range available to the guest.
+    fn address_in_range(&self, addr: GuestAddress) -> bool {
+        self.find_region(addr).is_some()
+    }
+
+    /// Returns the given address if it is within the memory range available to the guest.
+    fn check_address(&self, addr: GuestAddress) -> Option<GuestAddress> {
+        self.find_region(addr).map(|_| addr)
+    }
+
+    /// Returns the address plus the offset if it is in range.
+    fn checked_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress> {
+        base.checked_add(offset as u64)
+            .and_then(|addr| self.check_address(addr))
+    }
 
     /// Invoke callback `f` to handle data in the address range [addr, addr + count).
     ///
@@ -427,7 +518,7 @@ mod tests {
     fn mask() {
         let a = GuestAddress(0x5050);
         assert_eq!(GuestAddress(0x5000), a & 0xff00u64);
-        assert_eq!(GuestAddress(0x5000), a.mask(0xff00u64));
+        assert_eq!(0x5000, a.mask(0xff00u64));
         assert_eq!(GuestAddress(0x5055), a | 0x0005u64);
     }
 

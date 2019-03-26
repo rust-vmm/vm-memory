@@ -34,7 +34,10 @@ pub mod endian;
 pub use endian::{Be16, Be32, Be64, BeSize, Le16, Le32, Le64, LeSize};
 
 pub mod guest_memory;
-pub use guest_memory::{GuestAddress, GuestMemory, GuestMemoryRegion, MemoryRegionAddress};
+pub use guest_memory::{
+    Error as GuestMemoryError, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize,
+    MemoryRegionAddress, Result as GuestMemoryResult,
+};
 
 #[cfg(feature = "backend-mmap")]
 pub mod mmap;
@@ -42,4 +45,7 @@ pub mod mmap;
 pub use mmap::{GuestMemoryMmap, GuestRegionMmap, MmapRegion};
 
 pub mod volatile_memory;
-pub use volatile_memory::*;
+pub use volatile_memory::{
+    Error as VolatileMemoryError, Result as VolatileMemoryResult, VolatileMemory, VolatileRef,
+    VolatileSlice,
+};
