@@ -33,7 +33,7 @@ use std::io::{self, Read, Write};
 use std::ops::{BitAnd, BitOr};
 
 use address::{Address, AddressValue};
-use data_init::Bytes;
+use bytes::Bytes;
 use volatile_memory;
 
 static MAX_ACCESS_CHUNK: usize = 4096;
