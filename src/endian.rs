@@ -118,7 +118,7 @@ mod tests {
                 #[allow(overflowing_literals)]
                 #[test]
                 fn equality() {
-                    let v = 0x0123456789ABCDEF as $old_type;
+                    let v = 0x0123_4567_89AB_CDEF as $old_type;
                     let endian_v: $new_type = From::from(v);
                     let endian_into: $old_type = endian_v.into();
                     let endian_transmute: $old_type = unsafe { transmute(endian_v) };

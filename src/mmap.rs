@@ -492,14 +492,14 @@ mod tests {
     fn test_regions() {
         // No regions provided should return error.
         assert_eq!(
-            format!("{:?}", GuestMemoryMmap::new(&vec![]).err().unwrap()),
+            format!("{:?}", GuestMemoryMmap::new(&[]).err().unwrap()),
             format!("{:?}", MmapError::NoMemoryRegion)
         );
 
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
-            GuestMemoryMmap::new(&vec![(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
+            GuestMemoryMmap::new(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
         assert_eq!(guest_mem.num_regions(), 2);
         assert!(guest_mem.find_region(GuestAddress(0x200)).is_some());
         assert!(guest_mem.find_region(GuestAddress(0x600)).is_none());
@@ -511,7 +511,7 @@ mod tests {
     fn overlap_memory() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let res = GuestMemoryMmap::new(&vec![(start_addr1, 0x2000), (start_addr2, 0x2000)]);
+        let res = GuestMemoryMmap::new(&[(start_addr1, 0x2000), (start_addr2, 0x2000)]);
         assert_eq!(
             format!("{:?}", res.err().unwrap()),
             format!("{:?}", MmapError::MemoryRegionOverlap)
@@ -526,10 +526,10 @@ mod tests {
         let bad_addr2 = GuestAddress(0x1ffc);
         let max_addr = GuestAddress(0x2000);
 
-        let gm = GuestMemoryMmap::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
 
-        let val1: u64 = 0xaa55aa55aa55aa55;
-        let val2: u64 = 0x55aa55aa55aa55aa;
+        let val1: u64 = 0xaa55_aa55_aa55_aa55;
+        let val2: u64 = 0x55aa_55aa_55aa_55aa;
         assert_eq!(
             format!("{:?}", gm.write_obj(val1, bad_addr).err().unwrap()),
             format!("InvalidGuestAddress({:?})", bad_addr,)
@@ -554,7 +554,7 @@ mod tests {
     #[test]
     fn write_and_read() {
         let mut start_addr = GuestAddress(0x1000);
-        let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+        let gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
         let sample_buf = &[1, 2, 3, 4, 5];
 
         assert_eq!(gm.write(sample_buf, start_addr).unwrap(), 5);
@@ -571,7 +571,7 @@ mod tests {
 
     #[test]
     fn read_to_and_write_from_mem() {
-        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0x1000), 0x400)]).unwrap();
+        let gm = GuestMemoryMmap::new(&[(GuestAddress(0x1000), 0x400)]).unwrap();
         let addr = GuestAddress(0x1010);
         gm.write_obj(!0u32, addr).unwrap();
         gm.read_exact_from(
@@ -619,7 +619,7 @@ mod tests {
     fn test_access_cross_boundary() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let gm = GuestMemoryMmap::new(&vec![(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
         let sample_buf = &[1, 2, 3, 4, 5];
         assert_eq!(gm.write(sample_buf, GuestAddress(0xffc)).unwrap(), 5);
         let buf = &mut [0u8; 5];
