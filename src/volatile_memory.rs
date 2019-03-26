@@ -30,8 +30,7 @@ use std::result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::usize;
 
-use data_init::Bytes;
-use data_init::DataInit;
+use bytes::{ByteValued, Bytes};
 
 /// VolatileMemory related error codes
 #[allow(missing_docs)]
@@ -115,7 +114,7 @@ pub trait VolatileMemory {
     }
 
     /// Gets a `VolatileRef` at `offset`.
-    fn get_ref<T: DataInit>(&self, offset: usize) -> Result<VolatileRef<T>> {
+    fn get_ref<T: ByteValued>(&self, offset: usize) -> Result<VolatileRef<T>> {
         let slice = self.get_slice(offset, size_of::<T>())?;
         unsafe {
             // This is safe because the pointer is range-checked by get_slice, and
@@ -237,7 +236,7 @@ impl<'a> VolatileSlice<'a> {
     /// ```
     pub fn copy_to<T>(&self, buf: &mut [T]) -> usize
     where
-        T: DataInit,
+        T: ByteValued,
     {
         let mut addr = self.addr;
         let mut i = 0;
@@ -302,7 +301,7 @@ impl<'a> VolatileSlice<'a> {
     /// ```
     pub fn copy_from<T>(&self, buf: &[T])
     where
-        T: DataInit,
+        T: ByteValued,
     {
         let mut addr = self.addr;
         for &v in buf.iter().take(self.size / size_of::<T>()) {
@@ -608,7 +607,7 @@ impl<'a> VolatileMemory for VolatileSlice<'a> {
 ///   v_ref.store(500);
 ///   assert_eq!(v, 500);
 #[derive(Debug)]
-pub struct VolatileRef<'a, T: DataInit>
+pub struct VolatileRef<'a, T: ByteValued>
 where
     T: 'a,
 {
@@ -617,7 +616,7 @@ where
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: DataInit> VolatileRef<'a, T> {
+impl<'a, T: ByteValued> VolatileRef<'a, T> {
     /// Creates a reference to raw memory that must support volatile access of `T` sized chunks.
     ///
     /// To use this safely, the caller must guarantee that the memory at `addr` is big enough for a

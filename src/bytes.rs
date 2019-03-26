@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-//! Define the DataInit trait to mark that it is safe to instantiate the struct with random data.
+//! Define the ByteValued trait to mark that it is safe to instantiate the struct with random data.
 
 use std::io::{Read, Write};
 use std::mem::size_of;
@@ -14,12 +14,12 @@ use std::slice::{from_raw_parts, from_raw_parts_mut};
 
 /// Types for which it is safe to initialize from raw data.
 ///
-/// A type `T` is `DataInit` if and only if it can be initialized by reading its contents from a
+/// A type `T` is `ByteValued` if and only if it can be initialized by reading its contents from a
 /// byte array.  This is generally true for all plain-old-data structs.  It is notably not true for
 /// any type that includes a reference.
 ///
 /// Implementing this trait guarantees that it is safe to instantiate the struct with random data.
-pub unsafe trait DataInit: Copy + Default + Send + Sync {
+pub unsafe trait ByteValued: Copy + Default + Send + Sync {
     /// Converts a slice of raw data into a reference of `Self`.
     ///
     /// The value of `data` is not copied. Instead a reference is made from the given slice. The
@@ -34,7 +34,7 @@ pub unsafe trait DataInit: Copy + Default + Send + Sync {
             return None;
         }
 
-        // Safe because the DataInit trait asserts any data is valid for this type, and we ensured
+        // Safe because the ByteValued trait asserts any data is valid for this type, and we ensured
         // the size of the pointer's buffer is the correct size. The `align_to` method ensures that
         // we don't have any unaligned references. This aliases a pointer, but because the pointer
         // is from a const slice reference, there are no mutable aliases. Finally, the reference
@@ -59,7 +59,7 @@ pub unsafe trait DataInit: Copy + Default + Send + Sync {
             return None;
         }
 
-        // Safe because the DataInit trait asserts any data is valid for this type, and we ensured
+        // Safe because the ByteValued trait asserts any data is valid for this type, and we ensured
         // the size of the pointer's buffer is the correct size. The `align_to` method ensures that
         // we don't have any unaligned references. This aliases a pointer, but because the pointer
         // is from a mut slice reference, we borrow the passed in mutable reference. Finally, the
@@ -135,7 +135,7 @@ pub trait Bytes<A> {
 
     /// Writes an object into the container at the specified address.
     /// Returns Ok(()) if the object fits, or Err if it extends past the end.
-    fn write_obj<T: DataInit>(&self, val: T, addr: A) -> Result<(), Self::E> {
+    fn write_obj<T: ByteValued>(&self, val: T, addr: A) -> Result<(), Self::E> {
         self.write_slice(val.as_slice(), addr)
     }
 
@@ -143,7 +143,7 @@ pub trait Bytes<A> {
     /// Reading from a volatile area isn't strictly safe as it could change mid-read.
     /// However, as long as the type T is plain old data and can handle random initialization,
     /// everything will be OK.
-    fn read_obj<T: DataInit>(&self, addr: A) -> Result<T, Self::E> {
+    fn read_obj<T: ByteValued>(&self, addr: A) -> Result<T, Self::E> {
         let mut result: T = Default::default();
         self.read_slice(result.as_mut_slice(), addr).map(|_| result)
     }
@@ -189,17 +189,17 @@ pub trait Bytes<A> {
         F: Write;
 }
 
-// All intrinsic types and arrays of intrinsic types are DataInit. They are just numbers.
+// All intrinsic types and arrays of intrinsic types are ByteValued. They are just numbers.
 macro_rules! array_data_init {
     ($T:ty, $($N:expr)+) => {
         $(
-            unsafe impl DataInit for [$T; $N] {}
+            unsafe impl ByteValued for [$T; $N] {}
         )+
     }
 }
 macro_rules! data_init_type {
     ($T:ty) => {
-        unsafe impl DataInit for $T {}
+        unsafe impl ByteValued for $T {}
         array_data_init! {
             $T,
             0  1  2  3  4  5  6  7  8  9
@@ -224,11 +224,11 @@ data_init_type!(isize);
 mod tests {
     use std::fmt::Debug;
     use std::mem::{align_of, size_of};
-    use DataInit;
+    use ByteValued;
 
     fn from_slice_alignment<T>()
     where
-        T: DataInit + PartialEq + Debug + Default,
+        T: ByteValued + PartialEq + Debug + Default,
     {
         let mut v = [0u8; 32];
         let pre_len = {

@@ -27,8 +27,8 @@ extern crate matches;
 pub mod address;
 pub use address::{Address, AddressValue};
 
-pub mod data_init;
-pub use data_init::{Bytes, DataInit};
+pub mod bytes;
+pub use bytes::{ByteValued, Bytes};
 
 pub mod endian;
 pub use endian::{Be16, Be32, Be64, BeSize, Le16, Le32, Le64, LeSize};
