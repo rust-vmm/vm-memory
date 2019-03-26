@@ -25,7 +25,7 @@ extern crate matches;
 
 #[macro_use]
 pub mod address;
-pub use address::{Address, GuestUsize};
+pub use address::{Address, AddressValue};
 
 pub mod bytes;
 pub use bytes::{ByteValued, Bytes};
