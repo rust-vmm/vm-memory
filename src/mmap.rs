@@ -165,6 +165,7 @@ impl Drop for MmapRegion {
 
 /// Tracks a mapping of memory in the current process and the corresponding base address
 /// in the guest's memory space.
+#[derive(Debug)]
 pub struct GuestRegionMmap {
     mapping: MmapRegion,
     guest_base: GuestAddress,
@@ -359,7 +360,7 @@ impl GuestMemoryRegion for GuestRegionMmap {
 }
 
 /// Tracks memory regions allocated/mapped for the guest in the current process.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GuestMemoryMmap {
     regions: Arc<Vec<GuestRegionMmap>>,
 }
