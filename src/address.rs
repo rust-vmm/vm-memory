@@ -64,8 +64,8 @@ pub trait Address:
     fn raw_value(&self) -> Self::V;
 
     /// Returns the bitwise and of the address with the given mask.
-    fn mask(&self, mask: Self::V) -> Self {
-        Self::new(self.raw_value() & mask)
+    fn mask(&self, mask: Self::V) -> Self::V {
+        self.raw_value() & mask
     }
 
     /// Returns the offset from this address to the given base address and None if there is
