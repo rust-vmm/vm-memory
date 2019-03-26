@@ -21,7 +21,7 @@ extern crate vm_memory;
 - Create VM physical memory objects in hypervisor specific ways. Use the default GuestMemoryMmap as an example:
 ```
     fn provide_mem_to_virt_dev() {
-        let gm = GuestMemoryMmap::new(&vec![(GuestAddress(0), 0x1000), (GuestAddress(0x1000), 0x1000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&[(GuestAddress(0), 0x1000), (GuestAddress(0x1000), 0x1000)]).unwrap();
         virt_device_io(&gm);
     }
 ```

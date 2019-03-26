@@ -744,7 +744,7 @@ mod tests {
         let mut a = [1u8; 5];
         let a_ref = &mut a[..];
         let v_ref = a_ref.get_ref(1).unwrap();
-        v_ref.store(0x12345678u32);
+        v_ref.store(0x1234_5678u32);
         let ref_slice = v_ref.to_slice();
         assert_eq!(v_ref.as_ptr() as usize, ref_slice.as_ptr() as usize);
         assert_eq!(v_ref.len(), ref_slice.len());
