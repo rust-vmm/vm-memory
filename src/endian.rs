@@ -32,7 +32,7 @@
 
 use std::mem::{align_of, size_of};
 
-use data_init::DataInit;
+use bytes::ByteValued;
 
 macro_rules! const_assert {
     ($condition:expr) => {
@@ -60,7 +60,7 @@ macro_rules! endian_type {
             }
         }
 
-        unsafe impl DataInit for $new_type {}
+        unsafe impl ByteValued for $new_type {}
 
         impl PartialEq<$old_type> for $new_type {
             fn eq(&self, other: &$old_type) -> bool {
