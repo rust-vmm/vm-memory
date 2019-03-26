@@ -119,9 +119,7 @@ pub trait VolatileMemory {
         unsafe {
             // This is safe because the pointer is range-checked by get_slice, and
             // the lifetime is the same as self.
-            //
-            // FIXME: should we check that offset is properly aligned?
-            Ok(VolatileRef::new(slice.addr as *mut T))
+            Ok(VolatileRef::<T>::new(slice.addr))
         }
     }
 
@@ -152,6 +150,9 @@ impl<'a> VolatileMemory for &'a mut [u8] {
         }
     }
 }
+
+#[repr(C, packed)]
+struct Packed<T>(T);
 
 /// A slice of raw memory that supports volatile access.
 #[derive(Copy, Clone, Debug)]
@@ -242,8 +243,7 @@ impl<'a> VolatileSlice<'a> {
         let mut i = 0;
         for v in buf.iter_mut().take(self.size / size_of::<T>()) {
             unsafe {
-                // FIXME: should we check that addr is correctly aligned?
-                *v = read_volatile(addr as *const T);
+                *v = read_volatile(addr as *const Packed<T>).0;
                 addr = addr.add(size_of::<T>());
             };
             i += 1;
@@ -308,8 +308,7 @@ impl<'a> VolatileSlice<'a> {
             unsafe {
                 // Safe because the pointers are range-checked when the slices
                 // are created, and they never escape the VolatileSlices.
-                // FIXME: should we check that addr is correctly aligned?
-                write_volatile(addr as *mut T, v);
+                write_volatile(addr as *mut Packed<T>, Packed::<T>(v));
                 addr = addr.add(size_of::<T>());
             }
         }
@@ -602,7 +601,7 @@ impl<'a> VolatileMemory for VolatileSlice<'a> {
 /// # use vm_memory::VolatileRef;
 ///   let mut v = 5u32;
 ///   assert_eq!(v, 5);
-///   let v_ref = unsafe { VolatileRef::new(&mut v as *mut u32) };
+///   let v_ref = unsafe { VolatileRef::<u32>::new(&mut v as *mut u32 as *mut u8) };
 ///   assert_eq!(v_ref.load(), 5);
 ///   v_ref.store(500);
 ///   assert_eq!(v, 500);
@@ -611,7 +610,7 @@ pub struct VolatileRef<'a, T: ByteValued>
 where
     T: 'a,
 {
-    addr: *mut T,
+    addr: *mut Packed<T>,
     phantom: PhantomData<&'a T>,
 }
 
@@ -623,16 +622,16 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
     /// `T` and is available for the duration of the lifetime of the new `VolatileRef`. The caller
     /// must also guarantee that all other users of the given chunk of memory are using volatile
     /// accesses.
-    pub unsafe fn new(addr: *mut T) -> VolatileRef<'a, T> {
+    pub unsafe fn new(addr: *mut u8) -> VolatileRef<'a, T> {
         VolatileRef {
-            addr,
+            addr: addr as *mut Packed<T>,
             phantom: PhantomData,
         }
     }
 
     /// Gets the address of this slice's memory.
-    pub fn as_ptr(&self) -> *mut T {
-        self.addr
+    pub fn as_ptr(&self) -> *mut u8 {
+        self.addr as *mut u8
     }
 
     /// Gets the size of this slice.
@@ -642,7 +641,7 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
     /// ```
     /// # use std::mem::size_of;
     /// # use vm_memory::VolatileRef;
-    ///   let v_ref = unsafe { VolatileRef::new(0 as *mut u32) };
+    ///   let v_ref = unsafe { VolatileRef::<u32>::new(0 as *mut _) };
     ///   assert_eq!(v_ref.len(), size_of::<u32>() as usize);
     /// ```
     pub fn len(&self) -> usize {
@@ -652,7 +651,7 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
     /// Does a volatile write of the value `v` to the address of this ref.
     #[inline(always)]
     pub fn store(&self, v: T) {
-        unsafe { write_volatile(self.addr, v) };
+        unsafe { write_volatile(self.addr, Packed::<T>(v)) };
     }
 
     /// Does a volatile read of the value at the address of this ref.
@@ -661,7 +660,7 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
         // For the purposes of demonstrating why read_volatile is necessary, try replacing the code
         // in this function with the commented code below and running `cargo test --release`.
         // unsafe { *(self.addr as *const T) }
-        unsafe { read_volatile(self.addr) }
+        unsafe { read_volatile(self.addr).0 }
     }
 
     /// Converts this `T` reference to a raw slice with the same size and address.
@@ -933,5 +932,21 @@ mod tests {
             .is_err());
         format!("{:?}", s.write_all_to(2, &mut sink, size_of::<u32>()));
         assert_eq!(sink, vec![0; size_of::<u32>()]);
+    }
+
+    #[test]
+    fn unaligned_read_and_write() {
+        let a = VecMem::new(7);
+        let s = a.as_volatile_slice();
+        let sample_buf: [u8; 7] = [1, 2, 0xAA, 0xAA, 0xAA, 0xAA, 4];
+        assert!(s.write_slice(&sample_buf, 0).is_ok());
+        let r = a.get_ref::<u32>(2).unwrap();
+        assert_eq!(r.load(), 0xAAAA_AAAA);
+
+        r.store(0x5555_5555);
+        let sample_buf: [u8; 7] = [1, 2, 0x55, 0x55, 0x55, 0x55, 4];
+        let mut buf: [u8; 7] = Default::default();
+        assert!(s.read_slice(&mut buf, 0).is_ok());
+        assert_eq!(buf, sample_buf);
     }
 }
