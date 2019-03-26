@@ -341,8 +341,8 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
 }
 
 impl GuestMemoryRegion for GuestRegionMmap {
-    fn len(&self) -> GuestAddressValue {
-        self.mapping.len() as GuestAddressValue
+    fn len(&self) -> GuestUsize {
+        self.mapping.len() as GuestUsize
     }
 
     fn min_addr(&self) -> GuestAddress {
@@ -377,7 +377,7 @@ impl GuestMemoryMmap {
             if let Some(last) = regions.last() {
                 if last
                     .guest_base
-                    .checked_add(last.mapping.len() as GuestAddressValue)
+                    .checked_add(last.mapping.len() as GuestUsize)
                     .map_or(true, |a| a > range.0)
                 {
                     return Err(MmapError::MemoryRegionOverlap);
@@ -600,7 +600,7 @@ mod tests {
         let gm = GuestMemoryMmap::new(&regions).unwrap();
 
         let res: Result<()> = gm.with_regions(|_, region| {
-            assert_eq!(region.len(), region_size as GuestAddressValue);
+            assert_eq!(region.len(), region_size as GuestUsize);
             Ok(())
         });
         assert!(res.is_ok());

@@ -114,16 +114,13 @@ pub struct MemoryRegionAddress(pub u64);
 impl_address_ops!(MemoryRegionAddress, u64);
 
 /// Type of the raw value stored in a GuestAddress object.
-pub type GuestAddressValue = <GuestAddress as AddressValue>::V;
-
-/// Type to encode offset in the guest physical address space.
-pub type GuestAddressOffset = <GuestAddress as AddressValue>::V;
+pub type GuestUsize = <GuestAddress as AddressValue>::V;
 
 /// Represents a continuous region of guest physical memory.
 #[allow(clippy::len_without_is_empty)]
 pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// Get the size of the region.
-    fn len(&self) -> GuestAddressValue;
+    fn len(&self) -> GuestUsize;
 
     /// Get minimum (inclusive) address managed by the region.
     fn min_addr(&self) -> GuestAddress;
@@ -219,7 +216,7 @@ pub trait GuestMemory {
                     if total == count {
                         break;
                     }
-                    cur = match cur.overflowing_add(len as GuestAddressValue) {
+                    cur = match cur.overflowing_add(len as GuestUsize) {
                         (GuestAddress(0), _) => GuestAddress(0),
                         (result, false) => result,
                         (_, true) => panic!("guest address overflow"),
