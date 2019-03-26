@@ -58,7 +58,7 @@ One of the main responsibilities of the GuestMemoryMmap object is to handle the 
 
 ### Utilities and Helpers
 Following utility and helper traits/macros are imported from the [crosvm project](https://chromium.googlesource.com/chromiumos/platform/crosvm/) with minor changes:
-- DataInit: Types for which it is safe to initialize from raw data. A type `T` is `DataInit` if and only if it can be initialized by reading its contents from a byte array. This is generally true for all plain-old-data structs.  It is notably not true for any type that includes a reference.
+- ByteValued (originally `DataInit`): Types for which it is safe to initialize from raw data. A type `T` is `ByteValued` if and only if it can be initialized by reading its contents from a byte array. This is generally true for all plain-old-data structs.  It is notably not true for any type that includes a reference.
 - {Le,Be}\_{16,32,64}: Explicit endian types useful for embedding in structs or reinterpreting data.
 
 ## Relationships between Traits, Structs and new Types
