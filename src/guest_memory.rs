@@ -50,8 +50,6 @@ pub enum Error {
     PartialBuffer { expected: usize, completed: usize },
     /// Requested backend address is out of range.
     InvalidBackendAddress,
-    /// Requested offset is out of range.
-    InvalidBackendOffset,
 }
 
 impl From<volatile_memory::Error> for Error {
@@ -93,7 +91,6 @@ impl Display for Error {
                 completed, expected,
             ),
             Error::InvalidBackendAddress => write!(f, "invalid backend address"),
-            Error::InvalidBackendOffset => write!(f, "invalid backend offset"),
         }
     }
 }
@@ -333,9 +330,6 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
             buf.len(),
             addr,
             |offset, _count, caddr, region| -> Result<usize> {
-                if offset >= buf.len() {
-                    return Err(Error::InvalidBackendOffset);
-                }
                 region.write(&buf[offset as usize..], caddr)
             },
         )
@@ -346,25 +340,13 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
             buf.len(),
             addr,
             |offset, _count, caddr, region| -> Result<usize> {
-                if offset >= buf.len() {
-                    return Err(Error::InvalidBackendOffset);
-                }
                 region.read(&mut buf[offset as usize..], caddr)
             },
         )
     }
 
     fn write_slice(&self, buf: &[u8], addr: GuestAddress) -> Result<()> {
-        let res = self.try_access(
-            buf.len(),
-            addr,
-            |offset, _count, caddr, region| -> Result<usize> {
-                if offset >= buf.len() {
-                    return Err(Error::InvalidBackendOffset);
-                }
-                region.write(&buf[offset as usize..], caddr)
-            },
-        )?;
+        let res = self.write(buf, addr)?;
         if res != buf.len() {
             return Err(Error::PartialBuffer {
                 expected: buf.len(),
@@ -375,16 +357,7 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     }
 
     fn read_slice(&self, buf: &mut [u8], addr: GuestAddress) -> Result<()> {
-        let res = self.try_access(
-            buf.len(),
-            addr,
-            |offset, _count, caddr, region| -> Result<usize> {
-                if offset >= buf.len() {
-                    return Err(Error::InvalidBackendOffset);
-                }
-                region.read(&mut buf[offset as usize..], caddr)
-            },
-        )?;
+        let res = self.read(buf, addr)?;
         if res != buf.len() {
             return Err(Error::PartialBuffer {
                 expected: buf.len(),
@@ -399,10 +372,8 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
         F: Read,
     {
         self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
-            // Something bad happened...
-            if offset >= count {
-                return Err(Error::InvalidBackendOffset);
-            }
+            // Check if something bad happened before doing unsafe things.
+            assert!(offset < count);
             if let Some(dst) = unsafe { region.as_mut_slice() } {
                 // This is safe cause `start` and `len` are within the `region`.
                 let start = caddr.raw_value() as usize;
@@ -440,10 +411,8 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
         F: Write,
     {
         self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
-            // Something bad happened...
-            if offset >= count {
-                return Err(Error::InvalidBackendOffset);
-            }
+            // Check if something bad happened before doing unsafe things.
+            assert!(offset < count);
             if let Some(src) = unsafe { region.as_slice() } {
                 // This is safe cause `start` and `len` are within the `region`.
                 let start = caddr.raw_value() as usize;
