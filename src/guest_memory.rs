@@ -185,15 +185,21 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
 /// - handle cases where an access request spanning two or more GuestMemoryRegion objects.
 ///
 /// Note: all regions in a GuestMemory object must not intersect with each other.
-pub trait GuestMemory {
-    /// Type of objects hosted by the address space.
-    type R: GuestMemoryRegion;
+pub trait GuestMemory<'a> {
+    /// Type of objects hosted by the collection.
+    type R: 'a + GuestMemoryRegion;
+
+    /// Type of the iter() method's return value.
+    type I: Iterator<Item = &'a Self::R>;
 
     /// Returns the number of regions in the collection.
     fn num_regions(&self) -> usize;
 
     /// Return the region containing the specified address or None.
     fn find_region(&self, addr: GuestAddress) -> Option<&Self::R>;
+
+    /// Gets an iterator over the entries in the collection.
+    fn iter(&'a self) -> Self::I;
 
     /// Perform the specified action on each region.
     /// It only walks children of current region and do not step into sub regions.
@@ -322,7 +328,7 @@ pub trait GuestMemory {
     }
 }
 
-impl<T: GuestMemory> Bytes<GuestAddress> for T {
+impl<'a, T: GuestMemory<'a>> Bytes<GuestAddress> for T {
     type E = Error;
 
     fn write(&self, buf: &[u8], addr: GuestAddress) -> Result<usize> {
