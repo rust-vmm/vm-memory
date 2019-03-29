@@ -182,8 +182,8 @@ impl GuestRegionMmap {
         }
     }
 
-    /// Convert an absolute address into an address space (GuestMemory)
-    /// to a host pointer, or return None if it is out of bounds.
+    /// Convert an absolute address in an address space (GuestMemory) to a host pointer,
+    /// or return None if it is out of bounds.
     pub fn get_host_address(&self, addr: MemoryRegionAddress) -> Option<*mut u8> {
         // Not sure why wrapping_offset is not unsafe.  Anyway this
         // is safe because we've just range-checked addr using check_address.
@@ -209,7 +209,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// ```
     /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    /// # let mut gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
     ///   let res = gm.write(&[1,2,3,4,5], GuestAddress(0x1200)).unwrap();
     ///   assert_eq!(5, res);
     /// ```
@@ -226,7 +226,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// ```
     /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    /// # let mut gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
     ///   let buf = &mut [0u8; 16];
     ///   let res = gm.read(buf, GuestAddress(0x1200)).unwrap();
     ///   assert_eq!(16, res);
@@ -238,6 +238,15 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
             .map_err(Into::into)
     }
 
+    /// # Examples
+    /// * Write a slice at guest address 0x1200.
+    ///
+    /// ```
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    /// # let start_addr = GuestAddress(0x1000);
+    /// # let mut gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
+    ///   let _ = gm.write_slice(&[1,2,3,4,5], GuestAddress(0x1200)).unwrap();
+    /// ```
     fn write_slice(&self, buf: &[u8], addr: MemoryRegionAddress) -> Result<()> {
         let maddr = addr.raw_value() as usize;
         self.as_volatile_slice()
@@ -245,6 +254,16 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
             .map_err(Into::into)
     }
 
+    /// # Examples
+    /// * Read a slice of length 16 at guestaddress 0x1200.
+    ///
+    /// ```
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    /// # let start_addr = GuestAddress(0x1000);
+    /// # let mut gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
+    ///   let buf = &mut [0u8; 16];
+    ///   let _ = gm.read_slice(buf, GuestAddress(0x1200)).unwrap();
+    /// ```
     fn read_slice(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> Result<()> {
         let maddr = addr.raw_value() as usize;
         self.as_volatile_slice()
@@ -261,10 +280,11 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    /// # let gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
     ///   let mut file = File::open(Path::new("/dev/urandom")).unwrap();
     ///   let addr = GuestAddress(0x1010);
-    ///   gm.read_from(addr, &mut file, 128).unwrap();
+    ///   let len = gm.read_from(addr, &mut file, 128).unwrap();
+    ///   assert_eq!(len, 128);
     ///   let read_addr = addr.checked_add(8).unwrap();
     ///   let _: u32 = gm.read_obj(read_addr).unwrap();
     /// ```
@@ -287,7 +307,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    /// # let gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
     ///   let mut file = File::open(Path::new("/dev/urandom")).unwrap();
     ///   let addr = GuestAddress(0x1010);
     ///   gm.read_exact_from(addr, &mut file, 128).unwrap();
@@ -314,7 +334,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::OpenOptions;
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    /// # let gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
     ///   let mut file = OpenOptions::new().write(true).open("/dev/null").unwrap();
     ///   let mut mem = [0u8; 1024];
     ///   gm.write_to(start_addr, &mut file, 128).unwrap();
@@ -339,7 +359,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::OpenOptions;
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    /// # let gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
     ///   let mut file = OpenOptions::new().write(true).open("/dev/null").unwrap();
     ///   let mut mem = [0u8; 1024];
     ///   gm.write_all_to(start_addr, &mut file, 128).unwrap();
@@ -434,8 +454,8 @@ impl GuestMemoryMmap {
         })
     }
 
-    /// Convert an absolute address into an address space (GuestMemory)
-    /// to a host pointer, or return None if it is out of bounds.
+    /// Convert an absolute address in an address space (GuestMemory) to a host pointer,
+    /// or return None if it is out of bounds.
     pub fn get_host_address(&self, addr: GuestAddress) -> Option<*mut u8> {
         self.to_region_addr(addr)
             .and_then(|(r, addr)| r.get_host_address(addr))

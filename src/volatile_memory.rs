@@ -161,6 +161,7 @@ struct Packed<T>(T);
 pub struct VolatileSlice<'a> {
     addr: *mut u8,
     size: usize,
+    // Indicate that any references are valid over the lifetime 'a
     phantom: PhantomData<&'a u8>,
 }
 
