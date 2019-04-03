@@ -912,7 +912,11 @@ mod tests {
         let a = VecMem::new(5);
         let s = a.as_volatile_slice();
         assert!(s.write_obj(!0u32, 1).is_ok());
-        let mut file = File::open(Path::new("/dev/zero")).unwrap();
+        let mut file = if cfg!(unix) {
+            File::open(Path::new("/dev/zero")).unwrap()
+        } else {
+            File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
+        };
         assert!(s.read_exact_from(2, &mut file, size_of::<u32>()).is_err());
         assert!(s
             .read_exact_from(core::usize::MAX, &mut file, size_of::<u32>())
@@ -924,7 +928,12 @@ mod tests {
         assert!(s.read_exact_from(1, &mut f, size_of::<u32>()).is_err());
         format!("{:?}", s.read_exact_from(1, &mut f, size_of::<u32>()));
 
-        assert_eq!(s.read_obj::<u32>(1).unwrap(), 0);
+        let value = s.read_obj::<u32>(1).unwrap();
+        if cfg!(unix) {
+            assert_eq!(value, 0);
+        } else {
+            assert_eq!(value, 0x0090_5a4d);
+        }
 
         let mut sink = Vec::new();
         assert!(s.write_all_to(1, &mut sink, size_of::<u32>()).is_ok());
@@ -933,7 +942,11 @@ mod tests {
             .write_all_to(core::usize::MAX, &mut sink, size_of::<u32>())
             .is_err());
         format!("{:?}", s.write_all_to(2, &mut sink, size_of::<u32>()));
-        assert_eq!(sink, vec![0; size_of::<u32>()]);
+        if cfg!(unix) {
+            assert_eq!(sink, vec![0; size_of::<u32>()]);
+        } else {
+            assert_eq!(sink, vec![0x4d, 0x5a, 0x90, 0x00]);
+        };
     }
 
     #[test]
