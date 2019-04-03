@@ -20,27 +20,27 @@
 //! - [GuestMemoryMmap](struct.GuestMemoryMmap.html): provides methods to access a collection of
 //! GuestRegionMmap objects.
 
-use libc;
 use std::io::{self, Read, Write};
 use std::ops::Deref;
-use std::os::unix::io::AsRawFd;
-use std::ptr::null_mut;
 use std::sync::Arc;
 
 use address::Address;
 use guest_memory::*;
-use volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
+use volatile_memory::VolatileMemory;
 use Bytes;
 
-/// A backend driver to access guest's physical memory by mmapping guest's memory into the current
-/// process.
-/// For a combination of 32-bit hypervisor and 64-bit virtual machine, only partial of guest's
-/// physical memory may be mapped into current process due to limited process virtual address
-/// space size.
-#[derive(Debug)]
-pub struct MmapRegion {
-    addr: *mut u8,
-    size: usize,
+#[cfg(unix)]
+pub use mmap_unix::MmapRegion;
+
+#[cfg(windows)]
+pub use mmap_windows::MmapRegion;
+
+// For MmapRegion
+pub(crate) trait AsSlice {
+    unsafe fn as_slice(&self) -> &[u8];
+
+    #[allow(clippy::mut_from_ref)]
+    unsafe fn as_mut_slice(&self) -> &mut [u8];
 }
 
 /// Errors that can happen when creating a memory map
@@ -52,116 +52,6 @@ pub enum MmapError {
     NoMemoryRegion,
     /// Some of the memory regions intersect with each other.
     MemoryRegionOverlap,
-}
-
-// Send and Sync aren't automatically inherited for the raw address pointer.
-// Accessing that pointer is only done through the stateless interface which
-// allows the object to be shared by multiple threads without a decrease in
-// safety.
-unsafe impl Send for MmapRegion {}
-unsafe impl Sync for MmapRegion {}
-
-impl MmapRegion {
-    /// Creates an anonymous shared mapping of `size` bytes.
-    ///
-    /// # Arguments
-    /// * `size` - Size of memory region in bytes.
-    pub fn new(size: usize) -> io::Result<Self> {
-        // This is safe because we are creating an anonymous mapping in a place not already used by
-        // any other area in this process.
-        let addr = unsafe {
-            libc::mmap(
-                null_mut(),
-                size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_ANONYMOUS | libc::MAP_SHARED | libc::MAP_NORESERVE,
-                -1,
-                0,
-            )
-        };
-        if addr == libc::MAP_FAILED {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(Self {
-            addr: addr as *mut u8,
-            size,
-        })
-    }
-
-    /// Maps the `size` bytes starting at `offset` bytes of the given `fd`.
-    ///
-    /// # Arguments
-    /// * `fd` - File descriptor to mmap from.
-    /// * `size` - Size of memory region in bytes.
-    /// * `offset` - Offset in bytes from the beginning of `fd` to start the mmap.
-    pub fn from_fd(fd: &AsRawFd, size: usize, offset: libc::off_t) -> io::Result<Self> {
-        // This is safe because we are creating a mapping in a place not already used by any other
-        // area in this process.
-        let addr = unsafe {
-            libc::mmap(
-                null_mut(),
-                size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED,
-                fd.as_raw_fd(),
-                offset,
-            )
-        };
-        if addr == libc::MAP_FAILED {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(Self {
-            addr: addr as *mut u8,
-            size,
-        })
-    }
-
-    /// Returns a pointer to the beginning of the memory region.  Should only be
-    /// used for passing this region to ioctls for setting guest memory.
-    pub fn as_ptr(&self) -> *mut u8 {
-        self.addr
-    }
-
-    unsafe fn as_slice(&self) -> &[u8] {
-        // This is safe because we mapped the area at addr ourselves, so this slice will not
-        // overflow. However, it is possible to alias.
-        std::slice::from_raw_parts(self.addr, self.size)
-    }
-
-    // safe because it's expected interior mutability
-    #[allow(clippy::mut_from_ref)]
-    unsafe fn as_mut_slice(&self) -> &mut [u8] {
-        // This is safe because we mapped the area at addr ourselves, so this slice will not
-        // overflow. However, it is possible to alias.
-        std::slice::from_raw_parts_mut(self.addr, self.size)
-    }
-}
-
-impl VolatileMemory for MmapRegion {
-    fn len(&self) -> usize {
-        self.size
-    }
-
-    fn get_slice(&self, offset: usize, count: usize) -> volatile_memory::Result<VolatileSlice> {
-        let end = compute_offset(offset, count)?;
-        if end > self.size {
-            return Err(volatile_memory::Error::OutOfBounds { addr: end });
-        }
-
-        // Safe because we checked that offset + count was within our range and we only ever hand
-        // out volatile accessors.
-        Ok(unsafe { VolatileSlice::new((self.addr as usize + offset) as *mut _, count) })
-    }
-}
-
-impl Drop for MmapRegion {
-    fn drop(&mut self) {
-        // This is safe because we mmap the area at addr ourselves, and nobody
-        // else is holding a reference to it.
-        unsafe {
-            libc::munmap(self.addr as *mut libc::c_void, self.size);
-        }
-    }
 }
 
 /// Tracks a mapping of memory in the current process and the corresponding base address
@@ -262,7 +152,11 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// # use std::path::Path;
     /// # let start_addr = GuestAddress(0x1000);
     /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
-    ///   let mut file = File::open(Path::new("/dev/urandom")).unwrap();
+    ///   let mut file = if cfg!(unix) {
+    ///       File::open(Path::new("/dev/urandom")).unwrap()
+    ///   } else {
+    ///       File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
+    ///   };
     ///   let addr = GuestAddress(0x1010);
     ///   gm.read_from(addr, &mut file, 128).unwrap();
     ///   let read_addr = addr.checked_add(8).unwrap();
@@ -283,12 +177,18 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// * Read bytes from /dev/urandom
     ///
     /// ```
+    /// # extern crate tempfile;
+    /// # use self::tempfile::tempfile;
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # let start_addr = GuestAddress(0x1000);
     /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
-    ///   let mut file = File::open(Path::new("/dev/urandom")).unwrap();
+    ///   let mut file = if cfg!(unix) {
+    ///       File::open(Path::new("/dev/urandom")).unwrap()
+    ///   } else {
+    ///       File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
+    ///   };
     ///   let addr = GuestAddress(0x1010);
     ///   gm.read_exact_from(addr, &mut file, 128).unwrap();
     ///   let read_addr = addr.checked_add(8).unwrap();
@@ -304,18 +204,20 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
             .map_err(Into::into)
     }
 
-    /// Reads data from the region to a writable object.
+    /// Writes data from the region to a writable object.
     ///
     /// # Examples
     ///
-    /// * Write 128 bytes to /dev/null
+    /// * Write 128 bytes to a temp file
     ///
     /// ```
+    /// # extern crate tempfile;
+    /// # use self::tempfile::tempfile;
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::OpenOptions;
     /// # let start_addr = GuestAddress(0x1000);
     /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
-    ///   let mut file = OpenOptions::new().write(true).open("/dev/null").unwrap();
+    ///   let mut file = tempfile().unwrap();
     ///   let mut mem = [0u8; 1024];
     ///   gm.write_to(start_addr, &mut file, 128).unwrap();
     /// ```
@@ -329,18 +231,20 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
             .map_err(Into::into)
     }
 
-    /// Reads data from the region to a writable object.
+    /// Writes data from the region to a writable object.
     ///
     /// # Examples
     ///
-    /// * Write 128 bytes to /dev/null
+    /// * Write 128 bytes to a temp file
     ///
     /// ```
+    /// # extern crate tempfile;
+    /// # use self::tempfile::tempfile;
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::OpenOptions;
     /// # let start_addr = GuestAddress(0x1000);
     /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
-    ///   let mut file = OpenOptions::new().write(true).open("/dev/null").unwrap();
+    ///   let mut file = tempfile().unwrap();
     ///   let mut mem = [0u8; 1024];
     ///   gm.write_all_to(start_addr, &mut file, 128).unwrap();
     /// ```
@@ -495,7 +399,6 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::mem;
-    use std::os::unix::io::FromRawFd;
     use std::path::Path;
 
     use Bytes;
@@ -510,13 +413,6 @@ mod tests {
     fn map_invalid_size() {
         let e = MmapRegion::new(0).unwrap_err();
         assert_eq!(e.raw_os_error(), Some(libc::EINVAL));
-    }
-
-    #[test]
-    fn map_invalid_fd() {
-        let fd = unsafe { std::fs::File::from_raw_fd(-1) };
-        let e = MmapRegion::from_fd(&fd, 1024, 0).unwrap_err();
-        assert_eq!(e.raw_os_error(), Some(libc::EBADF));
     }
 
     #[test]
@@ -720,20 +616,29 @@ mod tests {
     fn read_to_and_write_from_mem() {
         let gm = GuestMemoryMmap::new(&[(GuestAddress(0x1000), 0x400)]).unwrap();
         let addr = GuestAddress(0x1010);
+        let mut file = if cfg!(unix) {
+            File::open(Path::new("/dev/zero")).unwrap()
+        } else {
+            File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
+        };
         gm.write_obj(!0u32, addr).unwrap();
-        gm.read_exact_from(
-            addr,
-            &mut File::open(Path::new("/dev/zero")).unwrap(),
-            mem::size_of::<u32>(),
-        )
-        .unwrap();
+        gm.read_exact_from(addr, &mut file, mem::size_of::<u32>())
+            .unwrap();
         let value: u32 = gm.read_obj(addr).unwrap();
-        assert_eq!(value, 0);
+        if cfg!(unix) {
+            assert_eq!(value, 0);
+        } else {
+            assert_eq!(value, 0x0090_5a4d);
+        }
 
         let mut sink = Vec::new();
         gm.write_all_to(addr, &mut sink, mem::size_of::<u32>())
             .unwrap();
-        assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
+        if cfg!(unix) {
+            assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
+        } else {
+            assert_eq!(sink, vec![0x4d, 0x5a, 0x90, 0x00]);
+        };
     }
 
     #[test]

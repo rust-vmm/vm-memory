@@ -5,7 +5,7 @@ For a typical hypervisor, there are seveval components, such as boot loader, vir
 
 ## Platform Support
 - Arch: x86, AMD64, ARM64
-- OS: Linux/Unix
+- OS: Linux/Unix/Windows
 
 ## Usage
 First, add the following to your `Cargo.toml`:

@@ -39,6 +39,12 @@ pub use guest_memory::{
     MemoryRegionAddress, Result as GuestMemoryResult,
 };
 
+#[cfg(all(feature = "backend-mmap", unix))]
+mod mmap_unix;
+
+#[cfg(all(feature = "backend-mmap", windows))]
+mod mmap_windows;
+
 #[cfg(feature = "backend-mmap")]
 pub mod mmap;
 #[cfg(feature = "backend-mmap")]
