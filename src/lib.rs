@@ -42,7 +42,7 @@ pub use guest_memory::{
 #[cfg(feature = "backend-mmap")]
 pub mod mmap;
 #[cfg(feature = "backend-mmap")]
-pub use mmap::{GuestMemoryMmap, GuestRegionMmap, MmapRegion};
+pub use mmap::{GuestMemoryMmap, GuestRegionMmap, MmapError, MmapRegion};
 
 pub mod volatile_memory;
 pub use volatile_memory::{
