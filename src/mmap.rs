@@ -181,15 +181,6 @@ impl GuestRegionMmap {
             guest_base,
         }
     }
-
-    /// Convert an absolute address in an address space (GuestMemory) to a host pointer,
-    /// or return None if it is out of bounds.
-    pub fn get_host_address(&self, addr: MemoryRegionAddress) -> Option<*mut u8> {
-        // Not sure why wrapping_offset is not unsafe.  Anyway this
-        // is safe because we've just range-checked addr using check_address.
-        self.check_address(addr)
-            .map(|addr| self.as_ptr().wrapping_offset(addr.raw_value() as isize))
-    }
 }
 
 impl Deref for GuestRegionMmap {
@@ -376,6 +367,8 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
 }
 
 impl GuestMemoryRegion for GuestRegionMmap {
+    const DIRECT_ACCESS: bool = true;
+
     fn len(&self) -> GuestUsize {
         self.mapping.len() as GuestUsize
     }
@@ -390,6 +383,13 @@ impl GuestMemoryRegion for GuestRegionMmap {
 
     unsafe fn as_mut_slice(&self) -> Option<&mut [u8]> {
         Some(self.mapping.as_mut_slice())
+    }
+
+    fn get_host_address(&self, addr: MemoryRegionAddress) -> Option<*mut u8> {
+        // Not sure why wrapping_offset is not unsafe.  Anyway this
+        // is safe because we've just range-checked addr using check_address.
+        self.check_address(addr)
+            .map(|addr| self.as_ptr().wrapping_offset(addr.raw_value() as isize))
     }
 }
 
@@ -453,13 +453,6 @@ impl GuestMemoryMmap {
             regions: Arc::new(ranges),
         })
     }
-
-    /// Convert an absolute address in an address space (GuestMemory) to a host pointer,
-    /// or return None if it is out of bounds.
-    pub fn get_host_address(&self, addr: GuestAddress) -> Option<*mut u8> {
-        self.to_region_addr(addr)
-            .and_then(|(r, addr)| r.get_host_address(addr))
-    }
 }
 
 impl<'a> GuestMemory<'a> for GuestMemoryMmap {
@@ -490,6 +483,11 @@ impl<'a> GuestMemory<'a> for GuestMemoryMmap {
             .iter()
             .max_by_key(|x| x.start_addr())
             .map_or_else(|| GuestAddress(0), |x| x.end_addr())
+    }
+
+    fn get_host_address(&self, addr: GuestAddress) -> Option<*mut u8> {
+        self.to_region_addr(addr)
+            .and_then(|(r, addr)| r.get_host_address(addr))
     }
 }
 

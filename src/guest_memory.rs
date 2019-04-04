@@ -116,6 +116,9 @@ pub type GuestUsize = <GuestAddress as AddressValue>::V;
 /// Represents a continuous region of guest physical memory.
 #[allow(clippy::len_without_is_empty)]
 pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
+    /// True if the guest memory is mapped into the current process and supports direct access.
+    const DIRECT_ACCESS: bool;
+
     /// Get the size of the region.
     fn len(&self) -> GuestUsize;
 
@@ -175,6 +178,11 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     unsafe fn as_mut_slice(&self) -> Option<&mut [u8]> {
         None
     }
+
+    /// Convert an absolute address in an address space (GuestMemory) to a host pointer,
+    /// or return None if it is out of bounds. It always returns None when `DIRECT_ACCESS` is false.
+    /// The returned pointer may be used for ioctls etc.
+    fn get_host_address(&self, addr: MemoryRegionAddress) -> Option<*mut u8>;
 }
 
 /// Represents a container for a collection of GuestMemoryRegion objects.
@@ -186,6 +194,9 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
 ///
 /// Note: all regions in a GuestMemory object must not intersect with each other.
 pub trait GuestMemory<'a> {
+    /// True if the guest memory is mapped into the current process and supports direct access.
+    const DIRECT_ACCESS: bool = Self::R::DIRECT_ACCESS;
+
     /// Type of objects hosted by the collection.
     type R: 'a + GuestMemoryRegion;
 
@@ -271,6 +282,11 @@ pub trait GuestMemory<'a> {
             Ok(total)
         }
     }
+
+    /// Convert an absolute address in an address space (GuestMemory) to a host pointer,
+    /// or return None if it is out of bounds. It always returns None when `DIRECT_ACCESS` is false.
+    /// The returned pointer may be used for ioctls etc.
+    fn get_host_address(&self, addr: GuestAddress) -> Option<*mut u8>;
 }
 
 impl<'a, T: GuestMemory<'a>> Bytes<GuestAddress> for T {
