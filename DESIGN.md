@@ -5,14 +5,14 @@ For a typical hypervisor, there are seveval components, such as boot loader, vir
 - Define consumer side interfaces to access VM's physical memory.
 - Do not define provider side interfaces to supply VM physical memory.
 
-The `vm-memory` crate focuses on defining consumer side interfaces to access VM's physical memory, and it dosen't define the way how the underline VM memory provider is implemented. For light-wieght hypervisors like crosvm and firecracker, they may make some assumptions about the structure of VM's physical memory and implement a light-weight backend to access VM's physical memory. For hypervisors like qemu, a high performance and full functionality backend may be implemented with less assumptions.
+The `vm-memory` crate focuses on defining consumer side interfaces to access VM's physical memory, and it doesn't define how the underlying VM memory provider is implemented. For light-weight hypervisors like crosvm and firecracker, they may make some assumptions about the structure of VM's physical memory and implement a light-weight backend to access VM's physical memory. For hypervisors like qemu, a high performance and full functionality backend may be implemented with less assumptions.
 
 ## Architecture
 Th `vm-memory` is derived from two upstream projects:
 - [crosvm project](https://chromium.googlesource.com/chromiumos/platform/crosvm/) commit 186eb8b0db644892e8ffba8344efe3492bb2b823
 - [firecracker project](https://firecracker-microvm.github.io/) commit 80128ea61b305a27df1f751d70415b04b503eae7
 
-To be hypervisor neutral, the high level abstraction has been heavily refactored. The new `vm-memory` crate could be divided into four logic parts as:
+To be hypervisor neutral, the high level abstraction has been heavily refactored. The new `vm-memory` crate could be divided into four logical parts as:
 
 ### Abstraction of Generic Address Space
 Build generic abstractions to describe and access an address space as below:
