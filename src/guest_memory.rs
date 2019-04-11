@@ -193,7 +193,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
 /// - handle cases where an access request spanning two or more GuestMemoryRegion objects.
 ///
 /// Note: all regions in a GuestMemory object must not intersect with each other.
-pub trait GuestMemory<'a> {
+pub trait GuestMemory<'a>: Clone {
     /// True if the guest memory is mapped into the current process and supports direct access.
     const DIRECT_ACCESS: bool = Self::R::DIRECT_ACCESS;
 
