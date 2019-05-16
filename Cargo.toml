@@ -11,6 +11,7 @@ backend-mmap = []
 
 [dependencies]
 libc = ">=0.2.39"
+cast = ">=0"
 
 [dev-dependencies]
 matches = ">=0"

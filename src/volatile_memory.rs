@@ -32,6 +32,9 @@ use std::result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::usize;
 
+// TODO: replace with TryFrom once we can assume 1.34.0.
+extern crate cast;
+
 use bytes::{ByteValued, Bytes};
 
 /// VolatileMemory related error codes
@@ -42,6 +45,8 @@ pub enum Error {
     OutOfBounds { addr: usize },
     /// Taking a slice at `base` with `offset` would overflow `usize`.
     Overflow { base: usize, offset: usize },
+    /// Taking a slice whose size overflows `usize`.
+    TooBig { nelements: usize, size: usize },
     /// Writing to memory failed
     IOError(io::Error),
     /// Incomplete read or write
@@ -56,6 +61,11 @@ impl fmt::Display for Error {
                 f,
                 "address 0x{:x} offset by 0x{:x} would overflow",
                 base, offset
+            ),
+            Error::TooBig { nelements, size } => write!(
+                f,
+                "{:?} elements of size {:?} would overflow a usize",
+                nelements, size
             ),
             Error::IOError(error) => write!(f, "{}", error),
             Error::PartialBuffer {
@@ -122,6 +132,24 @@ pub trait VolatileMemory {
             // This is safe because the pointer is range-checked by get_slice, and
             // the lifetime is the same as self.
             Ok(VolatileRef::<T>::new(slice.addr))
+        }
+    }
+
+    /// Gets a `VolatileArrayRef` for `n` elements starting at `offset`.
+    fn get_array_ref<T: ByteValued>(&self, offset: usize, n: usize) -> Result<VolatileArrayRef<T>> {
+        // Use isize to avoid problems with ptr::offset and ptr::add down the line.
+        let nbytes = cast::isize(n)
+            .ok()
+            .and_then(|n| n.checked_mul(size_of::<T>() as isize))
+            .ok_or(Error::TooBig {
+                nelements: n,
+                size: size_of::<T>(),
+            })?;
+        let slice = self.get_slice(offset, nbytes as usize)?;
+        unsafe {
+            // This is safe because the pointer is range-checked by get_slice, and
+            // the lifetime is the same as self.
+            Ok(VolatileArrayRef::<T>::new(slice.addr, n))
         }
     }
 
@@ -241,16 +269,9 @@ impl<'a> VolatileSlice<'a> {
     where
         T: ByteValued,
     {
-        let mut addr = self.addr;
-        let mut i = 0;
-        for v in buf.iter_mut().take(self.size / size_of::<T>()) {
-            unsafe {
-                *v = read_volatile(addr as *const Packed<T>).0;
-                addr = addr.add(size_of::<T>());
-            };
-            i += 1;
-        }
-        i
+        let count = self.size / size_of::<T>();
+        let source = self.get_array_ref::<T>(0, count).unwrap();
+        source.copy_to(buf)
     }
 
     /// Copies `self.len()` or `slice.len()` bytes, whichever is smaller, to `slice`.
@@ -305,15 +326,9 @@ impl<'a> VolatileSlice<'a> {
     where
         T: ByteValued,
     {
-        let mut addr = self.addr;
-        for &v in buf.iter().take(self.size / size_of::<T>()) {
-            unsafe {
-                // Safe because the pointers are range-checked when the slices
-                // are created, and they never escape the VolatileSlices.
-                write_volatile(addr as *mut Packed<T>, Packed::<T>(v));
-                addr = addr.add(size_of::<T>());
-            }
-        }
+        let count = self.size / size_of::<T>();
+        let dest = self.get_array_ref::<T>(0, count).unwrap();
+        dest.copy_from(buf)
     }
 
     // These function are private and only used for the read/write functions. It is not valid in
@@ -671,6 +686,231 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
     }
 }
 
+/// A memory location that supports volatile access of an array of `T`.
+///
+/// # Examples
+///
+/// ```
+/// # use vm_memory::VolatileRef;
+///   let mut v = 5u32;
+///   assert_eq!(v, 5);
+///   let v_ref = unsafe { VolatileRef::<u32>::new(&mut v as *mut u32 as *mut u8) };
+///   assert_eq!(v_ref.load(), 5);
+///   v_ref.store(500);
+///   assert_eq!(v, 500);
+#[derive(Clone, Copy, Debug)]
+pub struct VolatileArrayRef<'a, T: ByteValued>
+where
+    T: 'a,
+{
+    addr: *mut u8,
+    nelem: usize,
+    phantom: PhantomData<&'a T>,
+}
+
+impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
+    /// Creates a reference to raw memory that must support volatile access of `T` sized chunks.
+    ///
+    /// To use this safely, the caller must guarantee that the memory at `addr` is big enough for
+    /// `nelem` values of type `T` and is available for the duration of the lifetime of the new
+    /// `VolatileRef`. The caller must also guarantee that all other users of the given chunk of
+    /// memory are using volatile accesses.
+    pub unsafe fn new(addr: *mut u8, nelem: usize) -> VolatileArrayRef<'a, T> {
+        VolatileArrayRef {
+            addr,
+            nelem,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Returns whether this slice is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use vm_memory::{VolatileRef, VolatileArrayRef};
+    ///   let v_array = unsafe { VolatileArrayRef::<u32>::new(0 as *mut _, 0) };
+    ///   assert!(v_array.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        self.nelem == 0
+    }
+
+    /// Gets the size of this slice.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use vm_memory::{VolatileRef, VolatileArrayRef};
+    ///   let v_array = unsafe { VolatileArrayRef::<u32>::new(0 as *mut _, 1) };
+    ///   assert_eq!(v_array.len(), 1);
+    /// ```
+    pub fn len(&self) -> usize {
+        self.nelem
+    }
+
+    /// Gets the element size of this slice.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use std::mem::size_of;
+    /// # use vm_memory::VolatileRef;
+    ///   let v_ref = unsafe { VolatileRef::<u32>::new(0 as *mut _) };
+    ///   assert_eq!(v_ref.len(), size_of::<u32>() as usize);
+    /// ```
+    pub fn element_size(&self) -> usize {
+        size_of::<T>()
+    }
+
+    /// Gets the address of this slice's memory.
+    pub fn as_ptr(&self) -> *mut u8 {
+        self.addr
+    }
+
+    /// Converts this `T` reference to a raw slice with the same size and address.
+    pub fn to_slice(&self) -> VolatileSlice<'a> {
+        unsafe { VolatileSlice::new(self.addr, self.nelem * self.element_size()) }
+    }
+
+    /// Does a volatile read of the I-th value pointed to by this ref.
+    pub fn ref_at(&self, index: usize) -> VolatileRef<'a, T> {
+        assert!(index < self.nelem);
+        // Safe because the memory has the same lifetime and points to a subset of the
+        // memory of the VolatileArrayRef.
+        unsafe {
+            // byteofs must fit in an isize as it was checked in get_array_ref.
+            let byteofs = (self.element_size() * index) as isize;
+            let ptr = self.as_ptr().offset(byteofs);
+            VolatileRef::new(ptr)
+        }
+    }
+
+    /// Does a volatile read of the I-th value pointed to by this ref.
+    pub fn load(&self, index: usize) -> T {
+        self.ref_at(index).load()
+    }
+
+    /// Does a volatile write of the I-th value pointed to by this ref.
+    pub fn store(&self, index: usize, value: T) {
+        self.ref_at(index).store(value)
+    }
+
+    /// Copies `self.len()` or `buf.len()` times the size of `T` bytes, whichever is smaller, to
+    /// `buf`.
+    ///
+    /// The copy happens from smallest to largest address in `T` sized chunks using volatile reads.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use std::fs::File;
+    /// # use std::path::Path;
+    /// # use vm_memory::VolatileMemory;
+    /// # fn test_write_null() -> Result<(), ()> {
+    /// let mut mem = [0u8; 32];
+    /// let mem_ref = &mut mem[..];
+    /// let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
+    /// let mut buf = [5u8; 16];
+    /// vslice.copy_to(&mut buf[..]);
+    /// for v in &buf[..] {
+    ///     assert_eq!(buf[0], 0);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn copy_to(&self, buf: &mut [T]) -> usize {
+        let mut addr = self.addr;
+        let mut i = 0;
+        for v in buf.iter_mut().take(self.len()) {
+            unsafe {
+                // read_volatile is safe because the pointers are range-checked when
+                // the slices are created, and they never escape the VolatileSlices.
+                // ptr::add is safe because get_array_ref() validated that
+                // size_of::<T>() * self.len() fits in an isize.
+                *v = read_volatile(addr as *const Packed<T>).0;
+                addr = addr.add(self.element_size());
+            };
+            i += 1;
+        }
+        i
+    }
+
+    /// Copies `self.len()` or `slice.len()` bytes, whichever is smaller, to `slice`.
+    ///
+    /// The copies happen in an undefined order.
+    /// # Examples
+    ///
+    /// ```
+    /// # use vm_memory::VolatileMemory;
+    /// # fn test_write_null() -> Result<(), ()> {
+    /// let mut mem = [0u8; 32];
+    /// let mem_ref = &mut mem[..];
+    /// let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
+    /// vslice.copy_to_volatile_slice(vslice.get_slice(16, 16).map_err(|_| ())?);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn copy_to_volatile_slice(&self, slice: VolatileSlice) {
+        unsafe {
+            // Safe because the pointers are range-checked when the slices
+            // are created, and they never escape the VolatileSlices.
+            // FIXME: ... however, is it really okay to mix non-volatile
+            // operations such as copy with read_volatile and write_volatile?
+            copy(
+                self.addr,
+                slice.addr,
+                min(self.len() * self.element_size(), slice.size),
+            );
+        }
+    }
+
+    /// Copies `self.len()` or `buf.len()` times the size of `T` bytes, whichever is smaller, to
+    /// this slice's memory.
+    ///
+    /// The copy happens from smallest to largest address in `T` sized chunks using volatile writes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use std::fs::File;
+    /// # use std::path::Path;
+    /// # use vm_memory::VolatileMemory;
+    /// # fn test_write_null() -> Result<(), ()> {
+    /// let mut mem = [0u8; 32];
+    /// let mem_ref = &mut mem[..];
+    /// let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
+    /// let buf = [5u8; 64];
+    /// vslice.copy_from(&buf[..]);
+    /// for i in 0..4 {
+    ///     assert_eq!(vslice.get_ref::<u32>(i * 4).map_err(|_| ())?.load(), 0x05050505);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn copy_from(&self, buf: &[T]) {
+        let mut addr = self.addr;
+        for &v in buf.iter().take(self.len()) {
+            unsafe {
+                // write_volatile is safe because the pointers are range-checked when
+                // the slices are created, and they never escape the VolatileSlices.
+                // ptr::add is safe because get_array_ref() validated that
+                // size_of::<T>() * self.len() fits in an isize.
+                write_volatile(addr as *mut Packed<T>, Packed::<T>(v));
+                addr = addr.add(self.element_size());
+            }
+        }
+    }
+}
+
+impl<'a> From<VolatileSlice<'a>> for VolatileArrayRef<'a, u8> {
+    fn from(slice: VolatileSlice<'a>) -> Self {
+        // Safe because the result has the same lifetime and points to the same
+        // memory as the incoming VolatileSlice.
+        unsafe { VolatileArrayRef::new(slice.as_ptr(), slice.len()) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     extern crate tempfile;
@@ -811,6 +1051,35 @@ mod tests {
 
         let s = a.get_slice(34, 0).unwrap();
         assert!(s.is_empty());
+    }
+
+    #[test]
+    fn slice_copy_to() {
+        let mut a = [2, 4, 6, 8, 10];
+        let mut b = [0u8; 4];
+        let mut c = [0u8; 6];
+        let a_ref = &mut a[..];
+        let v_ref = a_ref.get_slice(0, a_ref.len()).unwrap();
+        v_ref.copy_to(&mut b[..]);
+        v_ref.copy_to(&mut c[..]);
+        assert_eq!(b[0..4], a_ref[0..4]);
+        assert_eq!(c[0..5], a_ref[0..5]);
+    }
+
+    #[test]
+    fn slice_copy_from() {
+        let a = [2, 4, 6, 8, 10];
+        let mut b = [0u8; 4];
+        let mut c = [0u8; 6];
+        let b_ref = &mut b[..];
+        let v_ref = b_ref.get_slice(0, b_ref.len()).unwrap();
+        v_ref.copy_from(&a[..]);
+        assert_eq!(b_ref[0..4], a[0..4]);
+
+        let c_ref = &mut c[..];
+        let v_ref = c_ref.get_slice(0, c_ref.len()).unwrap();
+        v_ref.copy_from(&a[..]);
+        assert_eq!(c_ref[0..5], a[0..5]);
     }
 
     #[test]
@@ -963,5 +1232,39 @@ mod tests {
         let mut buf: [u8; 7] = Default::default();
         assert!(s.read_slice(&mut buf, 0).is_ok());
         assert_eq!(buf, sample_buf);
+    }
+
+    #[test]
+    fn ref_array_store() {
+        let mut a = [0u8; 5];
+        {
+            let a_ref = &mut a[..];
+            let v_ref = a_ref.get_array_ref(1, 4).unwrap();
+            v_ref.store(1, 2u8);
+            v_ref.store(2, 4u8);
+            v_ref.store(3, 6u8);
+        }
+        let expected = [2u8, 4u8, 6u8];
+        assert_eq!(a[2..=4], expected);
+    }
+
+    #[test]
+    fn ref_array_load() {
+        let mut a = [0, 0, 2, 3, 10];
+        {
+            let a_ref = &mut a[..];
+            let c = {
+                let v_ref = a_ref.get_array_ref::<u8>(1, 4).unwrap();
+                assert_eq!(v_ref.load(1), 2u8);
+                assert_eq!(v_ref.load(2), 3u8);
+                assert_eq!(v_ref.load(3), 10u8);
+                v_ref
+            };
+            // To make sure we can take a v_ref out of the scope we made it in:
+            c.load(0);
+            // but not too far:
+            // c
+        } //.load()
+        ;
     }
 }
