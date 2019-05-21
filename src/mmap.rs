@@ -20,8 +20,11 @@
 //! - [GuestMemoryMmap](struct.GuestMemoryMmap.html): provides methods to access a collection of
 //! GuestRegionMmap objects.
 
+use std::fs::File;
 use std::io::{self, Read, Write};
 use std::ops::Deref;
+use std::os::unix::io::AsRawFd;
+use std::os::unix::io::RawFd;
 use std::sync::Arc;
 
 use address::Address;
@@ -52,6 +55,8 @@ pub enum MmapError {
     NoMemoryRegion,
     /// Some of the memory regions intersect with each other.
     MemoryRegionOverlap,
+    /// Failed to clone shared file.
+    SharedFileClone(io::Error),
 }
 
 /// Tracks a mapping of memory in the current process and the corresponding base address
@@ -60,6 +65,8 @@ pub enum MmapError {
 pub struct GuestRegionMmap {
     mapping: MmapRegion,
     guest_base: GuestAddress,
+    file: Option<File>,
+    offset: Option<usize>,
 }
 
 impl GuestRegionMmap {
@@ -69,6 +76,8 @@ impl GuestRegionMmap {
         GuestRegionMmap {
             mapping,
             guest_base,
+            file: None,
+            offset: None,
         }
     }
 
@@ -268,6 +277,14 @@ impl GuestMemoryRegion for GuestRegionMmap {
         self.guest_base
     }
 
+    fn fd(&self) -> Option<RawFd> {
+        self.file.as_ref().map(AsRawFd::as_raw_fd)
+    }
+
+    fn fd_offset(&self) -> Option<usize> {
+        self.offset
+    }
+
     unsafe fn as_slice(&self) -> Option<&[u8]> {
         Some(self.mapping.as_slice())
     }
@@ -307,6 +324,48 @@ impl GuestMemoryMmap {
             regions.push(GuestRegionMmap {
                 mapping,
                 guest_base: range.0,
+                file: None,
+                offset: None,
+            });
+        }
+
+        Ok(Self {
+            regions: Arc::new(regions),
+        })
+    }
+
+    /// Creates a container and allocates shared memory backed by a file for
+    /// guest memory regions. Valid memory regions are specified as a Vec of
+    /// (Address, Size, File, Offset) tuples sorted by Address.
+    pub fn new_backed_by_file(
+        ranges: &[(GuestAddress, usize, File, usize)],
+    ) -> std::result::Result<Self, MmapError> {
+        if ranges.is_empty() {
+            return Err(MmapError::NoMemoryRegion);
+        }
+
+        let mut regions = Vec::<GuestRegionMmap>::new();
+        for range in ranges.iter() {
+            if let Some(last) = regions.last() {
+                if last
+                    .guest_base
+                    .checked_add(last.mapping.len() as GuestUsize)
+                    .map_or(true, |a| a > range.0)
+                {
+                    return Err(MmapError::MemoryRegionOverlap);
+                }
+            }
+
+            let file = range.2.try_clone().map_err(MmapError::SharedFileClone)?;
+
+            let mapping = MmapRegion::from_fd(&file, range.1, range.3 as libc::off_t)
+                .map_err(MmapError::SystemCallFailed)?;
+
+            regions.push(GuestRegionMmap {
+                mapping,
+                guest_base: range.0,
+                file: Some(file),
+                offset: Some(range.3),
             });
         }
 
@@ -444,94 +503,180 @@ mod tests {
             format!("{:?}", GuestMemoryMmap::new(&[]).err().unwrap()),
             format!("{:?}", MmapError::NoMemoryRegion)
         );
+        assert_eq!(
+            format!(
+                "{:?}",
+                GuestMemoryMmap::new_backed_by_file(&[]).err().unwrap()
+            ),
+            format!("{:?}", MmapError::NoMemoryRegion)
+        );
+
+        let f1 = tempfile().unwrap();
+        f1.set_len(0x400).unwrap();
+        let f2 = tempfile().unwrap();
+        f2.set_len(0x400).unwrap();
 
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
             GuestMemoryMmap::new(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        assert_eq!(guest_mem.num_regions(), 2);
-        assert_eq!(guest_mem.end_addr(), GuestAddress(0xbff));
-        assert!(guest_mem.find_region(GuestAddress(0x200)).is_some());
-        assert!(guest_mem.find_region(GuestAddress(0x600)).is_none());
-        assert!(guest_mem.find_region(GuestAddress(0xa00)).is_some());
-        assert!(guest_mem.find_region(GuestAddress(0xc00)).is_none());
+        let guest_mem_backed_by_file = GuestMemoryMmap::new_backed_by_file(&[
+            (start_addr1, 0x400, f1, 0),
+            (start_addr2, 0x400, f2, 0),
+        ])
+        .unwrap();
+
+        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        for guest_mem in guest_mem_list.iter() {
+            assert_eq!(guest_mem.num_regions(), 2);
+            assert_eq!(guest_mem.end_addr(), GuestAddress(0xbff));
+            assert!(guest_mem.find_region(GuestAddress(0x200)).is_some());
+            assert!(guest_mem.find_region(GuestAddress(0x600)).is_none());
+            assert!(guest_mem.find_region(GuestAddress(0xa00)).is_some());
+            assert!(guest_mem.find_region(GuestAddress(0xc00)).is_none());
+        }
     }
 
     #[test]
     fn test_address_in_range() {
+        let f1 = tempfile().unwrap();
+        f1.set_len(0x400).unwrap();
+        let f2 = tempfile().unwrap();
+        f2.set_len(0x400).unwrap();
+
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
             GuestMemoryMmap::new(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        assert!(guest_mem.address_in_range(GuestAddress(0x200)));
-        assert!(!guest_mem.address_in_range(GuestAddress(0x600)));
-        assert!(guest_mem.address_in_range(GuestAddress(0xa00)));
-        assert!(!guest_mem.address_in_range(GuestAddress(0xc00)));
+        let guest_mem_backed_by_file = GuestMemoryMmap::new_backed_by_file(&[
+            (start_addr1, 0x400, f1, 0),
+            (start_addr2, 0x400, f2, 0),
+        ])
+        .unwrap();
+
+        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        for guest_mem in guest_mem_list.iter() {
+            assert!(guest_mem.address_in_range(GuestAddress(0x200)));
+            assert!(!guest_mem.address_in_range(GuestAddress(0x600)));
+            assert!(guest_mem.address_in_range(GuestAddress(0xa00)));
+            assert!(!guest_mem.address_in_range(GuestAddress(0xc00)));
+        }
     }
 
     #[test]
     fn test_check_address() {
+        let f1 = tempfile().unwrap();
+        f1.set_len(0x400).unwrap();
+        let f2 = tempfile().unwrap();
+        f2.set_len(0x400).unwrap();
+
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
             GuestMemoryMmap::new(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        assert_eq!(
-            guest_mem.check_address(GuestAddress(0x200)),
-            Some(GuestAddress(0x200))
-        );
-        assert_eq!(guest_mem.check_address(GuestAddress(0x600)), None);
-        assert_eq!(
-            guest_mem.check_address(GuestAddress(0xa00)),
-            Some(GuestAddress(0xa00))
-        );
-        assert_eq!(guest_mem.check_address(GuestAddress(0xc00)), None);
+        let guest_mem_backed_by_file = GuestMemoryMmap::new_backed_by_file(&[
+            (start_addr1, 0x400, f1, 0),
+            (start_addr2, 0x400, f2, 0),
+        ])
+        .unwrap();
+
+        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        for guest_mem in guest_mem_list.iter() {
+            assert_eq!(
+                guest_mem.check_address(GuestAddress(0x200)),
+                Some(GuestAddress(0x200))
+            );
+            assert_eq!(guest_mem.check_address(GuestAddress(0x600)), None);
+            assert_eq!(
+                guest_mem.check_address(GuestAddress(0xa00)),
+                Some(GuestAddress(0xa00))
+            );
+            assert_eq!(guest_mem.check_address(GuestAddress(0xc00)), None);
+        }
     }
 
     #[test]
     fn test_to_region_addr() {
+        let f1 = tempfile().unwrap();
+        f1.set_len(0x400).unwrap();
+        let f2 = tempfile().unwrap();
+        f2.set_len(0x400).unwrap();
+
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
             GuestMemoryMmap::new(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        assert!(guest_mem.to_region_addr(GuestAddress(0x600)).is_none());
-        let (r0, addr0) = guest_mem.to_region_addr(GuestAddress(0x800)).unwrap();
-        let (r1, addr1) = guest_mem.to_region_addr(GuestAddress(0xa00)).unwrap();
-        assert!(r0.as_ptr() == r1.as_ptr());
-        assert_eq!(addr0, MemoryRegionAddress(0));
-        assert_eq!(addr1, MemoryRegionAddress(0x200));
+        let guest_mem_backed_by_file = GuestMemoryMmap::new_backed_by_file(&[
+            (start_addr1, 0x400, f1, 0),
+            (start_addr2, 0x400, f2, 0),
+        ])
+        .unwrap();
+
+        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        for guest_mem in guest_mem_list.iter() {
+            assert!(guest_mem.to_region_addr(GuestAddress(0x600)).is_none());
+            let (r0, addr0) = guest_mem.to_region_addr(GuestAddress(0x800)).unwrap();
+            let (r1, addr1) = guest_mem.to_region_addr(GuestAddress(0xa00)).unwrap();
+            assert!(r0.as_ptr() == r1.as_ptr());
+            assert_eq!(addr0, MemoryRegionAddress(0));
+            assert_eq!(addr1, MemoryRegionAddress(0x200));
+        }
     }
 
     #[test]
     fn test_get_host_address() {
+        let f1 = tempfile().unwrap();
+        f1.set_len(0x400).unwrap();
+        let f2 = tempfile().unwrap();
+        f2.set_len(0x400).unwrap();
+
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
             GuestMemoryMmap::new(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        assert!(guest_mem.get_host_address(GuestAddress(0x600)).is_none());
-        let ptr0 = guest_mem.get_host_address(GuestAddress(0x800)).unwrap();
-        let ptr1 = guest_mem.get_host_address(GuestAddress(0xa00)).unwrap();
-        assert_eq!(
-            ptr0,
-            guest_mem.find_region(GuestAddress(0x800)).unwrap().as_ptr()
-        );
-        assert_eq!(unsafe { ptr0.offset(0x200) }, ptr1);
+        let guest_mem_backed_by_file = GuestMemoryMmap::new_backed_by_file(&[
+            (start_addr1, 0x400, f1, 0),
+            (start_addr2, 0x400, f2, 0),
+        ])
+        .unwrap();
+
+        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        for guest_mem in guest_mem_list.iter() {
+            assert!(guest_mem.get_host_address(GuestAddress(0x600)).is_none());
+            let ptr0 = guest_mem.get_host_address(GuestAddress(0x800)).unwrap();
+            let ptr1 = guest_mem.get_host_address(GuestAddress(0xa00)).unwrap();
+            assert_eq!(
+                ptr0,
+                guest_mem.find_region(GuestAddress(0x800)).unwrap().as_ptr()
+            );
+            assert_eq!(unsafe { ptr0.offset(0x200) }, ptr1);
+        }
     }
 
     #[test]
     fn test_deref() {
+        let f = tempfile().unwrap();
+        f.set_len(0x400).unwrap();
+
         let start_addr = GuestAddress(0x0);
         let guest_mem = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
-        let sample_buf = &[1, 2, 3, 4, 5];
+        let guest_mem_backed_by_file =
+            GuestMemoryMmap::new_backed_by_file(&[(start_addr, 0x400, f, 0)]).unwrap();
 
-        assert_eq!(guest_mem.write(sample_buf, start_addr).unwrap(), 5);
-        let slice = guest_mem
-            .find_region(GuestAddress(0))
-            .unwrap()
-            .as_volatile_slice();
+        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        for guest_mem in guest_mem_list.iter() {
+            let sample_buf = &[1, 2, 3, 4, 5];
 
-        let buf = &mut [0, 0, 0, 0, 0];
-        assert_eq!(slice.read(buf, 0).unwrap(), 5);
-        assert_eq!(buf, sample_buf);
+            assert_eq!(guest_mem.write(sample_buf, start_addr).unwrap(), 5);
+            let slice = guest_mem
+                .find_region(GuestAddress(0))
+                .unwrap()
+                .as_volatile_slice();
+
+            let buf = &mut [0, 0, 0, 0, 0];
+            assert_eq!(slice.read(buf, 0).unwrap(), 5);
+            assert_eq!(buf, sample_buf);
+        }
     }
 
     #[test]
@@ -552,17 +697,35 @@ mod tests {
 
     #[test]
     fn overlap_memory() {
+        let f1 = tempfile().unwrap();
+        f1.set_len(0x2000).unwrap();
+        let f2 = tempfile().unwrap();
+        f2.set_len(0x2000).unwrap();
+
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let res = GuestMemoryMmap::new(&[(start_addr1, 0x2000), (start_addr2, 0x2000)]);
+        let guest_mem = GuestMemoryMmap::new(&[(start_addr1, 0x2000), (start_addr2, 0x2000)]);
+        let guest_mem_backed_by_file = GuestMemoryMmap::new_backed_by_file(&[
+            (start_addr1, 0x2000, f1, 0),
+            (start_addr2, 0x2000, f2, 0),
+        ]);
         assert_eq!(
-            format!("{:?}", res.err().unwrap()),
+            format!("{:?}", guest_mem.err().unwrap()),
+            format!("{:?}", MmapError::MemoryRegionOverlap)
+        );
+        assert_eq!(
+            format!("{:?}", guest_mem_backed_by_file.err().unwrap()),
             format!("{:?}", MmapError::MemoryRegionOverlap)
         );
     }
 
     #[test]
     fn test_read_u64() {
+        let f1 = tempfile().unwrap();
+        f1.set_len(0x1000).unwrap();
+        let f2 = tempfile().unwrap();
+        f2.set_len(0x1000).unwrap();
+
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let bad_addr = GuestAddress(0x2001);
@@ -570,75 +733,102 @@ mod tests {
         let max_addr = GuestAddress(0x2000);
 
         let gm = GuestMemoryMmap::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let gm_backed_by_file = GuestMemoryMmap::new_backed_by_file(&[
+            (start_addr1, 0x1000, f1, 0),
+            (start_addr2, 0x1000, f2, 0),
+        ])
+        .unwrap();
 
-        let val1: u64 = 0xaa55_aa55_aa55_aa55;
-        let val2: u64 = 0x55aa_55aa_55aa_55aa;
-        assert_eq!(
-            format!("{:?}", gm.write_obj(val1, bad_addr).err().unwrap()),
-            format!("InvalidGuestAddress({:?})", bad_addr,)
-        );
-        assert_eq!(
-            format!("{:?}", gm.write_obj(val1, bad_addr2).err().unwrap()),
-            format!(
-                "PartialBuffer {{ expected: {:?}, completed: {:?} }}",
-                mem::size_of::<u64>(),
-                max_addr.checked_offset_from(bad_addr2).unwrap()
-            )
-        );
+        let gm_list = vec![gm, gm_backed_by_file];
+        for gm in gm_list.iter() {
+            let val1: u64 = 0xaa55_aa55_aa55_aa55;
+            let val2: u64 = 0x55aa_55aa_55aa_55aa;
+            assert_eq!(
+                format!("{:?}", gm.write_obj(val1, bad_addr).err().unwrap()),
+                format!("InvalidGuestAddress({:?})", bad_addr,)
+            );
+            assert_eq!(
+                format!("{:?}", gm.write_obj(val1, bad_addr2).err().unwrap()),
+                format!(
+                    "PartialBuffer {{ expected: {:?}, completed: {:?} }}",
+                    mem::size_of::<u64>(),
+                    max_addr.checked_offset_from(bad_addr2).unwrap()
+                )
+            );
 
-        gm.write_obj(val1, GuestAddress(0x500)).unwrap();
-        gm.write_obj(val2, GuestAddress(0x1000 + 32)).unwrap();
-        let num1: u64 = gm.read_obj(GuestAddress(0x500)).unwrap();
-        let num2: u64 = gm.read_obj(GuestAddress(0x1000 + 32)).unwrap();
-        assert_eq!(val1, num1);
-        assert_eq!(val2, num2);
+            gm.write_obj(val1, GuestAddress(0x500)).unwrap();
+            gm.write_obj(val2, GuestAddress(0x1000 + 32)).unwrap();
+            let num1: u64 = gm.read_obj(GuestAddress(0x500)).unwrap();
+            let num2: u64 = gm.read_obj(GuestAddress(0x1000 + 32)).unwrap();
+            assert_eq!(val1, num1);
+            assert_eq!(val2, num2);
+        }
     }
 
     #[test]
     fn write_and_read() {
+        let f = tempfile().unwrap();
+        f.set_len(0x400).unwrap();
+
         let mut start_addr = GuestAddress(0x1000);
         let gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
-        let sample_buf = &[1, 2, 3, 4, 5];
+        let gm_backed_by_file =
+            GuestMemoryMmap::new_backed_by_file(&[(start_addr, 0x400, f, 0)]).unwrap();
 
-        assert_eq!(gm.write(sample_buf, start_addr).unwrap(), 5);
+        let gm_list = vec![gm, gm_backed_by_file];
+        for gm in gm_list.iter() {
+            let sample_buf = &[1, 2, 3, 4, 5];
 
-        let buf = &mut [0u8; 5];
-        assert_eq!(gm.read(buf, start_addr).unwrap(), 5);
-        assert_eq!(buf, sample_buf);
+            assert_eq!(gm.write(sample_buf, start_addr).unwrap(), 5);
 
-        start_addr = GuestAddress(0x13ff);
-        assert_eq!(gm.write(sample_buf, start_addr).unwrap(), 1);
-        assert_eq!(gm.read(buf, start_addr).unwrap(), 1);
-        assert_eq!(buf[0], sample_buf[0]);
+            let buf = &mut [0u8; 5];
+            assert_eq!(gm.read(buf, start_addr).unwrap(), 5);
+            assert_eq!(buf, sample_buf);
+
+            start_addr = GuestAddress(0x13ff);
+            assert_eq!(gm.write(sample_buf, start_addr).unwrap(), 1);
+            assert_eq!(gm.read(buf, start_addr).unwrap(), 1);
+            assert_eq!(buf[0], sample_buf[0]);
+            start_addr = GuestAddress(0x1000);
+        }
     }
 
     #[test]
     fn read_to_and_write_from_mem() {
-        let gm = GuestMemoryMmap::new(&[(GuestAddress(0x1000), 0x400)]).unwrap();
-        let addr = GuestAddress(0x1010);
-        let mut file = if cfg!(unix) {
-            File::open(Path::new("/dev/zero")).unwrap()
-        } else {
-            File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
-        };
-        gm.write_obj(!0u32, addr).unwrap();
-        gm.read_exact_from(addr, &mut file, mem::size_of::<u32>())
-            .unwrap();
-        let value: u32 = gm.read_obj(addr).unwrap();
-        if cfg!(unix) {
-            assert_eq!(value, 0);
-        } else {
-            assert_eq!(value, 0x0090_5a4d);
-        }
+        let f = tempfile().unwrap();
+        f.set_len(0x400).unwrap();
 
-        let mut sink = Vec::new();
-        gm.write_all_to(addr, &mut sink, mem::size_of::<u32>())
-            .unwrap();
-        if cfg!(unix) {
-            assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
-        } else {
-            assert_eq!(sink, vec![0x4d, 0x5a, 0x90, 0x00]);
-        };
+        let gm = GuestMemoryMmap::new(&[(GuestAddress(0x1000), 0x400)]).unwrap();
+        let gm_backed_by_file =
+            GuestMemoryMmap::new_backed_by_file(&[(GuestAddress(0x1000), 0x400, f, 0)]).unwrap();
+
+        let gm_list = vec![gm, gm_backed_by_file];
+        for gm in gm_list.iter() {
+            let addr = GuestAddress(0x1010);
+            let mut file = if cfg!(unix) {
+                File::open(Path::new("/dev/zero")).unwrap()
+            } else {
+                File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
+            };
+            gm.write_obj(!0u32, addr).unwrap();
+            gm.read_exact_from(addr, &mut file, mem::size_of::<u32>())
+                .unwrap();
+            let value: u32 = gm.read_obj(addr).unwrap();
+            if cfg!(unix) {
+                assert_eq!(value, 0);
+            } else {
+                assert_eq!(value, 0x0090_5a4d);
+            }
+
+            let mut sink = Vec::new();
+            gm.write_all_to(addr, &mut sink, mem::size_of::<u32>())
+                .unwrap();
+            if cfg!(unix) {
+                assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
+            } else {
+                assert_eq!(sink, vec![0x4d, 0x5a, 0x90, 0x00]);
+            };
+        }
     }
 
     #[test]
@@ -669,13 +859,64 @@ mod tests {
 
     #[test]
     fn test_access_cross_boundary() {
+        let f1 = tempfile().unwrap();
+        f1.set_len(0x1000).unwrap();
+        let f2 = tempfile().unwrap();
+        f2.set_len(0x1000).unwrap();
+
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let gm = GuestMemoryMmap::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let sample_buf = &[1, 2, 3, 4, 5];
-        assert_eq!(gm.write(sample_buf, GuestAddress(0xffc)).unwrap(), 5);
-        let buf = &mut [0u8; 5];
-        assert_eq!(gm.read(buf, GuestAddress(0xffc)).unwrap(), 5);
-        assert_eq!(buf, sample_buf);
+        let gm_backed_by_file = GuestMemoryMmap::new_backed_by_file(&[
+            (start_addr1, 0x1000, f1, 0),
+            (start_addr2, 0x1000, f2, 0),
+        ])
+        .unwrap();
+
+        let gm_list = vec![gm, gm_backed_by_file];
+        for gm in gm_list.iter() {
+            let sample_buf = &[1, 2, 3, 4, 5];
+            assert_eq!(gm.write(sample_buf, GuestAddress(0xffc)).unwrap(), 5);
+            let buf = &mut [0u8; 5];
+            assert_eq!(gm.read(buf, GuestAddress(0xffc)).unwrap(), 5);
+            assert_eq!(buf, sample_buf);
+        }
+    }
+
+    #[test]
+    fn test_retrieve_fd_backing_memory_region() {
+        let f = tempfile().unwrap();
+        f.set_len(0x400).unwrap();
+
+        let start_addr = GuestAddress(0x0);
+        let gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
+        assert!(gm.find_region(start_addr).is_some());
+        let region = gm.find_region(start_addr).unwrap();
+        assert!(region.fd().is_none());
+
+        let gm = GuestMemoryMmap::new_backed_by_file(&[(start_addr, 0x400, f, 0)]).unwrap();
+        assert!(gm.find_region(start_addr).is_some());
+        let region = gm.find_region(start_addr).unwrap();
+        assert!(region.fd().is_some());
+    }
+
+    #[test]
+    fn test_retrieve_offset_from_fd_backing_memory_region() {
+        let f = tempfile().unwrap();
+        f.set_len(0x1400).unwrap();
+        // Needs to be aligned on 4k, otherwise mmap will fail.
+        let offset: usize = 0x1000;
+
+        let start_addr = GuestAddress(0x0);
+        let gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
+        assert!(gm.find_region(start_addr).is_some());
+        let region = gm.find_region(start_addr).unwrap();
+        assert!(region.fd_offset().is_none());
+
+        let gm = GuestMemoryMmap::new_backed_by_file(&[(start_addr, 0x400, f, offset)]).unwrap();
+        assert!(gm.find_region(start_addr).is_some());
+        let region = gm.find_region(start_addr).unwrap();
+        assert!(region.fd().is_some());
+        assert_eq!(region.fd_offset().unwrap(), offset);
     }
 }

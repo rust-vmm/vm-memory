@@ -31,6 +31,7 @@ use std::convert::From;
 use std::fmt::{self, Display};
 use std::io::{self, Read, Write};
 use std::ops::{BitAnd, BitOr};
+use std::os::unix::io::RawFd;
 
 use address::{Address, AddressValue};
 use bytes::Bytes;
@@ -161,6 +162,15 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
         addr.checked_offset_from(self.start_addr())
             .and_then(|offset| self.check_address(MemoryRegionAddress(offset)))
     }
+
+    /// Return the file descriptor pointing to the memory region. Return None
+    /// if no file descriptor is associated with the region.
+    fn fd(&self) -> Option<RawFd>;
+
+    /// Return the file descriptor offset related to the memory region. Return
+    /// None if there is no file descriptor associated with the region, hence
+    /// there is no associated offset.
+    fn fd_offset(&self) -> Option<usize>;
 
     /// Return a slice corresponding to the data in the region; unsafe because of
     /// possible aliasing.  Return None if the region does not support slice-based
