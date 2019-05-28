@@ -25,7 +25,7 @@ use std::cmp::min;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::marker::PhantomData;
-use std::mem::size_of;
+use std::mem::{align_of, size_of};
 use std::ptr::copy;
 use std::ptr::{read_volatile, write_volatile};
 use std::result;
@@ -47,6 +47,8 @@ pub enum Error {
     Overflow { base: usize, offset: usize },
     /// Taking a slice whose size overflows `usize`.
     TooBig { nelements: usize, size: usize },
+    /// Trying to obtain a misaligned reference.
+    Misaligned { addr: usize, alignment: usize },
     /// Writing to memory failed
     IOError(io::Error),
     /// Incomplete read or write
@@ -67,6 +69,9 @@ impl fmt::Display for Error {
                 "{:?} elements of size {:?} would overflow a usize",
                 nelements, size
             ),
+            Error::Misaligned { addr, alignment } => {
+                write!(f, "address 0x{:x} is not aligned to {:?}", addr, alignment)
+            }
             Error::IOError(error) => write!(f, "{}", error),
             Error::PartialBuffer {
                 expected,
@@ -105,6 +110,33 @@ pub fn compute_offset(base: usize, offset: usize) -> Result<usize> {
         Some(m) => Ok(m),
     }
 }
+
+/// Trait for objects for which a reference can be extracted safely out of a
+/// VolatileSlice.  Objects that implement this trait must consist exclusively
+/// of atomic types from std::sync::atomic, except for AtomicPtr<T>.
+pub unsafe trait AtomicValued: Sync + Send {}
+
+// also conditionalize on #[cfg(target_has_atomic) when it is stabilized
+#[cfg(feature = "integer-atomics")]
+unsafe impl AtomicValued for std::sync::atomic::AtomicBool {}
+#[cfg(feature = "integer-atomics")]
+unsafe impl AtomicValued for std::sync::atomic::AtomicI8 {}
+#[cfg(feature = "integer-atomics")]
+unsafe impl AtomicValued for std::sync::atomic::AtomicI16 {}
+#[cfg(feature = "integer-atomics")]
+unsafe impl AtomicValued for std::sync::atomic::AtomicI32 {}
+#[cfg(feature = "integer-atomics")]
+unsafe impl AtomicValued for std::sync::atomic::AtomicI64 {}
+unsafe impl AtomicValued for std::sync::atomic::AtomicIsize {}
+#[cfg(feature = "integer-atomics")]
+unsafe impl AtomicValued for std::sync::atomic::AtomicU8 {}
+#[cfg(feature = "integer-atomics")]
+unsafe impl AtomicValued for std::sync::atomic::AtomicU16 {}
+#[cfg(feature = "integer-atomics")]
+unsafe impl AtomicValued for std::sync::atomic::AtomicU32 {}
+#[cfg(feature = "integer-atomics")]
+unsafe impl AtomicValued for std::sync::atomic::AtomicU64 {}
+unsafe impl AtomicValued for std::sync::atomic::AtomicUsize {}
 
 /// Trait for types that support raw volatile access to their data.
 pub trait VolatileMemory {
@@ -150,6 +182,41 @@ pub trait VolatileMemory {
             // This is safe because the pointer is range-checked by get_slice, and
             // the lifetime is the same as self.
             Ok(VolatileArrayRef::<T>::new(slice.addr, n))
+        }
+    }
+
+    /// Gets a reference to T at `offset`.  The resulting pointer must be
+    /// aligned, or the function fails.
+    ///
+    /// To use this safely, the caller must guarantee that there are no other
+    /// users of the given chunk of memory for the lifetime of the result.
+    unsafe fn aligned_as_ref<T: ByteValued>(&self, offset: usize) -> Result<&T> {
+        let slice = self.get_slice(offset, size_of::<T>())?;
+        slice.check_alignment(align_of::<T>())?;
+        Ok(&*(slice.addr as *const T))
+    }
+
+    /// Gets a reference to T at `offset`.  The resulting pointer must be
+    /// aligned, or the function fails.
+    ///
+    /// To use this safely, the caller must guarantee that there are no other
+    /// users of the given chunk of memory for the lifetime of the result.
+    unsafe fn aligned_as_mut<T: ByteValued>(&self, offset: usize) -> Result<&mut T> {
+        let slice = self.get_slice(offset, size_of::<T>())?;
+        slice.check_alignment(align_of::<T>())?;
+        Ok(&mut *(slice.addr as *mut T))
+    }
+
+    /// Gets a reference to T at `offset`.  The resulting pointer must be
+    /// aligned, or the function fails.
+    fn get_atomic_ref<T: AtomicValued>(&self, offset: usize) -> Result<&T> {
+        let slice = self.get_slice(offset, size_of::<T>())?;
+        slice.check_alignment(align_of::<T>())?;
+
+        unsafe {
+            // This is safe because the pointer is range-checked by get_slice, and
+            // the lifetime is the same as self.
+            Ok(&*(slice.addr as *const T))
         }
     }
 
@@ -341,6 +408,18 @@ impl<'a> VolatileSlice<'a> {
     #[allow(clippy::mut_from_ref)]
     unsafe fn as_mut_slice(&self) -> &mut [u8] {
         from_raw_parts_mut(self.addr, self.size)
+    }
+
+    fn check_alignment(&self, alignment: usize) -> Result<()> {
+        // Check that the desired alignment is a power of two.
+        debug_assert!((alignment & (alignment - 1)) == 0);
+        if ((self.addr as usize) & (alignment - 1)) != 0 {
+            return Err(Error::Misaligned {
+                addr: self.addr as usize,
+                alignment,
+            });
+        }
+        Ok(())
     }
 }
 
@@ -918,6 +997,7 @@ mod tests {
     use super::*;
 
     use self::tempfile::tempfile;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::thread::{sleep, spawn};
     use std::time::Duration;
@@ -949,6 +1029,63 @@ mod tests {
                 VolatileSlice::new((self.mem.as_ptr() as usize + offset) as *mut _, count)
             })
         }
+    }
+
+    #[test]
+    fn misaligned_ref() {
+        let mut a = [0u8; 3];
+        let a_ref = &mut a[..];
+        unsafe {
+            assert!(
+                a_ref.aligned_as_ref::<u16>(0).is_err() ^ a_ref.aligned_as_ref::<u16>(1).is_err()
+            );
+            assert!(
+                a_ref.aligned_as_mut::<u16>(0).is_err() ^ a_ref.aligned_as_mut::<u16>(1).is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn atomic_store() {
+        let mut a = [0usize; 1];
+        {
+            let a_ref = unsafe {
+                VolatileSlice::new(&mut a[0] as *mut usize as *mut u8, size_of::<usize>())
+            };
+            let atomic = a_ref.get_atomic_ref::<AtomicUsize>(0).unwrap();
+            atomic.store(2usize, Ordering::Relaxed)
+        }
+        assert_eq!(a[0], 2);
+    }
+
+    #[test]
+    fn atomic_load() {
+        let mut a = [5usize; 1];
+        {
+            let a_ref = unsafe {
+                VolatileSlice::new(&mut a[0] as *mut usize as *mut u8,
+                                   size_of::<usize>())
+            };
+            let atomic = {
+                let atomic = a_ref.get_atomic_ref::<AtomicUsize>(0).unwrap();
+                assert_eq!(atomic.load(Ordering::Relaxed), 5usize);
+                atomic
+            };
+            // To make sure we can take the atomic out of the scope we made it in:
+            atomic.load(Ordering::Relaxed);
+            // but not too far:
+            // atomicu8
+        } //.load(std::sync::atomic::Ordering::Relaxed)
+        ;
+    }
+
+    #[test]
+    fn misaligned_atomic() {
+        let mut a = [5usize, 5usize];
+        let a_ref =
+            unsafe { VolatileSlice::new(&mut a[0] as *mut usize as *mut u8, size_of::<usize>()) };
+        assert!(a_ref.get_atomic_ref::<AtomicUsize>(0).is_ok());
+        assert!(a_ref.get_atomic_ref::<AtomicUsize>(1).is_err());
     }
 
     #[test]

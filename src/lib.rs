@@ -52,6 +52,6 @@ pub use mmap::{GuestMemoryMmap, GuestRegionMmap, MmapError, MmapRegion};
 
 pub mod volatile_memory;
 pub use volatile_memory::{
-    Error as VolatileMemoryError, Result as VolatileMemoryResult, VolatileArrayRef, VolatileMemory,
-    VolatileRef, VolatileSlice,
+    AtomicValued, Error as VolatileMemoryError, Result as VolatileMemoryResult, VolatileArrayRef,
+    VolatileMemory, VolatileRef, VolatileSlice,
 };
