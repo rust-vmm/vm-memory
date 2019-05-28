@@ -58,6 +58,7 @@ impl From<volatile_memory::Error> for Error {
             volatile_memory::Error::OutOfBounds { .. } => Error::InvalidBackendAddress,
             volatile_memory::Error::Overflow { .. } => Error::InvalidBackendAddress,
             volatile_memory::Error::TooBig { .. } => Error::InvalidBackendAddress,
+            volatile_memory::Error::Misaligned { .. } => Error::InvalidBackendAddress,
             volatile_memory::Error::IOError(e) => Error::IOError(e),
             volatile_memory::Error::PartialBuffer {
                 expected,
