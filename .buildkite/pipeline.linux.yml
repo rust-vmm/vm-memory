@@ -9,7 +9,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "fandree/rust-vmm-dev"
+          image: "rustvmm/dev:v2"
           always-pull: true
 
   - label: "build-gnu-x86-mmap"
@@ -22,7 +22,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "fandree/rust-vmm-dev"
+          image: "rustvmm/dev:v2"
           always-pull: true
 
   - label: "build-gnu-arm-mmap"
@@ -35,7 +35,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "fandree/rust-vmm-dev"
+          image: "rustvmm/dev:v2"
           always-pull: true
 
   - label: "build-musl-arm-mmap"
@@ -48,7 +48,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "fandree/rust-vmm-dev"
+          image: "rustvmm/dev:v2"
           always-pull: true
 
   - label: "style"
@@ -60,7 +60,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "fandree/rust-vmm-dev"
+          image: "rustvmm/dev:v2"
           always-pull: true
 
   - label: "unittests-gnu-x86"
@@ -73,7 +73,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "fandree/rust-vmm-dev"
+          image: "rustvmm/dev:v2"
           always-pull: true
 
   - label: "unittests-musl-x86"
@@ -86,7 +86,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "fandree/rust-vmm-dev"
+          image: "rustvmm/dev:v2"
           always-pull: true
 
   - label: "unittests-gnu-arm"
@@ -99,7 +99,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "fandree/rust-vmm-dev"
+          image: "rustvmm/dev:v2"
           always-pull: true
 
   - label: "unittests-musl-arm"
@@ -112,12 +112,12 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "fandree/rust-vmm-dev"
+          image: "rustvmm/dev:v2"
           always-pull: true
 
   - label: "clippy-x86"
     commands:
-     - cargo clippy --all
+     - cargo clippy --all -- -D warnings
     retry:
       automatic: false
     agents:
@@ -125,7 +125,20 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "fandree/rust-vmm-dev"
+          image: "rustvmm/dev:v2"
+          always-pull: true
+
+  - label: "clippy-arm"
+    commands:
+     - cargo clippy --all -- -D warnings
+    retry:
+      automatic: false
+    agents:
+      platform: arm.metal
+      os: linux
+    plugins:
+      - docker#v3.0.1:
+          image: "rustvmm/dev:v2"
           always-pull: true
 
   - label: "check-warnings-x86"
@@ -138,7 +151,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "fandree/rust-vmm-dev"
+          image: "rustvmm/dev:v2"
           always-pull: true
 
   - label: "check-warnings-arm"
@@ -151,5 +164,5 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "fandree/rust-vmm-dev"
+          image: "rustvmm/dev:v2"
           always-pull: true
