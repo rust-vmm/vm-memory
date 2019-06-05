@@ -607,7 +607,7 @@ impl<'a> VolatileMemory for VolatileSlice<'a> {
 ///   assert_eq!(v_ref.load(), 5);
 ///   v_ref.store(500);
 ///   assert_eq!(v, 500);
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct VolatileRef<'a, T: ByteValued>
 where
     T: 'a,
@@ -632,7 +632,7 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
     }
 
     /// Gets the address of this slice's memory.
-    pub fn as_ptr(&self) -> *mut u8 {
+    pub fn as_ptr(self) -> *mut u8 {
         self.addr as *mut u8
     }
 
@@ -646,19 +646,19 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
     ///   let v_ref = unsafe { VolatileRef::<u32>::new(0 as *mut _) };
     ///   assert_eq!(v_ref.len(), size_of::<u32>() as usize);
     /// ```
-    pub fn len(&self) -> usize {
+    pub fn len(self) -> usize {
         size_of::<T>()
     }
 
     /// Does a volatile write of the value `v` to the address of this ref.
     #[inline(always)]
-    pub fn store(&self, v: T) {
+    pub fn store(self, v: T) {
         unsafe { write_volatile(self.addr, Packed::<T>(v)) };
     }
 
     /// Does a volatile read of the value at the address of this ref.
     #[inline(always)]
-    pub fn load(&self) -> T {
+    pub fn load(self) -> T {
         // For the purposes of demonstrating why read_volatile is necessary, try replacing the code
         // in this function with the commented code below and running `cargo test --release`.
         // unsafe { *(self.addr as *const T) }
@@ -666,7 +666,7 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
     }
 
     /// Converts this `T` reference to a raw slice with the same size and address.
-    pub fn to_slice(&self) -> VolatileSlice<'a> {
+    pub fn to_slice(self) -> VolatileSlice<'a> {
         unsafe { VolatileSlice::new(self.addr as *mut u8, size_of::<T>()) }
     }
 }
