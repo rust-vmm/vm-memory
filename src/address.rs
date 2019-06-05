@@ -19,7 +19,8 @@
 //! object and defines methods to access and manipulate it.
 
 use std::cmp::{Eq, Ord, PartialEq, PartialOrd};
-use std::ops::{Add, BitAnd, BitOr, Sub};
+use std::fmt::Debug;
+use std::ops::{Add, BitAnd, BitOr, Not, Sub};
 
 /// Simple helper trait used to store a raw address value.
 pub trait AddressValue {
@@ -29,10 +30,23 @@ pub trait AddressValue {
         + Eq
         + PartialOrd
         + Ord
+        + Not<Output = Self::V>
         + Add<Output = Self::V>
         + Sub<Output = Self::V>
         + BitAnd<Output = Self::V>
-        + BitOr<Output = Self::V>;
+        + BitOr<Output = Self::V>
+        + Debug
+        + From<u8>;
+
+    /// Return the value zero, coerced into the value type `Self::V`
+    fn zero() -> Self::V {
+        0u8.into()
+    }
+
+    /// Return the value zero, coerced into the value type `Self::V`
+    fn one() -> Self::V {
+        1u8.into()
+    }
 }
 
 /// Trait to represent an address within an address space.
@@ -87,6 +101,21 @@ pub trait Address:
     /// ```
     fn unchecked_offset_from(&self, base: Self) -> Self::V {
         self.raw_value() - base.raw_value()
+    }
+
+    /// Returns self, aligned to the given power of two.
+    fn checked_align_up(&self, power_of_two: Self::V) -> Option<Self> {
+        let mask = power_of_two - Self::one();
+        assert_ne!(power_of_two, Self::zero());
+        assert_eq!(power_of_two & mask, Self::zero());
+        self.checked_add(mask).map(|x| x & !mask)
+    }
+
+    /// Returns self, aligned to the given power of two.
+    /// Only use this when the result is guaranteed not to overflow.
+    fn unchecked_align_up(&self, power_of_two: Self::V) -> Self {
+        let mask = power_of_two - Self::one();
+        self.unchecked_add(mask) & !mask
     }
 
     /// Computes `self + other`, returning `None` if overflow occurred.
@@ -230,6 +259,40 @@ mod tests {
         let a = MockAddress(0x300);
         let b = MockAddress(0x301);
         assert!(a < b);
+    }
+
+    #[test]
+    fn test_checked_align_up() {
+        assert_eq!(
+            MockAddress::new(0x128).checked_align_up(8),
+            Some(MockAddress(0x128))
+        );
+        assert_eq!(
+            MockAddress::new(0x128).checked_align_up(16),
+            Some(MockAddress(0x130))
+        );
+        assert_eq!(
+            MockAddress::new(std::u64::MAX - 0x3fff).checked_align_up(0x10000),
+            None
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_checked_align_up_invalid() {
+        let _ = MockAddress::new(0x128).checked_align_up(12);
+    }
+
+    #[test]
+    fn test_unchecked_align_up() {
+        assert_eq!(
+            MockAddress::new(0x128).unchecked_align_up(8),
+            MockAddress(0x128)
+        );
+        assert_eq!(
+            MockAddress::new(0x128).unchecked_align_up(16),
+            MockAddress(0x130)
+        );
     }
 
     #[test]
