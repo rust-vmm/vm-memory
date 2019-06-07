@@ -1,6 +1,5 @@
 // Copyright (C) 2019 CrowdStrike, Inc. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-//
+// SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
 //! Helper structure for working with mmaped memory regions in Windows.
 
