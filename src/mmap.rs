@@ -20,7 +20,7 @@
 //! - [GuestMemoryMmap](struct.GuestMemoryMmap.html): provides methods to access a collection of
 //! GuestRegionMmap objects.
 
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -30,7 +30,7 @@ use volatile_memory::VolatileMemory;
 use Bytes;
 
 #[cfg(unix)]
-pub use mmap_unix::MmapRegion;
+pub use mmap_unix::{Error as MmapRegionError, MmapRegion};
 
 #[cfg(windows)]
 pub use mmap_windows::MmapRegion;
@@ -46,8 +46,8 @@ pub(crate) trait AsSlice {
 /// Errors that can happen when creating a memory map
 #[derive(Debug)]
 pub enum MmapError {
-    /// Syscall returned the given error.
-    SystemCallFailed(io::Error),
+    /// Error creating a `MmapRegion` object.
+    MmapRegion(MmapRegionError),
     /// No memory region found.
     NoMemoryRegion,
     /// Some of the memory regions intersect with each other.
@@ -303,7 +303,7 @@ impl GuestMemoryMmap {
                 }
             }
 
-            let mapping = MmapRegion::new(range.1).map_err(MmapError::SystemCallFailed)?;
+            let mapping = MmapRegion::new(range.1).map_err(MmapError::MmapRegion)?;
             regions.push(GuestRegionMmap {
                 mapping,
                 guest_base: range.0,
@@ -395,8 +395,10 @@ impl GuestMemory for GuestMemoryMmap {
 mod tests {
     extern crate tempfile;
 
-    use self::tempfile::tempfile;
     use super::*;
+
+    use self::tempfile::tempfile;
+
     use std::fs::File;
     use std::mem;
     use std::path::Path;
@@ -407,12 +409,6 @@ mod tests {
     fn basic_map() {
         let m = MmapRegion::new(1024).unwrap();
         assert_eq!(1024, m.len());
-    }
-
-    #[test]
-    fn map_invalid_size() {
-        let e = MmapRegion::new(0).unwrap_err();
-        assert_eq!(e.raw_os_error(), Some(libc::EINVAL));
     }
 
     #[test]
@@ -428,7 +424,7 @@ mod tests {
         let sample_buf = &[1, 2, 3, 4, 5];
         assert!(f.write_all(sample_buf).is_ok());
 
-        let mem_map = MmapRegion::from_fd(&f, sample_buf.len(), 0).unwrap();
+        let mem_map = MmapRegion::from_file(FileOffset::new(f, 0), sample_buf.len()).unwrap();
         let buf = &mut [0u8; 16];
         assert_eq!(
             mem_map.as_volatile_slice().read(buf, 0).unwrap(),
@@ -540,7 +536,7 @@ mod tests {
         let empty_buf = &[0; 16384];
         assert!(f.write_all(empty_buf).is_ok());
 
-        let mem_map = MmapRegion::from_fd(&f, empty_buf.len(), 0).unwrap();
+        let mem_map = MmapRegion::from_file(FileOffset::new(f, 0), empty_buf.len()).unwrap();
         let guest_reg = GuestRegionMmap::new(mem_map, GuestAddress(0x8000));
         let mut region_vec = Vec::new();
         region_vec.push(guest_reg);
