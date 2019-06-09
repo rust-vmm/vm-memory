@@ -29,8 +29,10 @@
 
 use std::convert::From;
 use std::fmt::{self, Display};
+use std::fs::File;
 use std::io::{self, Read, Write};
 use std::ops::{BitAnd, BitOr};
+use std::sync::Arc;
 
 use address::{Address, AddressValue};
 use bytes::Bytes;
@@ -114,6 +116,40 @@ impl_address_ops!(MemoryRegionAddress, u64);
 
 /// Type of the raw value stored in a GuestAddress object.
 pub type GuestUsize = <GuestAddress as AddressValue>::V;
+
+/// Represents the start point within a `File` that backs a `GuestMemoryRegion`.
+#[derive(Clone, Debug)]
+pub struct FileOffset {
+    file: Arc<File>,
+    start: u64,
+}
+
+impl FileOffset {
+    /// Creates a new `FileOffset` object.
+    pub fn new(file: File, start: u64) -> Self {
+        FileOffset::from_arc(Arc::new(file), start)
+    }
+
+    /// Creates a new `FileOffset` object based on an exiting `Arc<File>`.
+    pub fn from_arc(file: Arc<File>, start: u64) -> Self {
+        FileOffset { file, start }
+    }
+
+    /// Returns a reference to the inner `File` object.
+    pub fn file(&self) -> &File {
+        &self.file.as_ref()
+    }
+
+    /// Return a reference to the inner `Arc<File>` object.
+    pub fn arc(&self) -> &Arc<File> {
+        &self.file
+    }
+
+    /// Returns the start offset within the file.
+    pub fn start(&self) -> u64 {
+        self.start
+    }
+}
 
 /// Represents a continuous region of guest physical memory.
 #[allow(clippy::len_without_is_empty)]
@@ -513,5 +549,17 @@ mod tests {
         let a = GuestAddress(0xff);
         assert_eq!(Some(GuestAddress(0x0f)), a.checked_sub(0xf0));
         assert!(a.checked_sub(0xffff).is_none());
+    }
+
+    #[test]
+    fn test_file_offset() {
+        let file = tempfile::tempfile().unwrap();
+        let start = 1234;
+        let file_offset = FileOffset::new(file, start);
+        assert_eq!(file_offset.start(), start);
+        assert_eq!(
+            file_offset.file() as *const File,
+            file_offset.arc().as_ref() as *const File
+        );
     }
 }
