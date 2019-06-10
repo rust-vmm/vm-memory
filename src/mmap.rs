@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use address::Address;
 use guest_memory::{
-    self, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
+    self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
 };
 use volatile_memory::VolatileMemory;
 use Bytes;
@@ -49,6 +49,9 @@ pub(crate) trait AsSlice {
 /// Errors that can happen when creating a memory map
 #[derive(Debug)]
 pub enum Error {
+    /// Adding the guest base address to the length of the underlying mapping resulted
+    /// in an overflow.
+    InvalidGuestRegion,
     /// Error creating a `MmapRegion` object.
     MmapRegion(MmapRegionError),
     /// No memory region found.
@@ -67,12 +70,14 @@ pub struct GuestRegionMmap {
 
 impl GuestRegionMmap {
     /// Create a new memory-mapped memory region for guest's physical memory.
-    /// Note: caller needs to ensure that (mapping.len() + guest_base) doesn't wrapping around.
-    pub fn new(mapping: MmapRegion, guest_base: GuestAddress) -> Self {
-        GuestRegionMmap {
+    pub fn new(mapping: MmapRegion, guest_base: GuestAddress) -> result::Result<Self, Error> {
+        if guest_base.0.checked_add(mapping.len() as u64).is_none() {
+            return Err(Error::InvalidGuestRegion);
+        }
+        Ok(GuestRegionMmap {
             mapping,
             guest_base,
-        }
+        })
     }
 
     /// Convert an absolute address into an address space (GuestMemory)
@@ -560,7 +565,7 @@ mod tests {
         assert!(f.write_all(empty_buf).is_ok());
 
         let mem_map = MmapRegion::from_file(FileOffset::new(f, 0), empty_buf.len()).unwrap();
-        let guest_reg = GuestRegionMmap::new(mem_map, GuestAddress(0x8000));
+        let guest_reg = GuestRegionMmap::new(mem_map, GuestAddress(0x8000)).unwrap();
         let mut region_vec = Vec::new();
         region_vec.push(guest_reg);
         let guest_mem = GuestMemoryMmap::from_regions(region_vec).unwrap();
