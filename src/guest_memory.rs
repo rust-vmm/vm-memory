@@ -200,6 +200,9 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
             .and_then(|offset| self.check_address(MemoryRegionAddress(offset)))
     }
 
+    /// Returns information regarding the file and offset backing this memory region.
+    fn file_offset(&self) -> Option<&FileOffset>;
+
     /// Return a slice corresponding to the data in the region; unsafe because of
     /// possible aliasing.  Return None if the region does not support slice-based
     /// access.
