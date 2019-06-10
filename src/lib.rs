@@ -48,7 +48,7 @@ mod mmap_windows;
 #[cfg(feature = "backend-mmap")]
 pub mod mmap;
 #[cfg(feature = "backend-mmap")]
-pub use mmap::{GuestMemoryMmap, GuestRegionMmap, MmapError, MmapRegion};
+pub use mmap::{Error, GuestMemoryMmap, GuestRegionMmap, MmapRegion};
 
 pub mod volatile_memory;
 pub use volatile_memory::{
