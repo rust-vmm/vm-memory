@@ -224,9 +224,9 @@ data_init_type!(isize);
 
 #[cfg(test)]
 mod tests {
+    use crate::ByteValued;
     use std::fmt::Debug;
     use std::mem::{align_of, size_of};
-    use ByteValued;
 
     fn from_slice_alignment<T>()
     where

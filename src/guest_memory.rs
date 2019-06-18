@@ -34,9 +34,9 @@ use std::io::{self, Read, Write};
 use std::ops::{BitAnd, BitOr};
 use std::sync::Arc;
 
-use address::{Address, AddressValue};
-use bytes::Bytes;
-use volatile_memory;
+use crate::address::{Address, AddressValue};
+use crate::bytes::Bytes;
+use crate::volatile_memory;
 
 static MAX_ACCESS_CHUNK: usize = 4096;
 
