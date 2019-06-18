@@ -17,12 +17,6 @@
 
 #![deny(missing_docs)]
 
-extern crate libc;
-
-#[cfg(test)]
-#[macro_use]
-extern crate matches;
-
 #[macro_use]
 pub mod address;
 pub use address::{Address, AddressValue};

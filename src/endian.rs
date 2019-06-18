@@ -32,7 +32,7 @@
 
 use std::mem::{align_of, size_of};
 
-use bytes::ByteValued;
+use crate::bytes::ByteValued;
 
 macro_rules! const_assert {
     ($condition:expr) => {

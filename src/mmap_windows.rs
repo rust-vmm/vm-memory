@@ -13,18 +13,16 @@
 //! - [GuestMemoryMmap](struct.GuestMemoryMmap.html): provides methods to access a collection of
 //! GuestRegionMmap objects.
 
-use libc;
+use std;
 use std::io;
-use std::ptr::null_mut;
-
-use guest_memory::FileOffset;
-use mmap::AsSlice;
-use volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
+use std::os::windows::io::{AsRawHandle, RawHandle};
+use std::ptr::{null, null_mut};
 
 use libc::{c_void, size_t};
-use std;
-use std::os::windows::io::{AsRawHandle, RawHandle};
-use std::ptr::null;
+
+use crate::guest_memory::FileOffset;
+use crate::mmap::AsSlice;
+use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
 
 #[allow(non_snake_case)]
 #[link(name = "kernel32")]
@@ -229,8 +227,8 @@ impl Drop for MmapRegion {
 
 #[cfg(test)]
 mod tests {
-    use guest_memory::FileOffset;
-    use mmap_windows::{MmapRegion, INVALID_HANDLE_VALUE};
+    use crate::guest_memory::FileOffset;
+    use crate::mmap_windows::{MmapRegion, INVALID_HANDLE_VALUE};
     use std::os::windows::io::FromRawHandle;
 
     #[test]

@@ -29,9 +29,9 @@ use std::result;
 
 use libc;
 
-use guest_memory::FileOffset;
-use mmap::{check_file_offset, AsSlice};
-use volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
+use crate::guest_memory::FileOffset;
+use crate::mmap::{check_file_offset, AsSlice};
+use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
 #[derive(Debug)]

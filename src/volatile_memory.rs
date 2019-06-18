@@ -33,10 +33,10 @@ use std::result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::usize;
 
+use crate::{ByteValued, Bytes};
+
 // TODO: replace with TryFrom once we can assume 1.34.0.
 extern crate cast;
-
-use bytes::{ByteValued, Bytes};
 
 /// VolatileMemory related error codes
 #[allow(missing_docs)]
@@ -426,7 +426,7 @@ impl<'a> VolatileSlice<'a> {
     }
 }
 
-impl<'a> Bytes<usize> for VolatileSlice<'a> {
+impl Bytes<usize> for VolatileSlice<'_> {
     type E = Error;
 
     /// Writes a slice to the region at the specified address.
@@ -677,7 +677,7 @@ impl<'a> Bytes<usize> for VolatileSlice<'a> {
     }
 }
 
-impl<'a> VolatileMemory for VolatileSlice<'a> {
+impl VolatileMemory for VolatileSlice<'_> {
     fn len(&self) -> usize {
         self.size
     }
@@ -995,18 +995,17 @@ impl<'a> From<VolatileSlice<'a>> for VolatileArrayRef<'a, u8> {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
-
     use super::*;
 
-    use self::tempfile::tempfile;
+    use std::fs::File;
+    use std::path::Path;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::thread::{sleep, spawn};
     use std::time::Duration;
 
-    use std::fs::File;
-    use std::path::Path;
+    use matches::assert_matches;
+    use tempfile::tempfile;
 
     #[derive(Clone)]
     struct VecMem {

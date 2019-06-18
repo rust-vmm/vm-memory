@@ -28,18 +28,18 @@ use std::ops::Deref;
 use std::result;
 use std::sync::Arc;
 
-use address::Address;
-use guest_memory::{
+use crate::address::Address;
+use crate::guest_memory::{
     self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
 };
-use volatile_memory::VolatileMemory;
-use Bytes;
+use crate::volatile_memory::VolatileMemory;
+use crate::Bytes;
 
 #[cfg(unix)]
-pub use mmap_unix::{Error as MmapRegionError, MmapRegion};
+pub use crate::mmap_unix::{Error as MmapRegionError, MmapRegion};
 
 #[cfg(windows)]
-pub use mmap_windows::MmapRegion;
+pub use crate::mmap_windows::MmapRegion;
 #[cfg(windows)]
 pub use std::io::Error as MmapRegionError;
 
