@@ -38,6 +38,8 @@ pub use mmap_unix::{Error as MmapRegionError, MmapRegion};
 
 #[cfg(windows)]
 pub use mmap_windows::MmapRegion;
+#[cfg(windows)]
+pub use std::io::Error as MmapRegionError;
 
 // For MmapRegion
 pub(crate) trait AsSlice {
@@ -876,7 +878,12 @@ mod tests {
         assert!(region.file_offset().is_some());
     }
 
+    // Windows needs a dedicated test where it will retrieve the allocation
+    // granularity to determine a proper offset (other than 0) that can be
+    // used for the backing file. Refer to Microsoft docs here:
+    // https://docs.microsoft.com/en-us/windows/desktop/api/memoryapi/nf-memoryapi-mapviewoffile
     #[test]
+    #[cfg(unix)]
     fn test_retrieve_offset_from_fd_backing_memory_region() {
         let f = tempfile().unwrap();
         f.set_len(0x1400).unwrap();

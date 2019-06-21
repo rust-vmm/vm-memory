@@ -17,6 +17,7 @@ use libc;
 use std::io;
 use std::ptr::null_mut;
 
+use guest_memory::FileOffset;
 use mmap::AsSlice;
 use volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
 
@@ -78,6 +79,7 @@ pub const ERROR_INVALID_PARAMETER: i32 = 87;
 pub struct MmapRegion {
     addr: *mut u8,
     size: usize,
+    file_offset: Option<FileOffset>,
 }
 
 // Send and Sync aren't automatically inherited for the raw address pointer.
@@ -105,6 +107,7 @@ impl MmapRegion {
         Ok(Self {
             addr: addr as *mut u8,
             size,
+            file_offset: None,
         })
     }
 
@@ -114,8 +117,8 @@ impl MmapRegion {
     /// * `file` - Raw handle to a file to map into the address space.
     /// * `size` - Size of memory region in bytes.
     /// * `offset` - Offset in bytes from the beginning of `file` to start the mapping.
-    pub fn from_fd(file: &AsRawHandle, size: usize, offset: libc::off_t) -> io::Result<Self> {
-        let handle = file.as_raw_handle();
+    pub fn from_file(file_offset: FileOffset, size: usize) -> io::Result<Self> {
+        let handle = file_offset.file().as_raw_handle();
         if handle == INVALID_HANDLE_VALUE {
             return Err(io::Error::from_raw_os_error(libc::EBADF));
         }
@@ -134,13 +137,15 @@ impl MmapRegion {
             return Err(io::Error::last_os_error());
         }
 
+        let offset = file_offset.start();
+
         // This is safe because we are creating a mapping in a place not already used by any other
         // area in this process.
         let addr = unsafe {
             MapViewOfFile(
                 mapping,
                 FILE_MAP_ALL_ACCESS,
-                (offset as u64 >> 32) as u32,
+                (offset >> 32) as u32,
                 offset as u32,
                 size,
             )
@@ -156,6 +161,7 @@ impl MmapRegion {
         Ok(Self {
             addr: addr as *mut u8,
             size,
+            file_offset: Some(file_offset),
         })
     }
 
@@ -163,6 +169,16 @@ impl MmapRegion {
     /// used for passing this region to ioctls for setting guest memory.
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr
+    }
+
+    /// Returns the size of this region.
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    /// Returns information regarding the offset into the file backing this region (if any).
+    pub fn file_offset(&self) -> Option<&FileOffset> {
+        self.file_offset.as_ref()
     }
 }
 
@@ -213,13 +229,15 @@ impl Drop for MmapRegion {
 
 #[cfg(test)]
 mod tests {
+    use guest_memory::FileOffset;
     use mmap_windows::{MmapRegion, INVALID_HANDLE_VALUE};
     use std::os::windows::io::FromRawHandle;
 
     #[test]
     fn map_invalid_handle() {
-        let fd = unsafe { std::fs::File::from_raw_handle(INVALID_HANDLE_VALUE) };
-        let e = MmapRegion::from_fd(&fd, 1024, 0).unwrap_err();
+        let file = unsafe { std::fs::File::from_raw_handle(INVALID_HANDLE_VALUE) };
+        let file_offset = FileOffset::new(file, 0);
+        let e = MmapRegion::from_file(file_offset, 1024).unwrap_err();
         assert_eq!(e.raw_os_error(), Some(libc::EBADF));
     }
 }
