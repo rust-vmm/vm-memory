@@ -334,9 +334,9 @@ pub trait GuestMemory {
         let mut total = 0;
         while let Some(region) = self.find_region(cur) {
             let start = region.to_region_addr(cur).unwrap();
-            let cap = region.len() as usize;
-            let len = std::cmp::min(cap, count - total);
-            match f(total, len, start, region) {
+            let cap = region.len() - start.raw_value();
+            let len = std::cmp::min(cap, (count - total) as GuestUsize);
+            match f(total, len as usize, start, region) {
                 // no more data
                 Ok(0) => break,
                 // made some progress
@@ -492,6 +492,19 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "backend-mmap")]
+    use crate::{GuestAddress, GuestMemoryMmap};
+    #[cfg(feature = "backend-mmap")]
+    use std::io::Cursor;
+
+    #[cfg(feature = "backend-mmap")]
+    fn make_image(size: u8) -> Vec<u8> {
+        let mut image: Vec<u8> = Vec::with_capacity(size as usize);
+        for i in 0..size {
+            image.push(i);
+        }
+        image
+    }
 
     #[test]
     fn offset_from() {
@@ -565,4 +578,21 @@ mod tests {
             file_offset.arc().as_ref() as *const File
         );
     }
+
+    #[cfg(feature = "backend-mmap")]
+    #[test]
+    fn checked_read_from() {
+        let start_addr1 = GuestAddress(0x0);
+        let start_addr2 = GuestAddress(0x40);
+        let mem = GuestMemoryMmap::new(&vec![(start_addr1, 64), (start_addr2, 64)]).unwrap();
+        let image = make_image(0x80);
+        let offset = GuestAddress(0x30);
+        let count: usize = 0x20;
+        assert_eq!(
+            0x20 as usize,
+            mem.read_from(offset, &mut Cursor::new(&image), count)
+                .unwrap()
+        );
+    }
+
 }
