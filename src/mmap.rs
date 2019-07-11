@@ -21,6 +21,8 @@
 //! GuestRegionMmap objects.
 
 use std::borrow::Borrow;
+use std::error;
+use std::fmt;
 use std::io::{Read, Write};
 use std::ops::Deref;
 use std::result;
@@ -62,6 +64,25 @@ pub enum Error {
     /// Some of the memory regions intersect with each other.
     MemoryRegionOverlap,
 }
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::InvalidGuestRegion => write!(
+                f,
+                "Adding the guest base address to the length of the underlying mapping \
+                 resulted in an overflow"
+            ),
+            Error::MmapRegion(e) => write!(f, "{}", e),
+            Error::NoMemoryRegion => write!(f, "No memory region found"),
+            Error::MemoryRegionOverlap => {
+                write!(f, "Some of the memory regions intersect with each other")
+            }
+        }
+    }
+}
+
+impl error::Error for Error {}
 
 // TODO: use this for Windows as well after we redefine the Error type there.
 #[cfg(unix)]
