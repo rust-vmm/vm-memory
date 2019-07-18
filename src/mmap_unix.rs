@@ -20,6 +20,8 @@
 //! - [GuestMemoryMmap](struct.GuestMemoryMmap.html): provides methods to access a collection of
 //! GuestRegionMmap objects.
 
+use std::error;
+use std::fmt;
 use std::io;
 use std::os::unix::io::AsRawFd;
 use std::ptr::null_mut;
@@ -45,6 +47,29 @@ pub enum Error {
     /// The `mmap` call returned an error.
     Mmap(io::Error),
 }
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::InvalidOffsetLength => write!(
+                f,
+                "The specified file offset and length cause overflow when added"
+            ),
+            Error::MapFixed => write!(f, "The forbidden `MAP_FIXED` flag was specified"),
+            Error::MappingOverlap => write!(
+                f,
+                "Mappings using the same fd overlap in terms of file offset and length"
+            ),
+            Error::MappingPastEof => write!(
+                f,
+                "The specified file offset and length is greater then file length"
+            ),
+            Error::Mmap(error) => write!(f, "{}", error),
+        }
+    }
+}
+
+impl error::Error for Error {}
 
 pub type Result<T> = result::Result<T, Error>;
 

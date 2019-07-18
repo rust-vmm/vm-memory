@@ -22,6 +22,7 @@
 //! not reordered or elided the access.
 
 use std::cmp::min;
+use std::error;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::marker::PhantomData;
@@ -84,6 +85,8 @@ impl fmt::Display for Error {
         }
     }
 }
+
+impl error::Error for Error {}
 
 /// Result of volatile memory operations
 pub type Result<T> = result::Result<T, Error>;
