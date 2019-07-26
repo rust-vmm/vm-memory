@@ -15,6 +15,10 @@ backend-mmap = []
 libc = ">=0.2.39"
 cast = ">=0"
 
+[target.'cfg(windows)'.dependencies.winapi]
+version = ">=0.3"
+features = ["errhandlingapi"]
+
 [dev-dependencies]
 matches = ">=0"
 tempfile = ">=3.0.2"
