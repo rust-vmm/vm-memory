@@ -20,6 +20,8 @@ use std::ptr::{null, null_mut};
 
 use libc::{c_void, size_t};
 
+use winapi::um::errhandlingapi::GetLastError;
+
 use crate::guest_memory::FileOffset;
 use crate::mmap::AsSlice;
 use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
@@ -219,8 +221,20 @@ impl Drop for MmapRegion {
     fn drop(&mut self) {
         // This is safe because we mmap the area at addr ourselves, and nobody
         // else is holding a reference to it.
+        // Note that the size must be set to 0 when using MEM_RELEASE,
+        // otherwise the function fails.
         unsafe {
-            VirtualFree(self.addr as *mut libc::c_void, self.size, MEM_RELEASE);
+            let ret_val = VirtualFree(self.addr as *mut libc::c_void, 0, MEM_RELEASE);
+            if ret_val == 0 {
+                let err = GetLastError();
+                // We can't use any fancy logger here, yet we want to
+                // pin point memory leaks.
+                println!(
+                    "WARNING: Could not deallocate mmap region. \
+                     Address: {:?}. Size: {}. Error: {}",
+                    self.addr, self.size, err
+                )
+            }
         }
     }
 }
