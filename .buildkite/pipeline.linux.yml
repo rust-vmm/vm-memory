@@ -9,7 +9,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "rustvmm/dev:v2"
+          image: "rustvmm/dev:v3"
           always-pull: true
 
   - label: "build-musl-x86-mmap"
@@ -22,7 +22,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "rustvmm/dev:v2"
+          image: "rustvmm/dev:v3"
           always-pull: true
 
   - label: "build-gnu-arm-mmap"
@@ -35,7 +35,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "rustvmm/dev:v2"
+          image: "rustvmm/dev:v3"
           always-pull: true
 
   - label: "build-musl-arm-mmap"
@@ -48,5 +48,5 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "rustvmm/dev:v2"
+          image: "rustvmm/dev:v3"
           always-pull: true
