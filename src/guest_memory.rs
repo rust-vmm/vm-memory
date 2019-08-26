@@ -267,10 +267,16 @@ pub trait GuestMemory {
     /// ```
     /// # #[cfg(feature = "backend-mmap")]
     /// # fn test_map_fold() -> Result<(), ()> {
-    /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryRegion, mmap::GuestMemoryMmap};
+    /// # use vm_memory::{
+    ///     GuestAddress, GuestMemory, GuestMemoryRegion, mmap::GuestMemoryMmap,
+    ///     RegionType
+    /// };
     ///     let start_addr1 = GuestAddress(0x0);
     ///     let start_addr2 = GuestAddress(0x400);
-    ///     let mem = GuestMemoryMmap::new(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
+    ///     let mem = GuestMemoryMmap::new(&vec![
+    ///         (start_addr1, 1024, RegionType::Ram),
+    ///         (start_addr2, 2048, RegionType::Ram)
+    ///         ]).unwrap();
     ///     let total_size = mem.map_and_fold(
     ///         0,
     ///         |(_, region)| region.len() / 1024,
@@ -493,7 +499,7 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
 mod tests {
     use super::*;
     #[cfg(feature = "backend-mmap")]
-    use crate::{GuestAddress, GuestMemoryMmap};
+    use crate::{GuestAddress, GuestMemoryMmap, RegionType};
     #[cfg(feature = "backend-mmap")]
     use std::io::Cursor;
 
@@ -584,7 +590,11 @@ mod tests {
     fn checked_read_from() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x40);
-        let mem = GuestMemoryMmap::new(&vec![(start_addr1, 64), (start_addr2, 64)]).unwrap();
+        let mem = GuestMemoryMmap::new(&vec![
+            (start_addr1, 64, RegionType::Ram),
+            (start_addr2, 64, RegionType::Ram),
+        ])
+        .unwrap();
         let image = make_image(0x80);
         let offset = GuestAddress(0x30);
         let count: usize = 0x20;
