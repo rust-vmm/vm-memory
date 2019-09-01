@@ -132,15 +132,6 @@ impl GuestRegionMmap {
             guest_base,
         })
     }
-
-    /// Convert an absolute address into an address space (GuestMemory)
-    /// to a host pointer, or return None if it is out of bounds.
-    pub fn get_host_address(&self, addr: MemoryRegionAddress) -> Option<*mut u8> {
-        // Not sure why wrapping_offset is not unsafe.  Anyway this
-        // is safe because we've just range-checked addr using check_address.
-        self.check_address(addr)
-            .map(|addr| self.as_ptr().wrapping_offset(addr.raw_value() as isize))
-    }
 }
 
 impl Deref for GuestRegionMmap {
@@ -360,6 +351,15 @@ impl GuestMemoryRegion for GuestRegionMmap {
     unsafe fn as_mut_slice(&self) -> Option<&mut [u8]> {
         Some(self.mapping.as_mut_slice())
     }
+
+    /// Get the host virtual address corresponding to the region address.
+    fn get_host_address(&self, addr: MemoryRegionAddress) -> guest_memory::Result<*mut u8> {
+        // Not sure why wrapping_offset is not unsafe.  Anyway this
+        // is safe because we've just range-checked addr using check_address.
+        self.check_address(addr)
+            .ok_or(guest_memory::Error::InvalidBackendAddress)
+            .map(|addr| self.as_ptr().wrapping_offset(addr.raw_value() as isize))
+    }
 }
 
 /// Tracks memory regions allocated/mapped for the guest in the current process.
@@ -444,13 +444,6 @@ impl GuestMemoryMmap {
         }
 
         Ok(Self { regions })
-    }
-
-    /// Convert an absolute address into an address space (GuestMemory)
-    /// to a host pointer, or return None if it is out of bounds.
-    pub fn get_host_address(&self, addr: GuestAddress) -> Option<*mut u8> {
-        self.to_region_addr(addr)
-            .and_then(|(r, addr)| r.get_host_address(addr))
     }
 }
 
@@ -889,7 +882,7 @@ mod tests {
 
         let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
-            assert!(guest_mem.get_host_address(GuestAddress(0x600)).is_none());
+            assert!(guest_mem.get_host_address(GuestAddress(0x600)).is_err());
             let ptr0 = guest_mem.get_host_address(GuestAddress(0x800)).unwrap();
             let ptr1 = guest_mem.get_host_address(GuestAddress(0xa00)).unwrap();
             assert_eq!(
