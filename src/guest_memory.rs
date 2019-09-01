@@ -52,6 +52,8 @@ pub enum Error {
     PartialBuffer { expected: usize, completed: usize },
     /// Requested backend address is out of range.
     InvalidBackendAddress,
+    /// Host virtual address not available.
+    HostAddressNotAvailable,
 }
 
 impl From<volatile_memory::Error> for Error {
@@ -95,6 +97,7 @@ impl Display for Error {
                 completed, expected,
             ),
             Error::InvalidBackendAddress => write!(f, "invalid backend address"),
+            Error::HostAddressNotAvailable => write!(f, "host virtual address not available"),
         }
     }
 }
@@ -198,6 +201,19 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     fn to_region_addr(&self, addr: GuestAddress) -> Option<MemoryRegionAddress> {
         addr.checked_offset_from(self.start_addr())
             .and_then(|offset| self.check_address(MemoryRegionAddress(offset)))
+    }
+
+    /// Get the host virtual address corresponding to the region address.
+    ///
+    /// Some GuestMemory backends, like the GuestMemoryMmap backend, have the capability to mmap
+    /// guest address range into host virtual address space for direct access, so the corresponding
+    /// host virtual address may be passed to other subsystems.
+    ///
+    /// Note: the underline guest memory is not protected from memory aliasing, which breaks the
+    /// rust memory safety model. It's the caller's responsibility to ensure that there's no
+    /// concurrent accesses to the underline guest memory.
+    fn get_host_address(&self, _addr: MemoryRegionAddress) -> Result<*mut u8> {
+        Err(Error::HostAddressNotAvailable)
     }
 
     /// Returns information regarding the file and offset backing this memory region.
@@ -360,6 +376,21 @@ pub trait GuestMemory {
         } else {
             Ok(total)
         }
+    }
+
+    /// Get the host virtual address corresponding to the guest address.
+    ///
+    /// Some GuestMemory backends, like the GuestMemoryMmap backend, have the capability to mmap
+    /// guest address range into host virtual address space for direct access, so the corresponding
+    /// host virtual address may be passed to other subsystems.
+    ///
+    /// Note: the underline guest memory is not protected from memory aliasing, which breaks the
+    /// rust memory safety model. It's the caller's responsibility to ensure that there's no
+    /// concurrent accesses to the underline guest memory.
+    fn get_host_address(&self, addr: GuestAddress) -> Result<*mut u8> {
+        self.to_region_addr(addr)
+            .ok_or_else(|| Error::InvalidGuestAddress(addr))
+            .and_then(|(r, addr)| r.get_host_address(addr))
     }
 }
 
