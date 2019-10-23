@@ -489,7 +489,7 @@ impl Bytes<usize> for VolatileSlice<'_> {
             // volatile.  Writing to it with what compiles down to a memcpy
             // won't hurt anything as long as we get the bounds checks right.
             let mut slice: &mut [u8] = &mut self.as_mut_slice()[addr..];
-            Ok(slice.write(buf).map_err(Error::IOError)?)
+            slice.write(buf).map_err(Error::IOError)
         }
     }
 
@@ -515,7 +515,7 @@ impl Bytes<usize> for VolatileSlice<'_> {
             // volatile.  Writing to it with what compiles down to a memcpy
             // won't hurt anything as long as we get the bounds checks right.
             let slice: &[u8] = &self.as_slice()[addr..];
-            Ok(buf.write(slice).map_err(Error::IOError)?)
+            buf.write(slice).map_err(Error::IOError)
         }
     }
 
