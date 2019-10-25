@@ -74,6 +74,14 @@ pub trait Address:
 
     /// Returns the offset from this address to the given base address.
     /// Only use this when `base` is guaranteed not to overflow.
+    /// # Examples
+    ///
+    /// ```
+    /// # use vm_memory::{Address, GuestAddress};
+    ///   let base = GuestAddress(0x100);
+    ///   let addr = GuestAddress(0x150);
+    ///   assert_eq!(addr.unchecked_offset_from(base), 0x50);
+    /// ```
     fn unchecked_offset_from(&self, base: Self) -> Self::V {
         self.raw_value() - base.raw_value()
     }
