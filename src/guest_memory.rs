@@ -216,7 +216,9 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     }
 
     /// Returns information regarding the file and offset backing this memory region.
-    fn file_offset(&self) -> Option<&FileOffset>;
+    fn file_offset(&self) -> Option<&FileOffset> {
+        None
+    }
 
     /// Returns a slice corresponding to the data in the region.
     ///
