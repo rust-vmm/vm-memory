@@ -507,67 +507,6 @@ mod tests {
     }
 
     #[test]
-    fn offset_from() {
-        let base = GuestAddress(0x100);
-        let addr = GuestAddress(0x150);
-        assert_eq!(addr.unchecked_offset_from(base), 0x50u64);
-        assert_eq!(addr.checked_offset_from(base), Some(0x50u64));
-        assert_eq!(base.checked_offset_from(addr), None);
-    }
-
-    #[test]
-    fn equals() {
-        let a = GuestAddress(0x300);
-        let b = GuestAddress(0x300);
-        let c = GuestAddress(0x301);
-        assert_eq!(a, GuestAddress(a.raw_value()));
-        assert_eq!(a, b);
-        assert_eq!(b, a);
-        assert_ne!(a, c);
-        assert_ne!(c, a);
-    }
-
-    #[test]
-    #[allow(clippy::eq_op)]
-    fn cmp() {
-        let a = GuestAddress(0x300);
-        let b = GuestAddress(0x301);
-        assert!(a < b);
-        assert!(b > a);
-        assert!(!(a < a));
-    }
-
-    #[test]
-    fn mask() {
-        let a = GuestAddress(0x5050);
-        assert_eq!(GuestAddress(0x5000), a & 0xff00u64);
-        assert_eq!(0x5000, a.mask(0xff00u64));
-        assert_eq!(GuestAddress(0x5055), a | 0x0005u64);
-    }
-
-    #[test]
-    fn add_sub() {
-        let a = GuestAddress(0x50);
-        let b = GuestAddress(0x60);
-        assert_eq!(Some(GuestAddress(0xb0)), a.checked_add(0x60));
-        assert_eq!(0x10, b.unchecked_offset_from(a));
-    }
-
-    #[test]
-    fn checked_add_overflow() {
-        let a = GuestAddress(0xffff_ffff_ffff_ff55);
-        assert_eq!(Some(GuestAddress(0xffff_ffff_ffff_ff57)), a.checked_add(2));
-        assert!(a.checked_add(0xf0).is_none());
-    }
-
-    #[test]
-    fn checked_sub_underflow() {
-        let a = GuestAddress(0xff);
-        assert_eq!(Some(GuestAddress(0x0f)), a.checked_sub(0xf0));
-        assert!(a.checked_sub(0xffff).is_none());
-    }
-
-    #[test]
     fn test_file_offset() {
         let file = tempfile::tempfile().unwrap();
         let start = 1234;
@@ -594,5 +533,4 @@ mod tests {
                 .unwrap()
         );
     }
-
 }
