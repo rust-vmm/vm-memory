@@ -186,6 +186,12 @@ mod tests {
     impl_address_ops!(MockAddress, u64);
 
     #[test]
+    fn test_new() {
+        assert_eq!(MockAddress::new(0), MockAddress(0));
+        assert_eq!(MockAddress::new(std::u64::MAX), MockAddress(std::u64::MAX));
+    }
+
+    #[test]
     fn test_offset_from() {
         let base = MockAddress(0x100);
         let addr = MockAddress(0x150);
@@ -288,5 +294,22 @@ mod tests {
 
         // with underflow
         check_sub(0, 1, true, std::u64::MAX);
+    }
+
+    #[test]
+    fn test_default() {
+        assert_eq!(MockAddress::default(), MockAddress(0));
+    }
+
+    #[test]
+    fn test_bit_and() {
+        let a = MockAddress(0x0ff0);
+        assert_eq!(a & 0xf00f, MockAddress(0));
+    }
+
+    #[test]
+    fn test_bit_or() {
+        let a = MockAddress(0x0ff0);
+        assert_eq!(a | 0xf00f, MockAddress(0xffff));
     }
 }
