@@ -176,3 +176,73 @@ macro_rules! impl_address_ops {
         }
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+    struct MockAddress(pub u64);
+    impl_address_ops!(MockAddress, u64);
+
+    #[test]
+    fn test_offset_from() {
+        let base = MockAddress(0x100);
+        let addr = MockAddress(0x150);
+        assert_eq!(addr.unchecked_offset_from(base), 0x50u64);
+        assert_eq!(addr.checked_offset_from(base), Some(0x50u64));
+        assert_eq!(base.checked_offset_from(addr), None);
+    }
+
+    #[test]
+    fn test_equals() {
+        let a = MockAddress(0x300);
+        let b = MockAddress(0x300);
+        let c = MockAddress(0x301);
+        assert_eq!(a, MockAddress(a.raw_value()));
+        assert_eq!(a, b);
+        assert_eq!(b, a);
+        assert_ne!(a, c);
+        assert_ne!(c, a);
+    }
+
+    #[test]
+    #[allow(clippy::eq_op)]
+    fn test_cmp() {
+        let a = MockAddress(0x300);
+        let b = MockAddress(0x301);
+        assert!(a < b);
+        assert!(b > a);
+        assert!(!(a < a));
+    }
+
+    #[test]
+    fn test_mask() {
+        let a = MockAddress(0x5050);
+        assert_eq!(MockAddress(0x5000), a & 0xff00u64);
+        assert_eq!(0x5000, a.mask(0xff00u64));
+        assert_eq!(MockAddress(0x5055), a | 0x0005u64);
+    }
+
+    #[test]
+    fn test_add_sub() {
+        let a = MockAddress(0x50);
+        let b = MockAddress(0x60);
+        assert_eq!(Some(MockAddress(0xb0)), a.checked_add(0x60));
+        assert_eq!(0x10, b.unchecked_offset_from(a));
+    }
+
+    #[test]
+    fn test_checked_add_with_overflow() {
+        let a = MockAddress(0xffff_ffff_ffff_ff55);
+        assert_eq!(Some(MockAddress(0xffff_ffff_ffff_ff57)), a.checked_add(2));
+        assert!(a.checked_add(0xf0).is_none());
+    }
+
+    #[test]
+    fn test_checked_sub_with_underflow() {
+        let a = MockAddress(0xff);
+        assert_eq!(Some(MockAddress(0x0f)), a.checked_sub(0xf0));
+        assert!(a.checked_sub(0xffff).is_none());
+    }
+}
