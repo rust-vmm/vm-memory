@@ -221,25 +221,72 @@ mod tests {
         assert_eq!(MockAddress(0x5055), a | 0x0005u64);
     }
 
-    #[test]
-    fn test_add_sub() {
-        let a = MockAddress(0x50);
-        let b = MockAddress(0x60);
-        assert_eq!(Some(MockAddress(0xb0)), a.checked_add(0x60));
-        assert_eq!(0x10, b.unchecked_offset_from(a));
+    fn check_add(a: u64, b: u64, expected_overflow: bool, expected_result: u64) {
+        assert_eq!(
+            (MockAddress(expected_result), expected_overflow),
+            MockAddress(a).overflowing_add(b)
+        );
+        if expected_overflow {
+            assert!(MockAddress(a).checked_add(b).is_none());
+            assert!(std::panic::catch_unwind(|| MockAddress(a).unchecked_add(b)).is_err());
+        } else {
+            assert_eq!(
+                Some(MockAddress(expected_result)),
+                MockAddress(a).checked_add(b)
+            );
+            assert_eq!(
+                MockAddress(expected_result),
+                MockAddress(a).unchecked_add(b)
+            );
+        }
     }
 
     #[test]
-    fn test_checked_add_with_overflow() {
-        let a = MockAddress(0xffff_ffff_ffff_ff55);
-        assert_eq!(Some(MockAddress(0xffff_ffff_ffff_ff57)), a.checked_add(2));
-        assert!(a.checked_add(0xf0).is_none());
+    fn test_add() {
+        // without overflow
+        // normal case
+        check_add(10, 10, false, 20);
+        // edge case
+        check_add(std::u64::MAX - 1, 1, false, std::u64::MAX);
+
+        // with overflow
+        check_add(std::u64::MAX, 1, true, 0);
+    }
+
+    fn check_sub(a: u64, b: u64, expected_overflow: bool, expected_result: u64) {
+        assert_eq!(
+            (MockAddress(expected_result), expected_overflow),
+            MockAddress(a).overflowing_sub(b)
+        );
+        if expected_overflow {
+            assert!(MockAddress(a).checked_sub(b).is_none());
+            assert!(MockAddress(a).checked_offset_from(MockAddress(b)).is_none());
+            assert!(std::panic::catch_unwind(|| MockAddress(a).unchecked_sub(b)).is_err());
+        } else {
+            assert_eq!(
+                Some(MockAddress(expected_result)),
+                MockAddress(a).checked_sub(b)
+            );
+            assert_eq!(
+                Some(expected_result),
+                MockAddress(a).checked_offset_from(MockAddress(b))
+            );
+            assert_eq!(
+                MockAddress(expected_result),
+                MockAddress(a).unchecked_sub(b)
+            );
+        }
     }
 
     #[test]
-    fn test_checked_sub_with_underflow() {
-        let a = MockAddress(0xff);
-        assert_eq!(Some(MockAddress(0x0f)), a.checked_sub(0xf0));
-        assert!(a.checked_sub(0xffff).is_none());
+    fn test_sub() {
+        // without overflow
+        // normal case
+        check_sub(20, 10, false, 10);
+        // edge case
+        check_sub(1, 1, false, 0);
+
+        // with underflow
+        check_sub(0, 1, true, std::u64::MAX);
     }
 }
