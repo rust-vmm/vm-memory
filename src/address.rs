@@ -207,13 +207,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::eq_op)]
     fn test_cmp() {
         let a = MockAddress(0x300);
         let b = MockAddress(0x301);
         assert!(a < b);
-        assert!(b > a);
-        assert!(!(a < a));
     }
 
     #[test]
