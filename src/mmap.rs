@@ -409,11 +409,11 @@ impl GuestMemoryMmap {
             return Err(Error::NoMemoryRegion);
         }
 
-        for i in 1..regions.len() {
-            let region = &regions[i];
-            let last = &regions[i - 1];
+        for window in regions.windows(2) {
+            let prev = &window[0];
+            let next = &window[1];
 
-            if last.guest_base.0 + last.mapping.len() as u64 > region.start_addr().0 {
+            if prev.end_addr() >= next.start_addr() {
                 return Err(Error::MemoryRegionOverlap);
             }
         }
