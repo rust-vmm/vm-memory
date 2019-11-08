@@ -397,7 +397,13 @@ impl GuestMemoryMmap {
         )
     }
 
-    /// Creates a container and adds an existing set of mappings to it.
+    /// Creates a new `GuestMemoryMmap` from a vector of regions.
+    ///
+    /// # Arguments
+    ///
+    /// * `regions` - The vector of regions.
+    ///               The regions shouldn't overlap and they should be sorted
+    ///               by the starting address.
     pub fn from_regions(regions: Vec<GuestRegionMmap>) -> result::Result<Self, Error> {
         if regions.is_empty() {
             return Err(Error::NoMemoryRegion);
