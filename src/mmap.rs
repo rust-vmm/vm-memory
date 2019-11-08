@@ -63,6 +63,8 @@ pub enum Error {
     NoMemoryRegion,
     /// Some of the memory regions intersect with each other.
     MemoryRegionOverlap,
+    /// The provided memory regions haven't been sorted.
+    UnsortedMemoryRegions,
 }
 
 impl fmt::Display for Error {
@@ -77,6 +79,9 @@ impl fmt::Display for Error {
             Error::NoMemoryRegion => write!(f, "No memory region found"),
             Error::MemoryRegionOverlap => {
                 write!(f, "Some of the memory regions intersect with each other")
+            }
+            Error::UnsortedMemoryRegions => {
+                write!(f, "The provided memory regions haven't been sorted")
             }
         }
     }
@@ -412,6 +417,10 @@ impl GuestMemoryMmap {
         for window in regions.windows(2) {
             let prev = &window[0];
             let next = &window[1];
+
+            if prev.start_addr() > next.start_addr() {
+                return Err(Error::UnsortedMemoryRegions);
+            }
 
             if prev.end_addr() >= next.start_addr() {
                 return Err(Error::MemoryRegionOverlap);
