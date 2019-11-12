@@ -523,7 +523,7 @@ mod tests {
     fn checked_read_from() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x40);
-        let mem = GuestMemoryMmap::new(&vec![(start_addr1, 64), (start_addr2, 64)]).unwrap();
+        let mem = GuestMemoryMmap::new(&[(start_addr1, 64), (start_addr2, 64)]).unwrap();
         let image = make_image(0x80);
         let offset = GuestAddress(0x30);
         let count: usize = 0x20;
