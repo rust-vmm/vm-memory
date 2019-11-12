@@ -504,6 +504,194 @@ mod tests {
         assert_eq!(1024, m.len());
     }
 
+    fn check_guest_memory_mmap(
+        maybe_guest_mem: Result<GuestMemoryMmap, Error>,
+        expected_regions_summary: &[(GuestAddress, usize)],
+    ) {
+        assert!(maybe_guest_mem.is_ok());
+
+        let guest_mem = maybe_guest_mem.unwrap();
+        assert_eq!(guest_mem.num_regions(), expected_regions_summary.len());
+        let maybe_last_mem_reg = expected_regions_summary.last();
+        if let Some((region_addr, region_size)) = maybe_last_mem_reg {
+            let mut end_addr = region_addr.unchecked_add(*region_size as u64);
+            if end_addr.raw_value() != 0 {
+                end_addr = end_addr.unchecked_sub(1);
+            }
+            assert_eq!(guest_mem.end_addr(), end_addr);
+        }
+        for ((region_addr, region_size), mmap) in expected_regions_summary
+            .iter()
+            .zip(guest_mem.regions.iter())
+        {
+            assert_eq!(region_addr, &mmap.guest_base);
+            assert_eq!(region_size, &mmap.mapping.size());
+
+            assert!(guest_mem.find_region(*region_addr).is_some());
+        }
+    }
+
+    fn new_guest_memory_mmap(
+        regions_summary: &[(GuestAddress, usize)],
+    ) -> Result<GuestMemoryMmap, Error> {
+        GuestMemoryMmap::new(regions_summary)
+    }
+
+    fn new_guest_memory_mmap_from_regions(
+        regions_summary: &[(GuestAddress, usize)],
+    ) -> Result<GuestMemoryMmap, Error> {
+        GuestMemoryMmap::from_regions(
+            regions_summary
+                .iter()
+                .map(|(region_addr, region_size)| {
+                    GuestRegionMmap::new(MmapRegion::new(*region_size).unwrap(), *region_addr)
+                        .unwrap()
+                })
+                .collect(),
+        )
+    }
+
+    fn new_guest_memory_mmap_with_files(
+        regions_summary: &[(GuestAddress, usize)],
+    ) -> Result<GuestMemoryMmap, Error> {
+        let regions: Vec<(GuestAddress, usize, Option<FileOffset>)> = regions_summary
+            .iter()
+            .map(|(region_addr, region_size)| {
+                let f = tempfile().unwrap();
+                f.set_len(*region_size as u64).unwrap();
+
+                (*region_addr, *region_size, Some(FileOffset::new(f, 0)))
+            })
+            .collect();
+
+        GuestMemoryMmap::with_files(&regions)
+    }
+
+    #[test]
+    fn test_no_memory_region() {
+        let regions_summary = [];
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                new_guest_memory_mmap(&regions_summary).err().unwrap()
+            ),
+            format!("{:?}", Error::NoMemoryRegion)
+        );
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                new_guest_memory_mmap_with_files(&regions_summary)
+                    .err()
+                    .unwrap()
+            ),
+            format!("{:?}", Error::NoMemoryRegion)
+        );
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                new_guest_memory_mmap_from_regions(&regions_summary)
+                    .err()
+                    .unwrap()
+            ),
+            format!("{:?}", Error::NoMemoryRegion)
+        );
+    }
+
+    #[test]
+    fn test_overlapping_memory_regions() {
+        let regions_summary = [
+            (GuestAddress(0), 100 as usize),
+            (GuestAddress(99), 100 as usize),
+        ];
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                new_guest_memory_mmap(&regions_summary).err().unwrap()
+            ),
+            format!("{:?}", Error::MemoryRegionOverlap)
+        );
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                new_guest_memory_mmap_with_files(&regions_summary)
+                    .err()
+                    .unwrap()
+            ),
+            format!("{:?}", Error::MemoryRegionOverlap)
+        );
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                new_guest_memory_mmap_from_regions(&regions_summary)
+                    .err()
+                    .unwrap()
+            ),
+            format!("{:?}", Error::MemoryRegionOverlap)
+        );
+    }
+
+    #[test]
+    fn test_unsorted_memory_regions() {
+        let regions_summary = [
+            (GuestAddress(100), 100 as usize),
+            (GuestAddress(0), 100 as usize),
+        ];
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                new_guest_memory_mmap(&regions_summary).err().unwrap()
+            ),
+            format!("{:?}", Error::UnsortedMemoryRegions)
+        );
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                new_guest_memory_mmap_with_files(&regions_summary)
+                    .err()
+                    .unwrap()
+            ),
+            format!("{:?}", Error::UnsortedMemoryRegions)
+        );
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                new_guest_memory_mmap_from_regions(&regions_summary)
+                    .err()
+                    .unwrap()
+            ),
+            format!("{:?}", Error::UnsortedMemoryRegions)
+        );
+    }
+
+    #[test]
+    fn test_valid_memory_regions() {
+        let regions_summary = [
+            (GuestAddress(0), 100 as usize),
+            (GuestAddress(100), 100 as usize),
+        ];
+
+        check_guest_memory_mmap(new_guest_memory_mmap(&regions_summary), &regions_summary);
+
+        check_guest_memory_mmap(
+            new_guest_memory_mmap_with_files(&regions_summary),
+            &regions_summary,
+        );
+
+        check_guest_memory_mmap(
+            new_guest_memory_mmap_from_regions(&regions_summary),
+            &regions_summary,
+        );
+    }
+
     #[test]
     fn slice_addr() {
         let m = MmapRegion::new(5).unwrap();
@@ -524,44 +712,6 @@ mod tests {
             sample_buf.len()
         );
         assert_eq!(buf[0..sample_buf.len()], sample_buf[..]);
-    }
-
-    #[test]
-    fn test_regions() {
-        // No regions provided should return error.
-        assert_eq!(
-            format!("{:?}", GuestMemoryMmap::new(&[]).err().unwrap()),
-            format!("{:?}", Error::NoMemoryRegion)
-        );
-        assert_eq!(
-            format!("{:?}", GuestMemoryMmap::with_files(&[]).err().unwrap()),
-            format!("{:?}", Error::NoMemoryRegion)
-        );
-
-        let f1 = tempfile().unwrap();
-        f1.set_len(0x400).unwrap();
-        let f2 = tempfile().unwrap();
-        f2.set_len(0x400).unwrap();
-
-        let start_addr1 = GuestAddress(0x0);
-        let start_addr2 = GuestAddress(0x800);
-        let guest_mem =
-            GuestMemoryMmap::new(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        let guest_mem_backed_by_file = GuestMemoryMmap::with_files(&[
-            (start_addr1, 0x400, Some(FileOffset::new(f1, 0))),
-            (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
-        ])
-        .unwrap();
-
-        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
-        for guest_mem in guest_mem_list.iter() {
-            assert_eq!(guest_mem.num_regions(), 2);
-            assert_eq!(guest_mem.end_addr(), GuestAddress(0xbff));
-            assert!(guest_mem.find_region(GuestAddress(0x200)).is_some());
-            assert!(guest_mem.find_region(GuestAddress(0x600)).is_none());
-            assert!(guest_mem.find_region(GuestAddress(0xa00)).is_some());
-            assert!(guest_mem.find_region(GuestAddress(0xc00)).is_none());
-        }
     }
 
     #[test]
@@ -705,46 +855,6 @@ mod tests {
             assert_eq!(slice.read(buf, 0).unwrap(), 5);
             assert_eq!(buf, sample_buf);
         }
-    }
-
-    #[test]
-    fn mapped_file_regions() {
-        let mut f = tempfile().unwrap();
-        let empty_buf = &[0; 16384];
-        assert!(f.write_all(empty_buf).is_ok());
-
-        let mem_map = MmapRegion::from_file(FileOffset::new(f, 0), empty_buf.len()).unwrap();
-        let guest_reg = GuestRegionMmap::new(mem_map, GuestAddress(0x8000)).unwrap();
-        let mut region_vec = Vec::new();
-        region_vec.push(guest_reg);
-        let guest_mem = GuestMemoryMmap::from_regions(region_vec).unwrap();
-        assert_eq!(guest_mem.num_regions(), 1);
-        assert!(guest_mem.find_region(GuestAddress(0)).is_none());
-        assert!(guest_mem.find_region(GuestAddress(0x8000)).is_some());
-    }
-
-    #[test]
-    fn overlap_memory() {
-        let f1 = tempfile().unwrap();
-        f1.set_len(0x2000).unwrap();
-        let f2 = tempfile().unwrap();
-        f2.set_len(0x2000).unwrap();
-
-        let start_addr1 = GuestAddress(0x0);
-        let start_addr2 = GuestAddress(0x1000);
-        let guest_mem = GuestMemoryMmap::new(&[(start_addr1, 0x2000), (start_addr2, 0x2000)]);
-        let guest_mem_backed_by_file = GuestMemoryMmap::with_files(&[
-            (start_addr1, 0x2000, Some(FileOffset::new(f1, 0))),
-            (start_addr2, 0x2000, Some(FileOffset::new(f2, 0))),
-        ]);
-        assert_eq!(
-            format!("{:?}", guest_mem.err().unwrap()),
-            format!("{:?}", Error::MemoryRegionOverlap)
-        );
-        assert_eq!(
-            format!("{:?}", guest_mem_backed_by_file.err().unwrap()),
-            format!("{:?}", Error::MemoryRegionOverlap)
-        );
     }
 
     #[test]
