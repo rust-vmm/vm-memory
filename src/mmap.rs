@@ -447,14 +447,23 @@ impl GuestMemory for GuestMemoryMmap {
         self.regions.len()
     }
 
-    fn find_region(&self, addr: GuestAddress) -> Option<&GuestRegionMmap> {
-        for region in self.regions.iter() {
-            if addr >= region.start_addr() && addr <= region.end_addr() {
-                return Some(region);
-            }
-        }
-        None
-    }
+    fn find_region(&self, addr: GuestAddress) -> Option<&GuestRegionMmap> {           
+        let bs_region = self.regions.binary_search_by_key(&addr, |x| x.start_addr()); 
+        match bs_region {                                                             
+            Ok(x) => {                                                                
+                return Some(&self.regions[x]);                                        
+            }                                                                         
+            Err(x) if x > 0 => {                                                      
+                let size = addr.unchecked_sub(self.regions[x - 1].guest_base.0);      
+                if size.0 < self.regions[x - 1].len(){                                
+                    return Some(&self.regions[x - 1])                                 
+                }                                                                     
+            }                                                                         
+            _ => {}                                                                   
+        }                                                                             
+        None                                                                          
+    }                                                                                 
+
 
     fn with_regions<F, E>(&self, cb: F) -> result::Result<(), E>
     where
