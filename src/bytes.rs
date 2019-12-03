@@ -228,58 +228,49 @@ mod tests {
     use std::fmt::Debug;
     use std::mem::{align_of, size_of};
 
-    fn from_slice_alignment<T>()
+    fn check_byte_valued_type<T>()
     where
         T: ByteValued + PartialEq + Debug + Default,
     {
-        let mut v = [0u8; 32];
+        let mut data = [0u8; 32];
         let pre_len = {
-            let (pre, _, _) = unsafe { v.align_to::<T>() };
+            let (pre, _, _) = unsafe { data.align_to::<T>() };
             pre.len()
         };
         {
-            let aligned_v = &mut v[pre_len..pre_len + size_of::<T>()];
+            let aligned_data = &mut data[pre_len..pre_len + size_of::<T>()];
             {
-                let from_aligned = T::from_slice(aligned_v);
-                let val: T = Default::default();
-                assert_eq!(from_aligned, Some(&val));
-            }
-            {
-                let from_aligned_mut = T::from_mut_slice(aligned_v);
                 let mut val: T = Default::default();
-                assert_eq!(from_aligned_mut, Some(&mut val));
+                assert_eq!(T::from_slice(aligned_data), Some(&val));
+                assert_eq!(T::from_mut_slice(aligned_data), Some(&mut val));
+                assert_eq!(val.as_slice(), aligned_data);
+                assert_eq!(val.as_mut_slice(), aligned_data);
             }
         }
         for i in 1..size_of::<T>() {
             let begin = pre_len + i;
             let end = begin + size_of::<T>();
-            let unaligned_v = &mut v[begin..end];
+            let unaligned_data = &mut data[begin..end];
             {
-                let from_unaligned = T::from_slice(unaligned_v);
                 if align_of::<T>() != 1 {
-                    assert_eq!(from_unaligned, None);
-                }
-            }
-            {
-                let from_unaligned_mut = T::from_mut_slice(unaligned_v);
-                if align_of::<T>() != 1 {
-                    assert_eq!(from_unaligned_mut, None);
+                    assert_eq!(T::from_slice(unaligned_data), None);
+                    assert_eq!(T::from_mut_slice(unaligned_data), None);
                 }
             }
         }
     }
 
     #[test]
-    fn test_slice_alignment() {
-        from_slice_alignment::<u8>();
-        from_slice_alignment::<u16>();
-        from_slice_alignment::<u32>();
-        from_slice_alignment::<u64>();
-        from_slice_alignment::<usize>();
-        from_slice_alignment::<i8>();
-        from_slice_alignment::<i16>();
-        from_slice_alignment::<i32>();
-        from_slice_alignment::<i64>();
-        from_slice_alignment::<isize>();
+    fn test_byte_valued() {
+        check_byte_valued_type::<u8>();
+        check_byte_valued_type::<u16>();
+        check_byte_valued_type::<u32>();
+        check_byte_valued_type::<u64>();
+        check_byte_valued_type::<usize>();
+        check_byte_valued_type::<i8>();
+        check_byte_valued_type::<i16>();
+        check_byte_valued_type::<i32>();
+        check_byte_valued_type::<i64>();
+        check_byte_valued_type::<isize>();
     }
 }
