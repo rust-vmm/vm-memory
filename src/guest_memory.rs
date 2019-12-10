@@ -318,6 +318,24 @@ pub trait GuestMemory {
             .and_then(|addr| self.check_address(addr))
     }
 
+    /// Returns the address plus the offset if the result belongs to a range that's
+    /// contiguous to the base.
+    fn checked_contiguous_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress> {
+        base.checked_add(offset as u64).and_then(|addr| {
+            let mut current_base = base;
+            while let Some(region) = self.find_region(current_base) {
+                if addr >= region.start_addr() && addr < region.end_addr() {
+                    return Some(addr);
+                }
+                // The next address we'll be looking for is the one following
+                // the end of the current region.
+                current_base = region.start_addr().unchecked_add(region.len());
+            }
+
+            None
+        })
+    }
+
     /// Invoke callback `f` to handle data in the address range [addr, addr + count).
     ///
     /// The address range [addr, addr + count) may span more than one GuestMemoryRegion objects, or
@@ -532,5 +550,53 @@ mod tests {
             mem.read_from(offset, &mut Cursor::new(&image), count)
                 .unwrap()
         );
+    }
+
+    #[cfg(feature = "backend-mmap")]
+    #[test]
+    fn checked_contiguous_offset() {
+        let start_addr1 = GuestAddress(0x0);
+        let start_addr2 = GuestAddress(0x4000);
+        let start_addr3 = GuestAddress(0x5000);
+        // Our memory map is made of 3 ranges:
+        // - region1: [0:0x100[
+        // - region2: [0x4000:0x5000[
+        // - region3: [0x5000:0x6000[
+        // region 2 and region3 are contiguous, region 1 is not isolated.
+        let mem = GuestMemoryMmap::new(&[
+            (start_addr1, 0x100),
+            (start_addr2, 0x1000),
+            (start_addr3, 0x1000),
+        ])
+        .unwrap();
+
+        // Positive check: We should be within the first range.
+        assert_eq!(
+            mem.checked_contiguous_offset(start_addr1, 0x10),
+            Some(GuestAddress(0x10))
+        );
+
+        // Positive check: We should be within the second range.
+        assert_eq!(
+            mem.checked_contiguous_offset(start_addr2, 0x10),
+            Some(GuestAddress(0x4010))
+        );
+
+        // Positive check: We should span across the 2 contiguous ranges.
+        assert_eq!(
+            mem.checked_contiguous_offset(start_addr2, 0x1100),
+            Some(GuestAddress(0x5100))
+        );
+
+        // Negative check: We should fall out of the first range
+        assert!(mem.checked_contiguous_offset(start_addr1, 0x200).is_none());
+
+        // Negative check: We should fall out of the last range
+        assert!(mem.checked_contiguous_offset(start_addr2, 0x2100).is_none());
+
+        // Negative check: We should fall out of the first range, and fall within the
+        // second range. That must fail as the resulting address is not in a range
+        // that's contiguous to the base one.
+        assert!(mem.checked_contiguous_offset(start_addr1, 0x4010).is_none());
     }
 }
