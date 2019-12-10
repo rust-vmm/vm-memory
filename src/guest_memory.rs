@@ -554,6 +554,40 @@ mod tests {
 
     #[cfg(feature = "backend-mmap")]
     #[test]
+    fn checked_offset() {
+        let start_addr1 = GuestAddress(0x0);
+        let start_addr2 = GuestAddress(0x4000);
+        let mem = GuestMemoryMmap::new(&[(start_addr1, 0x100), (start_addr2, 0x100)]).unwrap();
+
+        // Positive check: We should be within the first range
+        assert_eq!(
+            mem.checked_offset(start_addr1, 0x10),
+            Some(GuestAddress(0x10))
+        );
+
+        // Positive check: We should be within the second range
+        assert_eq!(
+            mem.checked_offset(start_addr2, 0x10),
+            Some(GuestAddress(0x4010))
+        );
+
+        // Positive check: We start from the first region and end in the second one.
+        // This is an intended behaviour.
+        assert_eq!(
+            mem.checked_offset(start_addr1, 0x4010),
+            Some(GuestAddress(0x4010))
+        );
+
+        // Negative check: We fall between the 2 ranges
+        assert_eq!(mem.checked_offset(start_addr1, 0x200), None);
+
+        // Negative check: We fall after the second range
+        assert_eq!(mem.checked_offset(start_addr2, 0x4200), None);
+    }
+
+    #[cfg(feature = "backend-mmap")]
+    #[test]
+
     fn checked_contiguous_offset() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x4000);
