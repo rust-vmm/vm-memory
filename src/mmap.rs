@@ -438,6 +438,16 @@ impl GuestMemoryMmap {
         self.to_region_addr(addr)
             .and_then(|(r, addr)| r.get_host_address(addr))
     }
+
+    /// Convert an absolute address into an address space (GuestMemory)
+    /// to a host pointer and verify that the provided size defines a range
+    /// that spans across a contiguous set of memory regions.
+    /// Return None if it is out of bounds or if the [addr: addr+size[ range
+    /// crosses non contiguous regions.
+    pub fn get_host_range_address(&self, addr: GuestAddress, size: usize) -> Option<*mut u8> {
+        self.checked_contiguous_offset(addr, size)
+            .and_then(|_| self.get_host_address(addr))
+    }
 }
 
 impl GuestMemory for GuestMemoryMmap {
@@ -827,6 +837,65 @@ mod tests {
                 guest_mem.find_region(GuestAddress(0x800)).unwrap().as_ptr()
             );
             assert_eq!(unsafe { ptr0.offset(0x200) }, ptr1);
+        }
+    }
+
+    #[test]
+    fn test_get_host_range_address() {
+        let f1 = tempfile().unwrap();
+        f1.set_len(0x1000).unwrap();
+        let f2 = tempfile().unwrap();
+        f2.set_len(0x400).unwrap();
+        let f3 = tempfile().unwrap();
+        f3.set_len(0x1000).unwrap();
+
+        let start_addr1 = GuestAddress(0x0);
+        let start_addr2 = GuestAddress(0x1000);
+        let start_addr3 = GuestAddress(0x1800);
+        // The guest memory is made of 3 regions.
+        // region 1 and 2 are contiguous, region 3 is isolated.
+        let guest_mem = GuestMemoryMmap::new(&[
+            (start_addr1, 0x1000),
+            (start_addr2, 0x400),
+            (start_addr3, 0x1000),
+        ])
+        .unwrap();
+
+        let guest_mem_backed_by_file = GuestMemoryMmap::with_files(&[
+            (start_addr1, 0x1000, Some(FileOffset::new(f1, 0))),
+            (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
+            (start_addr3, 0x1000, Some(FileOffset::new(f3, 0))),
+        ])
+        .unwrap();
+
+        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        for guest_mem in guest_mem_list.iter() {
+            // Overlapping range 2
+            assert!(guest_mem
+                .get_host_range_address(GuestAddress(0x1100), 0x400)
+                .is_none());
+
+            // Overlapping range 3
+            assert!(guest_mem
+                .get_host_range_address(GuestAddress(0x2000), 0x1000)
+                .is_none());
+
+            // Starts on range 1, ends on range 2
+            let ptr0 = guest_mem
+                .get_host_range_address(GuestAddress(0x0), 0x1100)
+                .unwrap();
+
+            // Starts on range 2, ends on range 2
+            let ptr1 = guest_mem
+                .get_host_range_address(GuestAddress(0x1100), 0x100)
+                .unwrap();
+
+            let ptr2 = guest_mem.get_host_address(GuestAddress(0x1200)).unwrap();
+            assert_eq!(
+                ptr0,
+                guest_mem.find_region(GuestAddress(0x200)).unwrap().as_ptr()
+            );
+            assert_eq!(unsafe { ptr1.offset(0x100) }, ptr2);
         }
     }
 
