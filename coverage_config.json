@@ -1,5 +1,5 @@
 {
-  "coverage_score": 78.9,
+  "coverage_score": 80.6,
   "exclude_path": "mmap_windows.rs",
   "crate_features": "backend-mmap"
 }
