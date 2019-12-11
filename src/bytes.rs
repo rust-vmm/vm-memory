@@ -192,17 +192,17 @@ pub trait Bytes<A> {
 }
 
 // All intrinsic types and arrays of intrinsic types are ByteValued. They are just numbers.
-macro_rules! array_data_init {
+macro_rules! byte_valued_array {
     ($T:ty, $($N:expr)+) => {
         $(
             unsafe impl ByteValued for [$T; $N] {}
         )+
     }
 }
-macro_rules! data_init_type {
+macro_rules! byte_valued_type {
     ($T:ty) => {
         unsafe impl ByteValued for $T {}
-        array_data_init! {
+        byte_valued_array! {
             $T,
             0  1  2  3  4  5  6  7  8  9
             10 11 12 13 14 15 16 17 18 19
@@ -211,16 +211,16 @@ macro_rules! data_init_type {
         }
     };
 }
-data_init_type!(u8);
-data_init_type!(u16);
-data_init_type!(u32);
-data_init_type!(u64);
-data_init_type!(usize);
-data_init_type!(i8);
-data_init_type!(i16);
-data_init_type!(i32);
-data_init_type!(i64);
-data_init_type!(isize);
+byte_valued_type!(u8);
+byte_valued_type!(u16);
+byte_valued_type!(u32);
+byte_valued_type!(u64);
+byte_valued_type!(usize);
+byte_valued_type!(i8);
+byte_valued_type!(i16);
+byte_valued_type!(i32);
+byte_valued_type!(i64);
+byte_valued_type!(isize);
 
 #[cfg(test)]
 mod tests {
