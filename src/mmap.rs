@@ -21,6 +21,7 @@
 //! GuestRegionMmap objects.
 
 use std::borrow::Borrow;
+use std::cmp::Ordering;
 use std::error;
 use std::fmt;
 use std::io::{Read, Write};
@@ -139,6 +140,26 @@ impl GuestRegionMmap {
         // is safe because we've just range-checked addr using check_address.
         self.check_address(addr)
             .map(|addr| self.as_ptr().wrapping_offset(addr.raw_value() as isize))
+    }
+}
+
+impl Ord for GuestRegionMmap {
+    fn cmp(&self, other: &GuestRegionMmap) -> Ordering {
+        self.guest_base.cmp(&other.guest_base)
+    }
+}
+
+impl PartialOrd for GuestRegionMmap {
+    fn partial_cmp(&self, other: &GuestRegionMmap) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for GuestRegionMmap {}
+
+impl PartialEq for GuestRegionMmap {
+    fn eq(&self, other: &GuestRegionMmap) -> bool {
+        self.guest_base == other.guest_base
     }
 }
 
@@ -427,6 +448,29 @@ impl GuestMemoryMmap {
         }
 
         Ok(Self { regions })
+    }
+
+    /// Add a new region to the set of existing regions.
+    ///
+    /// # Arguments
+    ///
+    /// * `region` - The region to add.
+    ///               The region shouldn't overlap with the existing regions.
+    pub fn add_region(&mut self, region: GuestRegionMmap) -> result::Result<(), Error> {
+        match self.regions.binary_search(&region) {
+            Ok(_) => return Err(Error::MemoryRegionOverlap),
+            Err(pos) => {
+                if (pos > 0 && self.regions[pos - 1].end_addr() >= region.start_addr())
+                    || (pos < self.regions.len()
+                        && region.end_addr() >= self.regions[pos].start_addr())
+                {
+                    return Err(Error::MemoryRegionOverlap);
+                }
+                self.regions.insert(pos, region);
+            }
+        }
+
+        Ok(())
     }
 
     /// Convert an absolute address into an address space (GuestMemory)
@@ -1070,5 +1114,69 @@ mod tests {
         let region = gm.find_region(start_addr).unwrap();
         assert!(region.file_offset().is_some());
         assert_eq!(region.file_offset().unwrap().start(), offset);
+    }
+
+    #[test]
+    fn test_add_region() {
+        let mut guest_mem =
+            GuestMemoryMmap::with_files(&[(GuestAddress(0x0), 0x400, None)]).unwrap();
+        assert_eq!(guest_mem.num_regions(), 1);
+        assert!(guest_mem.find_region(GuestAddress(0)).is_some());
+        assert!(guest_mem.find_region(GuestAddress(0x1000)).is_none());
+        let mapping = guest_mem.find_region(GuestAddress(0)).unwrap().deref();
+        assert_eq!(mapping.size(), 0x400);
+        assert!(mapping.file_offset().is_none());
+
+        let new_region =
+            GuestRegionMmap::new(MmapRegion::new(0x800).unwrap(), GuestAddress(0x1000)).unwrap();
+        guest_mem.add_region(new_region).unwrap();
+
+        assert_eq!(guest_mem.num_regions(), 2);
+        assert!(guest_mem.find_region(GuestAddress(0)).is_some());
+        assert!(guest_mem.find_region(GuestAddress(0x1000)).is_some());
+        let mapping = guest_mem.find_region(GuestAddress(0)).unwrap().deref();
+        assert_eq!(mapping.size(), 0x400);
+        assert!(mapping.file_offset().is_none());
+        let mapping = guest_mem.find_region(GuestAddress(0x1000)).unwrap().deref();
+        assert_eq!(mapping.size(), 0x800);
+        assert!(mapping.file_offset().is_none());
+    }
+
+    #[test]
+    fn test_add_region_with_file() {
+        let f1 = tempfile().unwrap();
+        f1.set_len(0x400).unwrap();
+        let f2 = tempfile().unwrap();
+        f2.set_len(0x800).unwrap();
+
+        let mut guest_mem = GuestMemoryMmap::with_files(&[(
+            GuestAddress(0x0),
+            0x400,
+            Some(FileOffset::new(f1, 0)),
+        )])
+        .unwrap();
+        assert_eq!(guest_mem.num_regions(), 1);
+        assert!(guest_mem.find_region(GuestAddress(0)).is_some());
+        assert!(guest_mem.find_region(GuestAddress(0x1000)).is_none());
+        let mapping = guest_mem.find_region(GuestAddress(0)).unwrap().deref();
+        assert_eq!(mapping.size(), 0x400);
+        assert!(mapping.file_offset().is_some());
+
+        let new_region = GuestRegionMmap::new(
+            MmapRegion::from_file(FileOffset::new(f2, 0), 0x800).unwrap(),
+            GuestAddress(0x1000),
+        )
+        .unwrap();
+        guest_mem.add_region(new_region).unwrap();
+
+        assert_eq!(guest_mem.num_regions(), 2);
+        assert!(guest_mem.find_region(GuestAddress(0)).is_some());
+        assert!(guest_mem.find_region(GuestAddress(0x1000)).is_some());
+        let mapping = guest_mem.find_region(GuestAddress(0)).unwrap().deref();
+        assert_eq!(mapping.size(), 0x400);
+        assert!(mapping.file_offset().is_some());
+        let mapping = guest_mem.find_region(GuestAddress(0x1000)).unwrap().deref();
+        assert_eq!(mapping.size(), 0x800);
+        assert!(mapping.file_offset().is_some());
     }
 }
