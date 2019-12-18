@@ -26,7 +26,6 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::ops::Deref;
 use std::result;
-use std::sync::Arc;
 
 use crate::address::Address;
 use crate::guest_memory::{
@@ -363,9 +362,9 @@ impl GuestMemoryRegion for GuestRegionMmap {
 }
 
 /// Tracks memory regions allocated/mapped for the guest in the current process.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct GuestMemoryMmap {
-    regions: Arc<Vec<GuestRegionMmap>>,
+    regions: Vec<GuestRegionMmap>,
 }
 
 impl GuestMemoryMmap {
@@ -427,9 +426,7 @@ impl GuestMemoryMmap {
             }
         }
 
-        Ok(Self {
-            regions: Arc::new(regions),
-        })
+        Ok(Self { regions })
     }
 
     /// Convert an absolute address into an address space (GuestMemory)
@@ -1000,8 +997,8 @@ mod tests {
             .map(|x| (x.0, x.1))
             .eq(iterated_regions.iter().map(|x| *x)));
 
-        assert_eq!(gm.clone().regions[0].guest_base, regions[0].0);
-        assert_eq!(gm.clone().regions[1].guest_base, regions[1].0);
+        assert_eq!(gm.regions[0].guest_base, regions[0].0);
+        assert_eq!(gm.regions[1].guest_base, regions[1].0);
     }
 
     #[test]
