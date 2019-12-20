@@ -582,16 +582,15 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
                 // This is safe cause `start` and `len` are within the `region`.
                 let start = caddr.raw_value() as usize;
                 let end = start + len;
-                src.read_exact(&mut dst[start..end])
-                    .map_err(Error::IOError)?;
-                Ok(len)
+                let bytes_read = src.read(&mut dst[start..end]).map_err(Error::IOError)?;
+                Ok(bytes_read)
             } else {
                 let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
                 let mut buf = vec![0u8; len].into_boxed_slice();
                 let bytes_read = src.read(&mut buf[..]).map_err(Error::IOError)?;
                 let bytes_written = region.write(&buf[0..bytes_read], caddr)?;
                 assert_eq!(bytes_written, bytes_read);
-                Ok(len)
+                Ok(bytes_read)
             }
         })
     }
