@@ -365,7 +365,7 @@ impl GuestMemoryRegion for GuestRegionMmap {
 /// Tracks memory regions allocated/mapped for the guest in the current process.
 #[derive(Clone, Debug)]
 pub struct GuestMemoryMmap {
-    regions: Arc<Vec<GuestRegionMmap>>,
+    regions: Vec<Arc<GuestRegionMmap>>,
 }
 
 impl GuestMemoryMmap {
@@ -409,7 +409,7 @@ impl GuestMemoryMmap {
     /// * `regions` - The vector of regions.
     ///               The regions shouldn't overlap and they should be sorted
     ///               by the starting address.
-    pub fn from_regions(regions: Vec<GuestRegionMmap>) -> result::Result<Self, Error> {
+    pub fn from_regions(mut regions: Vec<GuestRegionMmap>) -> result::Result<Self, Error> {
         if regions.is_empty() {
             return Err(Error::NoMemoryRegion);
         }
@@ -428,7 +428,7 @@ impl GuestMemoryMmap {
         }
 
         Ok(Self {
-            regions: Arc::new(regions),
+            regions: regions.drain(..).map(Arc::new).collect(),
         })
     }
 
@@ -481,7 +481,11 @@ impl GuestMemory for GuestMemoryMmap {
         F: Fn((usize, &Self::R)) -> T,
         G: Fn(T, T) -> T,
     {
-        self.regions.iter().enumerate().map(mapf).fold(init, foldf)
+        self.regions
+            .iter()
+            .enumerate()
+            .map(|(idx, region)| mapf((idx, region.as_ref())))
+            .fold(init, foldf)
     }
 }
 
