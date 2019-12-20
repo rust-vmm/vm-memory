@@ -21,7 +21,7 @@
 //! - [MemoryRegionAddress](struct.MemoryRegionAddress.html): represents an offset inside a region.
 //! - [GuestMemoryRegion](trait.GuestMemoryRegion.html): represent a continuous region of guest's
 //! physical memory.
-//! - [GuestMemory](trait.GuestMemroy.html): represent a collection of GuestMemoryRegion objects.
+//! - [GuestMemory](trait.GuestMemory.html): represent a collection of GuestMemoryRegion objects.
 //! The main responsibilities of the GuestMemory trait are:
 //!     - hide the detail of accessing guest's physical address.
 //!     - map a request address to a GuestMemoryRegion object and relay the request to it.
@@ -417,6 +417,25 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
         )
     }
 
+    /// # Examples
+    /// * Write a slice at guestaddress 0x200.
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::{Bytes, GuestAddress, mmap::GuestMemoryMmap};
+    ///
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # fn test_write_u64() {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let mut gm =
+    ///             GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).expect("Could not create guest memory");
+    ///     let res = gm.write_slice(&[1, 2, 3, 4, 5], start_addr);
+    ///     assert!(res.is_ok());
+    /// # }
+    ///
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # test_write_u64();
+    /// ```
     fn write_slice(&self, buf: &[u8], addr: GuestAddress) -> Result<()> {
         let res = self.write(buf, addr)?;
         if res != buf.len() {
@@ -428,6 +447,26 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
         Ok(())
     }
 
+    /// # Examples
+    /// * Read a slice of length 16 at guestaddress 0x200.
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::{Bytes, GuestAddress, mmap::GuestMemoryMmap};
+    ///
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # fn test_write_u64() {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let mut gm =
+    ///             GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).expect("Could not create guest memory");
+    ///     let buf = &mut [0u8; 16];
+    ///     let res = gm.read_slice(buf, start_addr);
+    ///     assert!(res.is_ok());
+    /// # }
+    ///
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # test_write_u64()
+    /// ```
     fn read_slice(&self, buf: &mut [u8], addr: GuestAddress) -> Result<()> {
         let res = self.read(buf, addr)?;
         if res != buf.len() {
@@ -439,6 +478,34 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
         Ok(())
     }
 
+    /// # Examples
+    ///
+    /// * Read bytes from /dev/urandom
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::{Address, Bytes, GuestAddress, mmap::GuestMemoryMmap};
+    /// # use std::fs::File;
+    /// # use std::path::Path;
+    ///
+    /// # #[cfg(all(unix, feature = "backend-mmap"))]
+    /// # fn test_read_random() {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let gm =
+    ///         GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).expect("Could not create guest memory");
+    ///     let mut file = File::open(Path::new("/dev/urandom")).expect("could not open /dev/urandom");
+    ///     let addr = GuestAddress(0x1010);
+    ///     gm.read_from(addr, &mut file, 128)
+    ///         .expect("Could not read from /dev/urandom into guest memory");
+    ///     let read_addr = addr.checked_add(8).expect("Could not compute read address");
+    ///     let rand_val: u32 = gm
+    ///         .read_obj(read_addr)
+    ///         .expect("Could not read u32 val from /dev/urandom");
+    /// # }
+    ///
+    /// # #[cfg(all(unix, feature = "backend-mmap"))]
+    /// # test_read_random();
+    /// ```
     fn read_from<F>(&self, addr: GuestAddress, src: &mut F, count: usize) -> Result<usize>
     where
         F: Read,
@@ -478,6 +545,33 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
         Ok(())
     }
 
+    /// # Examples
+    ///
+    /// * Write 128 bytes to /dev/null
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::{Bytes, GuestAddress, mmap::GuestMemoryMmap};
+    /// # use std::fs::OpenOptions;
+    /// # use std::path::Path;
+    ///
+    /// # #[cfg(all(unix, feature = "backend-mmap"))]
+    /// # fn test_write_null() {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let gm =
+    ///         GuestMemoryMmap::new(&vec![(start_addr, 1024)]).expect("Could not create guest memory");
+    ///     let mut file = OpenOptions::new()
+    ///         .write(true)
+    ///         .open("/dev/null")
+    ///         .expect("Could not open /dev/null");
+    ///
+    ///     gm.write_to(start_addr, &mut file, 128)
+    ///         .expect("Could not write 128 bytes to the provided address");
+    /// # }
+    ///
+    /// # #[cfg(all(unix, feature = "backend-mmap"))]
+    /// # test_write_null();
+    /// ```
     fn write_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<usize>
     where
         F: Write,
