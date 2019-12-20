@@ -650,8 +650,9 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
                 let start = caddr.raw_value() as usize;
                 let end = start + len;
                 // It is safe to read from volatile memory. Accessing the guest
-                // memory as a slice is OK because nothing assumes another thread
-                // won't change what is loaded.
+                // memory as a slice should be OK as long as nothing assumes another
+                // thread won't change what is loaded; however, we may want to introduce
+                // VolatileRead and VolatileWrite traits in the future.
                 let bytes_written = dst.write(&src[start..end]).map_err(Error::IOError)?;
                 Ok(bytes_written)
             } else {
@@ -659,8 +660,10 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
                 let mut buf = vec![0u8; len].into_boxed_slice();
                 let bytes_read = region.read(&mut buf, caddr)?;
                 assert_eq!(bytes_read, len);
-                let bytes_written = dst.write(&buf).map_err(Error::IOError)?;
-                Ok(bytes_written)
+                // For a non-RAM region, reading could have side effects, so we
+                // must use write_all().
+                dst.write_all(&buf).map_err(Error::IOError)?;
+                Ok(len)
             }
         })
     }
