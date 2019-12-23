@@ -410,6 +410,22 @@ impl GuestMemoryMmap {
     ///               The regions shouldn't overlap and they should be sorted
     ///               by the starting address.
     pub fn from_regions(mut regions: Vec<GuestRegionMmap>) -> result::Result<Self, Error> {
+        Self::from_arc_regions(regions.drain(..).map(Arc::new).collect())
+    }
+
+    /// Creates a new `GuestMemoryMmap` from a vector of Arc regions.
+    ///
+    /// Similar to the constructor from_regions() as it returns a
+    /// GuestMemoryMmap. The need for this constructor is to provide a way for
+    /// consumer of this API to create a new GuestMemoryMmap based on existing
+    /// regions coming from an existing GuestMemoryMmap instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `regions` - The vector of Arc regions.
+    ///               The regions shouldn't overlap and they should be sorted
+    ///               by the starting address.
+    pub fn from_arc_regions(regions: Vec<Arc<GuestRegionMmap>>) -> result::Result<Self, Error> {
         if regions.is_empty() {
             return Err(Error::NoMemoryRegion);
         }
@@ -427,9 +443,7 @@ impl GuestMemoryMmap {
             }
         }
 
-        Ok(Self {
-            regions: regions.drain(..).map(Arc::new).collect(),
-        })
+        Ok(Self { regions })
     }
 
     /// Convert an absolute address into an address space (GuestMemory)
@@ -555,6 +569,22 @@ mod tests {
         )
     }
 
+    fn new_guest_memory_mmap_from_arc_regions(
+        regions_summary: &[(GuestAddress, usize)],
+    ) -> Result<GuestMemoryMmap, Error> {
+        GuestMemoryMmap::from_arc_regions(
+            regions_summary
+                .iter()
+                .map(|(region_addr, region_size)| {
+                    Arc::new(
+                        GuestRegionMmap::new(MmapRegion::new(*region_size).unwrap(), *region_addr)
+                            .unwrap(),
+                    )
+                })
+                .collect(),
+        )
+    }
+
     fn new_guest_memory_mmap_with_files(
         regions_summary: &[(GuestAddress, usize)],
     ) -> Result<GuestMemoryMmap, Error> {
@@ -602,6 +632,16 @@ mod tests {
             ),
             format!("{:?}", Error::NoMemoryRegion)
         );
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                new_guest_memory_mmap_from_arc_regions(&regions_summary)
+                    .err()
+                    .unwrap()
+            ),
+            format!("{:?}", Error::NoMemoryRegion)
+        );
     }
 
     #[test]
@@ -633,6 +673,16 @@ mod tests {
             format!(
                 "{:?}",
                 new_guest_memory_mmap_from_regions(&regions_summary)
+                    .err()
+                    .unwrap()
+            ),
+            format!("{:?}", Error::MemoryRegionOverlap)
+        );
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                new_guest_memory_mmap_from_arc_regions(&regions_summary)
                     .err()
                     .unwrap()
             ),
@@ -674,6 +724,16 @@ mod tests {
             ),
             format!("{:?}", Error::UnsortedMemoryRegions)
         );
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                new_guest_memory_mmap_from_arc_regions(&regions_summary)
+                    .err()
+                    .unwrap()
+            ),
+            format!("{:?}", Error::UnsortedMemoryRegions)
+        );
     }
 
     #[test]
@@ -692,6 +752,11 @@ mod tests {
 
         check_guest_memory_mmap(
             new_guest_memory_mmap_from_regions(&regions_summary),
+            &regions_summary,
+        );
+
+        check_guest_memory_mmap(
+            new_guest_memory_mmap_from_arc_regions(&regions_summary),
             &regions_summary,
         );
     }
