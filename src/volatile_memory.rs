@@ -24,6 +24,7 @@
 //! not reordered or elided the access.
 
 use std::cmp::min;
+use std::convert::TryFrom;
 use std::error;
 use std::fmt;
 use std::io::{self, Read, Write};
@@ -36,9 +37,6 @@ use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::usize;
 
 use crate::{ByteValued, Bytes};
-
-// TODO: replace with TryFrom once we can assume 1.34.0.
-extern crate cast;
 
 /// `VolatileMemory` related errors.
 #[allow(missing_docs)]
@@ -181,7 +179,7 @@ pub trait VolatileMemory {
     /// `offset`.
     fn get_array_ref<T: ByteValued>(&self, offset: usize, n: usize) -> Result<VolatileArrayRef<T>> {
         // Use isize to avoid problems with ptr::offset and ptr::add down the line.
-        let nbytes = cast::isize(n)
+        let nbytes = isize::try_from(n)
             .ok()
             .and_then(|n| n.checked_mul(size_of::<T>() as isize))
             .ok_or(Error::TooBig {
@@ -1535,5 +1533,19 @@ mod tests {
             // c
         } //.load()
         ;
+    }
+
+    #[test]
+    fn ref_array_overflow() {
+        let mut a = [0, 0, 2, 3, 10];
+        let a_ref = &mut a[..];
+        let res = a_ref.get_array_ref::<u32>(4, usize::MAX).unwrap_err();
+        assert_matches!(
+            res,
+            Error::TooBig {
+                nelements: usize::MAX,
+                size: 4,
+            }
+        );
     }
 }
