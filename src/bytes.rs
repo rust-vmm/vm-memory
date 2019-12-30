@@ -101,6 +101,39 @@ pub unsafe trait ByteValued: Copy + Default + Send + Sync {
     }
 }
 
+// All intrinsic types and arrays of intrinsic types are ByteValued. They are just numbers.
+macro_rules! byte_valued_array {
+    ($T:ty, $($N:expr)+) => {
+        $(
+            unsafe impl ByteValued for [$T; $N] {}
+        )+
+    }
+}
+
+macro_rules! byte_valued_type {
+    ($T:ty) => {
+        unsafe impl ByteValued for $T {}
+        byte_valued_array! {
+            $T,
+            0  1  2  3  4  5  6  7  8  9
+            10 11 12 13 14 15 16 17 18 19
+            20 21 22 23 24 25 26 27 28 29
+            30 31 32
+        }
+    };
+}
+
+byte_valued_type!(u8);
+byte_valued_type!(u16);
+byte_valued_type!(u32);
+byte_valued_type!(u64);
+byte_valued_type!(usize);
+byte_valued_type!(i8);
+byte_valued_type!(i16);
+byte_valued_type!(i32);
+byte_valued_type!(i64);
+byte_valued_type!(isize);
+
 /// A container to host a range of bytes and access its content.
 ///
 /// Candidates which may implement this trait include:
@@ -190,37 +223,6 @@ pub trait Bytes<A> {
     where
         F: Write;
 }
-
-// All intrinsic types and arrays of intrinsic types are ByteValued. They are just numbers.
-macro_rules! byte_valued_array {
-    ($T:ty, $($N:expr)+) => {
-        $(
-            unsafe impl ByteValued for [$T; $N] {}
-        )+
-    }
-}
-macro_rules! byte_valued_type {
-    ($T:ty) => {
-        unsafe impl ByteValued for $T {}
-        byte_valued_array! {
-            $T,
-            0  1  2  3  4  5  6  7  8  9
-            10 11 12 13 14 15 16 17 18 19
-            20 21 22 23 24 25 26 27 28 29
-            30 31 32
-        }
-    };
-}
-byte_valued_type!(u8);
-byte_valued_type!(u16);
-byte_valued_type!(u32);
-byte_valued_type!(u64);
-byte_valued_type!(usize);
-byte_valued_type!(i8);
-byte_valued_type!(i16);
-byte_valued_type!(i32);
-byte_valued_type!(i64);
-byte_valued_type!(isize);
 
 #[cfg(test)]
 mod tests {
