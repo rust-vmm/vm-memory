@@ -226,9 +226,11 @@ pub trait Bytes<A> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ByteValued;
+    use crate::{ByteValued, Bytes};
     use std::fmt::Debug;
+    use std::io::{Read, Write};
     use std::mem::{align_of, size_of};
+    use std::slice;
 
     fn check_byte_valued_type<T>()
     where
@@ -279,5 +281,99 @@ mod tests {
         check_byte_valued_type::<i32>();
         check_byte_valued_type::<i64>();
         check_byte_valued_type::<isize>();
+    }
+
+    pub const MOCK_BYTES_CONTAINER_SIZE: usize = 10;
+
+    pub struct MockBytesContainer {
+        container: [u8; MOCK_BYTES_CONTAINER_SIZE],
+    }
+
+    impl MockBytesContainer {
+        pub fn new() -> Self {
+            MockBytesContainer {
+                container: [0; MOCK_BYTES_CONTAINER_SIZE],
+            }
+        }
+
+        pub fn validate_slice_op(&self, buf: &[u8], addr: usize) -> Result<(), ()> {
+            if MOCK_BYTES_CONTAINER_SIZE - buf.len() <= addr {
+                return Err(());
+            }
+
+            Ok(())
+        }
+    }
+
+    impl Bytes<usize> for MockBytesContainer {
+        type E = ();
+
+        fn write(&self, _: &[u8], _: usize) -> Result<usize, Self::E> {
+            unimplemented!()
+        }
+
+        fn read(&self, _: &mut [u8], _: usize) -> Result<usize, Self::E> {
+            unimplemented!()
+        }
+
+        fn write_slice(&self, buf: &[u8], addr: usize) -> Result<(), Self::E> {
+            self.validate_slice_op(buf, addr)?;
+
+            // We need to get a mut reference to `self.container`.
+            let container_ptr = self.container[addr..].as_ptr() as usize as *mut u8;
+            let container = unsafe { slice::from_raw_parts_mut(container_ptr, buf.len()) };
+            container.copy_from_slice(buf);
+
+            Ok(())
+        }
+
+        fn read_slice(&self, buf: &mut [u8], addr: usize) -> Result<(), Self::E> {
+            self.validate_slice_op(buf, addr)?;
+
+            buf.copy_from_slice(&self.container[addr..=buf.len() - 1]);
+
+            Ok(())
+        }
+
+        fn read_from<F>(&self, _: usize, _: &mut F, _: usize) -> Result<usize, Self::E>
+        where
+            F: Read,
+        {
+            unimplemented!()
+        }
+
+        fn read_exact_from<F>(&self, _: usize, _: &mut F, _: usize) -> Result<(), Self::E>
+        where
+            F: Read,
+        {
+            unimplemented!()
+        }
+
+        fn write_to<F>(&self, _: usize, _: &mut F, _: usize) -> Result<usize, Self::E>
+        where
+            F: Write,
+        {
+            unimplemented!()
+        }
+
+        fn write_all_to<F>(&self, _: usize, _: &mut F, _: usize) -> Result<(), Self::E>
+        where
+            F: Write,
+        {
+            unimplemented!()
+        }
+    }
+
+    #[test]
+    fn test_bytes() {
+        let bytes = MockBytesContainer::new();
+
+        assert!(bytes.write_obj(std::u64::MAX, 0).is_ok());
+        assert_eq!(bytes.read_obj::<u64>(0).unwrap(), std::u64::MAX);
+
+        assert!(bytes
+            .write_obj(std::u64::MAX, MOCK_BYTES_CONTAINER_SIZE)
+            .is_err());
+        assert!(bytes.read_obj::<u64>(MOCK_BYTES_CONTAINER_SIZE).is_err());
     }
 }
