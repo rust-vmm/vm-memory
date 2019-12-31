@@ -260,6 +260,11 @@ mod tests {
                 }
             }
         }
+        // Check the early out condition
+        {
+            assert!(T::from_slice(&data).is_none());
+            assert!(T::from_mut_slice(&mut data).is_none());
+        }
     }
 
     #[test]
