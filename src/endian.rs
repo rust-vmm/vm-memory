@@ -117,7 +117,9 @@ mod tests {
 
                 #[allow(overflowing_literals)]
                 #[test]
-                fn equality() {
+                fn test_endian_type() {
+                    <$new_type>::_assert();
+
                     let v = 0x0123_4567_89AB_CDEF as $old_type;
                     let endian_v: $new_type = From::from(v);
                     let endian_into: $old_type = endian_v.into();
@@ -129,7 +131,9 @@ mod tests {
                         assert_eq!(endian_v, endian_transmute.swap_bytes());
                     }
 
-                    assert_eq!(v, endian_into);
+                    assert_eq!(endian_into, v);
+                    assert_eq!(endian_v.to_native(), v);
+
                     assert!(v == endian_v);
                     assert!(endian_v == v);
                 }
