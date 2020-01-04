@@ -247,6 +247,7 @@ mod tests {
         );
         if expected_overflow {
             assert!(MockAddress(a).checked_add(b).is_none());
+            #[cfg(debug_assertions)]
             assert!(std::panic::catch_unwind(|| MockAddress(a).unchecked_add(b)).is_err());
         } else {
             assert_eq!(
@@ -280,6 +281,7 @@ mod tests {
         if expected_overflow {
             assert!(MockAddress(a).checked_sub(b).is_none());
             assert!(MockAddress(a).checked_offset_from(MockAddress(b)).is_none());
+            #[cfg(debug_assertions)]
             assert!(std::panic::catch_unwind(|| MockAddress(a).unchecked_sub(b)).is_err());
         } else {
             assert_eq!(
