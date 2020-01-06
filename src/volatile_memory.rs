@@ -1034,6 +1034,58 @@ mod tests {
     }
 
     #[test]
+    fn test_display_error() {
+        assert_eq!(
+            format!("{}", Error::OutOfBounds { addr: 0x10 }),
+            "address 0x10 is out of bounds"
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::Overflow {
+                    base: 0x0,
+                    offset: 0x10
+                }
+            ),
+            "address 0x0 offset by 0x10 would overflow"
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::TooBig {
+                    nelements: 100000,
+                    size: 1000000000
+                }
+            ),
+            "100000 elements of size 1000000000 would overflow a usize"
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::Misaligned {
+                    addr: 0x4,
+                    alignment: 8
+                }
+            ),
+            "address 0x4 is not aligned to 8"
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Error::PartialBuffer {
+                    expected: 100,
+                    completed: 90
+                }
+            ),
+            "only used 90 bytes in 100 long buffer"
+        );
+    }
+
+    #[test]
     fn misaligned_ref() {
         let mut a = [0u8; 3];
         let a_ref = &mut a[..];
@@ -1170,26 +1222,49 @@ mod tests {
     }
 
     #[test]
-    fn slice_len() {
+    fn mem_is_empty() {
         let a = VecMem::new(100);
-        let s = a.get_slice(0, 27).unwrap();
-        assert_eq!(s.len(), 27);
+        assert!(!a.is_empty());
 
-        let s = a.get_slice(34, 27).unwrap();
-        assert_eq!(s.len(), 27);
-
-        let s = s.get_slice(20, 5).unwrap();
-        assert_eq!(s.len(), 5);
+        let a = VecMem::new(0);
+        assert!(a.is_empty());
     }
 
     #[test]
-    fn slice_is_empty() {
-        let a = VecMem::new(100);
-        let s = a.get_slice(0, 27).unwrap();
-        assert!(!s.is_empty());
+    fn slice_len() {
+        let mem = VecMem::new(100);
+        let slice = mem.get_slice(0, 27).unwrap();
+        assert_eq!(slice.len(), 27);
+        assert!(!slice.is_empty());
 
-        let s = a.get_slice(34, 0).unwrap();
-        assert!(s.is_empty());
+        let slice = mem.get_slice(34, 27).unwrap();
+        assert_eq!(slice.len(), 27);
+        assert!(!slice.is_empty());
+
+        let slice = slice.get_slice(20, 5).unwrap();
+        assert_eq!(slice.len(), 5);
+        assert!(!slice.is_empty());
+
+        let slice = mem.get_slice(34, 0).unwrap();
+        assert!(slice.is_empty());
+    }
+
+    #[test]
+    fn slice_offset() {
+        let mem = VecMem::new(100);
+        let slice = mem.get_slice(0, 100).unwrap();
+        assert!(slice.write(&[1; 80], 10).is_ok());
+
+        assert!(slice.offset(101).is_err());
+
+        let maybe_offset_slice = slice.offset(10);
+        assert!(maybe_offset_slice.is_ok());
+        let offset_slice = maybe_offset_slice.unwrap();
+        assert_eq!(offset_slice.len(), 90);
+        let mut buf = [0; 90];
+        assert!(offset_slice.read(&mut buf, 0).is_ok());
+        assert_eq!(&buf[0..80], &[1; 80][0..80]);
+        assert_eq!(&buf[80..90], &[0; 10][0..10]);
     }
 
     #[test]
@@ -1219,6 +1294,20 @@ mod tests {
         let v_ref = c_ref.get_slice(0, c_ref.len()).unwrap();
         v_ref.copy_from(&a[..]);
         assert_eq!(c_ref[0..5], a[0..5]);
+    }
+
+    #[test]
+    fn slice_copy_to_volatile_slice() {
+        let mut a = [2, 4, 6, 8, 10];
+        let a_ref = &mut a[..];
+        let a_slice = a_ref.get_slice(0, a_ref.len()).unwrap();
+
+        let mut b = [0u8; 4];
+        let b_ref = &mut b[..];
+        let b_slice = b_ref.get_slice(0, b_ref.len()).unwrap();
+
+        a_slice.copy_to_volatile_slice(b_slice);
+        assert_eq!(b, [2, 4, 6, 8]);
     }
 
     #[test]
@@ -1371,6 +1460,18 @@ mod tests {
         let mut buf: [u8; 7] = Default::default();
         assert!(s.read_slice(&mut buf, 0).is_ok());
         assert_eq!(buf, sample_buf);
+    }
+
+    #[test]
+    fn ref_array_from_slice() {
+        let mut a = [2, 4, 6, 8, 10];
+        let a_vec = a.to_vec();
+        let a_ref = &mut a[..];
+        let a_slice = a_ref.get_slice(0, a_ref.len()).unwrap();
+        let a_array_ref: VolatileArrayRef<u8> = a_slice.into();
+        for i in 0..a_vec.len() {
+            assert_eq!(a_array_ref.load(i), a_vec[i]);
+        }
     }
 
     #[test]
