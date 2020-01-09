@@ -438,7 +438,7 @@ impl GuestMemoryMmap {
                 return Err(Error::UnsortedMemoryRegions);
             }
 
-            if prev.end_addr() >= next.start_addr() {
+            if prev.last_addr() >= next.start_addr() {
                 return Err(Error::MemoryRegionOverlap);
             }
         }
@@ -458,7 +458,7 @@ impl GuestMemory for GuestMemoryMmap {
         let index = match self.regions.binary_search_by_key(&addr, |x| x.start_addr()) {
             Ok(x) => Some(x),
             // Within the closest region with starting address < addr
-            Err(x) if (x > 0 && addr <= self.regions[x - 1].end_addr()) => Some(x - 1),
+            Err(x) if (x > 0 && addr <= self.regions[x - 1].last_addr()) => Some(x - 1),
             _ => None,
         };
         index.map(|x| self.regions[x].as_ref())
@@ -526,11 +526,11 @@ mod tests {
         assert_eq!(guest_mem.num_regions(), expected_regions_summary.len());
         let maybe_last_mem_reg = expected_regions_summary.last();
         if let Some((region_addr, region_size)) = maybe_last_mem_reg {
-            let mut end_addr = region_addr.unchecked_add(*region_size as u64);
-            if end_addr.raw_value() != 0 {
-                end_addr = end_addr.unchecked_sub(1);
+            let mut last_addr = region_addr.unchecked_add(*region_size as u64);
+            if last_addr.raw_value() != 0 {
+                last_addr = last_addr.unchecked_sub(1);
             }
-            assert_eq!(guest_mem.end_addr(), end_addr);
+            assert_eq!(guest_mem.last_addr(), last_addr);
         }
         for ((region_addr, region_size), mmap) in expected_regions_summary
             .iter()
