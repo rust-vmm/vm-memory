@@ -164,7 +164,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     fn start_addr(&self) -> GuestAddress;
 
     /// Get maximum (inclusive) address managed by the region.
-    fn end_addr(&self) -> GuestAddress {
+    fn last_addr(&self) -> GuestAddress {
         // unchecked_add is safe as the region bounds were checked when it was created.
         self.start_addr().unchecked_add(self.len() - 1)
     }
@@ -302,10 +302,10 @@ pub trait GuestMemory {
         G: Fn(T, T) -> T;
 
     /// Get maximum (inclusive) address managed by the region.
-    fn end_addr(&self) -> GuestAddress {
+    fn last_addr(&self) -> GuestAddress {
         self.map_and_fold(
             GuestAddress(0),
-            |(_, region)| region.end_addr(),
+            |(_, region)| region.last_addr(),
             std::cmp::max,
         )
     }
