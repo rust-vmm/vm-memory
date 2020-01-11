@@ -29,8 +29,8 @@ pub use endian::{Be16, Be32, Be64, BeSize, Le16, Le32, Le64, LeSize};
 
 pub mod guest_memory;
 pub use guest_memory::{
-    Error as GuestMemoryError, FileOffset, GuestAddress, GuestMemory, GuestMemoryGuard, GuestMemoryRegion,
-    GuestUsize, MemoryRegionAddress, Result as GuestMemoryResult,
+    Error as GuestMemoryError, FileOffset, GuestAddress, GuestMemory, GuestMemoryGuard,
+    GuestMemoryRegion, GuestUsize, MemoryRegionAddress, Result as GuestMemoryResult,
 };
 
 #[cfg(all(feature = "backend-mmap", unix))]
@@ -43,6 +43,11 @@ mod mmap_windows;
 pub mod mmap;
 #[cfg(feature = "backend-mmap")]
 pub use mmap::{Error, GuestMemoryMmap, GuestRegionMmap, MmapRegion};
+
+#[cfg(feature = "backend-mmap-hotplug")]
+pub mod mmap_hotplug;
+#[cfg(feature = "backend-mmap-hotplug")]
+pub use mmap_hotplug::GuestMemoryMmapAtomic;
 
 pub mod volatile_memory;
 pub use volatile_memory::{
