@@ -31,7 +31,7 @@ use std::convert::From;
 use std::fmt::{self, Display};
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::ops::{BitAnd, BitOr};
+use std::ops::{BitAnd, BitOr, Deref};
 use std::sync::Arc;
 
 use crate::address::{Address, AddressValue};
@@ -234,6 +234,25 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     }
 }
 
+/// The guard object returned by GuestMemory::snapshot().
+pub enum GuestMemoryGuard<'a, M: GuestMemory> {
+    /// The guard contains a GuestMemory object.
+    Valued(M),
+    /// The guard contains a reference to a GuestMemory object.
+    Ref(&'a M),
+}
+
+impl<'a, M: GuestMemory> Deref for GuestMemoryGuard<'a, M> {
+    type Target = M;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            GuestMemoryGuard::Valued(ref v) => v,
+            GuestMemoryGuard::Ref(r) => *r,
+        }
+    }
+}
+
 /// Represents a container for a collection of GuestMemoryRegion objects.
 ///
 /// The main responsibilities of the GuestMemory trait are:
@@ -245,6 +264,25 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
 pub trait GuestMemory {
     /// Type of objects hosted by the address space.
     type R: GuestMemoryRegion;
+
+    /// Get a snapshot of current guest memory state.
+    ///
+    /// If the GuestMemory implementation supports memory hotplug, the underline GuestMemoryRegion
+    /// array may change dynamically. So take a snapshot of current guest memory state to get a
+    /// stable underline GuestMemoryRegion array.
+    ///
+    /// There are three possible scenarios:
+    /// - If the GuestMemory object is static or doesn't support hotplug, snapshot returns a
+    ///   reference to the underline object. There's no writer at all, so the overhead is trivial.
+    /// - If the GuestMemory object is protected by RwLock, a RwLockReadGuard<T> object is returned.
+    ///   Writers will be blocked until all guards have been released.
+    /// - If the GuestMemory object is protected by ArcSwap, a Guard<'static, Arc<GuestMemoryMmap>>
+    ///   object is returned. It's an RCU like lock scheme, so writers won't be blocked but the
+    ///   underline resources will be released until all guards have been released. This is the
+    ///   recommended lock strategy.
+    fn snapshot(&self) -> GuestMemoryGuard<'_, Self>
+    where
+        Self: std::marker::Sized;
 
     /// Returns the number of regions in the collection.
     fn num_regions(&self) -> usize;
