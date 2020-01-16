@@ -621,6 +621,7 @@ mod tests {
     use crate::{GuestAddress, GuestMemoryMmap};
     #[cfg(feature = "backend-mmap")]
     use std::io::Cursor;
+    use vmm_sys_util::tempfile::TempFile;
 
     #[cfg(feature = "backend-mmap")]
     fn make_image(size: u8) -> Vec<u8> {
@@ -633,7 +634,7 @@ mod tests {
 
     #[test]
     fn test_file_offset() {
-        let file = tempfile::tempfile().unwrap();
+        let file = TempFile::new().unwrap().into_file();
         let start = 1234;
         let file_offset = FileOffset::new(file, start);
         assert_eq!(file_offset.start(), start);
