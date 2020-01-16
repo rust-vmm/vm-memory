@@ -234,8 +234,6 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// * Read bytes from /dev/urandom
     ///
     /// ```
-    /// # extern crate tempfile;
-    /// # use self::tempfile::tempfile;
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::File;
     /// # use std::path::Path;
@@ -273,13 +271,13 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// * Write 128 bytes to a temp file
     ///
     /// ```
-    /// # extern crate tempfile;
-    /// # use self::tempfile::tempfile;
+    /// # extern crate vmm_sys_util;
+    /// # use vmm_sys_util::tempfile::TempFile;
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::OpenOptions;
     /// # let start_addr = GuestAddress(0x1000);
     /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
-    ///   let mut file = tempfile().unwrap();
+    ///   let mut file = TempFile::new().unwrap().into_file();
     ///   let mut mem = [0u8; 1024];
     ///   gm.write_to(start_addr, &mut file, 128).unwrap();
     /// ```
@@ -305,13 +303,13 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// * Write 128 bytes to a temp file
     ///
     /// ```
-    /// # extern crate tempfile;
-    /// # use self::tempfile::tempfile;
+    /// # extern crate vmm_sys_util;
+    /// # use vmm_sys_util::tempfile::TempFile;
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::OpenOptions;
     /// # let start_addr = GuestAddress(0x1000);
     /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
-    ///   let mut file = tempfile().unwrap();
+    ///   let mut file = TempFile::new().unwrap().into_file();
     ///   let mut mem = [0u8; 1024];
     ///   gm.write_all_to(start_addr, &mut file, 128).unwrap();
     /// ```
@@ -499,14 +497,14 @@ impl GuestMemory for GuestMemoryMmap {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
+    extern crate vmm_sys_util;
 
     use super::*;
 
-    use self::tempfile::tempfile;
     use std::fs::File;
     use std::mem;
     use std::path::Path;
+    use vmm_sys_util::tempfile::TempFile;
 
     use Bytes;
 
@@ -585,7 +583,7 @@ mod tests {
         let regions: Vec<(GuestAddress, usize, Option<FileOffset>)> = regions_summary
             .iter()
             .map(|(region_addr, region_size)| {
-                let f = tempfile().unwrap();
+                let f = TempFile::new().unwrap().into_file();
                 f.set_len(*region_size as u64).unwrap();
 
                 (*region_addr, *region_size, Some(FileOffset::new(f, 0)))
@@ -764,7 +762,7 @@ mod tests {
 
     #[test]
     fn mapped_file_read() {
-        let mut f = tempfile().unwrap();
+        let mut f = TempFile::new().unwrap().into_file();
         let sample_buf = &[1, 2, 3, 4, 5];
         assert!(f.write_all(sample_buf).is_ok());
 
@@ -779,9 +777,9 @@ mod tests {
 
     #[test]
     fn test_address_in_range() {
-        let f1 = tempfile().unwrap();
+        let f1 = TempFile::new().unwrap().into_file();
         f1.set_len(0x400).unwrap();
-        let f2 = tempfile().unwrap();
+        let f2 = TempFile::new().unwrap().into_file();
         f2.set_len(0x400).unwrap();
 
         let start_addr1 = GuestAddress(0x0);
@@ -805,9 +803,9 @@ mod tests {
 
     #[test]
     fn test_check_address() {
-        let f1 = tempfile().unwrap();
+        let f1 = TempFile::new().unwrap().into_file();
         f1.set_len(0x400).unwrap();
-        let f2 = tempfile().unwrap();
+        let f2 = TempFile::new().unwrap().into_file();
         f2.set_len(0x400).unwrap();
 
         let start_addr1 = GuestAddress(0x0);
@@ -837,9 +835,9 @@ mod tests {
 
     #[test]
     fn test_to_region_addr() {
-        let f1 = tempfile().unwrap();
+        let f1 = TempFile::new().unwrap().into_file();;
         f1.set_len(0x400).unwrap();
-        let f2 = tempfile().unwrap();
+        let f2 = TempFile::new().unwrap().into_file();;
         f2.set_len(0x400).unwrap();
 
         let start_addr1 = GuestAddress(0x0);
@@ -865,9 +863,9 @@ mod tests {
 
     #[test]
     fn test_get_host_address() {
-        let f1 = tempfile().unwrap();
+        let f1 = TempFile::new().unwrap().into_file();
         f1.set_len(0x400).unwrap();
-        let f2 = tempfile().unwrap();
+        let f2 = TempFile::new().unwrap().into_file();
         f2.set_len(0x400).unwrap();
 
         let start_addr1 = GuestAddress(0x0);
@@ -895,7 +893,7 @@ mod tests {
 
     #[test]
     fn test_deref() {
-        let f = tempfile().unwrap();
+        let f = TempFile::new().unwrap().into_file();
         f.set_len(0x400).unwrap();
 
         let start_addr = GuestAddress(0x0);
@@ -922,9 +920,9 @@ mod tests {
 
     #[test]
     fn test_read_u64() {
-        let f1 = tempfile().unwrap();
+        let f1 = TempFile::new().unwrap().into_file();
         f1.set_len(0x1000).unwrap();
-        let f2 = tempfile().unwrap();
+        let f2 = TempFile::new().unwrap().into_file();
         f2.set_len(0x1000).unwrap();
 
         let start_addr1 = GuestAddress(0x0);
@@ -968,7 +966,7 @@ mod tests {
 
     #[test]
     fn write_and_read() {
-        let f = tempfile().unwrap();
+        let f = TempFile::new().unwrap().into_file();
         f.set_len(0x400).unwrap();
 
         let mut start_addr = GuestAddress(0x1000);
@@ -997,7 +995,7 @@ mod tests {
 
     #[test]
     fn read_to_and_write_from_mem() {
-        let f = tempfile().unwrap();
+        let f = TempFile::new().unwrap().into_file();
         f.set_len(0x400).unwrap();
 
         let gm = GuestMemoryMmap::new(&[(GuestAddress(0x1000), 0x400)]).unwrap();
@@ -1069,9 +1067,9 @@ mod tests {
 
     #[test]
     fn test_access_cross_boundary() {
-        let f1 = tempfile().unwrap();
+        let f1 = TempFile::new().unwrap().into_file();
         f1.set_len(0x1000).unwrap();
-        let f2 = tempfile().unwrap();
+        let f2 = TempFile::new().unwrap().into_file();
         f2.set_len(0x1000).unwrap();
 
         let start_addr1 = GuestAddress(0x0);
@@ -1095,7 +1093,7 @@ mod tests {
 
     #[test]
     fn test_retrieve_fd_backing_memory_region() {
-        let f = tempfile().unwrap();
+        let f = TempFile::new().unwrap().into_file();
         f.set_len(0x400).unwrap();
 
         let start_addr = GuestAddress(0x0);
@@ -1118,7 +1116,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_retrieve_offset_from_fd_backing_memory_region() {
-        let f = tempfile().unwrap();
+        let f = TempFile::new().unwrap().into_file();
         f.set_len(0x1400).unwrap();
         // Needs to be aligned on 4k, otherwise mmap will fail.
         let offset = 0x1000;
