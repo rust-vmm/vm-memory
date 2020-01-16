@@ -261,6 +261,7 @@ mod tests {
     use std::io::Write;
     use std::slice;
     use std::sync::Arc;
+    use vmm_sys_util::tempfile::TempFile;
 
     // Adding a helper method to extract the errno within an Error::Mmap(e), or return a
     // distinctive value when the error is represented by another variant.
@@ -291,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_mmap_region_from_file() {
-        let mut f = tempfile::tempfile().unwrap();
+        let mut f = TempFile::new().unwrap().into_file();
         let offset: usize = 0;
         let buf1 = [1u8, 2, 3, 4, 5];
 
@@ -309,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_mmap_region_build() {
-        let a = Arc::new(tempfile::tempfile().unwrap());
+        let a = Arc::new(TempFile::new().unwrap().into_file());
 
         let prot = libc::PROT_READ | libc::PROT_WRITE;
         let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
@@ -372,7 +373,7 @@ mod tests {
 
     #[test]
     fn test_mmap_region_fds_overlap() {
-        let a = Arc::new(tempfile::tempfile().unwrap());
+        let a = Arc::new(TempFile::new().unwrap().into_file());
         assert_eq!(unsafe { libc::ftruncate(a.as_raw_fd(), 1024 * 10) }, 0);
 
         let r1 = MmapRegion::from_file(FileOffset::from_arc(a.clone(), 0), 4096).unwrap();
@@ -386,7 +387,7 @@ mod tests {
         assert!(r1.fds_overlap(&r2));
 
         // Different files, so there's not overlap.
-        let new_file = tempfile::tempfile().unwrap();
+        let new_file = TempFile::new().unwrap().into_file();
         // Resize before mapping.
         assert_eq!(
             unsafe { libc::ftruncate(new_file.as_raw_fd(), 1024 * 10) },
