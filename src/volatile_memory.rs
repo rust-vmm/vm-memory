@@ -1005,7 +1005,7 @@ mod tests {
     use std::time::Duration;
 
     use matches::assert_matches;
-    use tempfile::tempfile;
+    use vmm_sys_util::tempfile::TempFile;
 
     #[derive(Clone)]
     struct VecMem {
@@ -1421,7 +1421,7 @@ mod tests {
 
         assert!(s.read_exact_from(1, &mut file, size_of::<u32>()).is_ok());
 
-        let mut f = tempfile().unwrap();
+        let mut f = TempFile::new().unwrap().into_file();
         assert!(s.read_exact_from(1, &mut f, size_of::<u32>()).is_err());
         format!("{:?}", s.read_exact_from(1, &mut f, size_of::<u32>()));
 
