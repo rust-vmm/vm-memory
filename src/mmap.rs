@@ -835,9 +835,9 @@ mod tests {
 
     #[test]
     fn test_to_region_addr() {
-        let f1 = TempFile::new().unwrap().into_file();;
+        let f1 = TempFile::new().unwrap().into_file();
         f1.set_len(0x400).unwrap();
-        let f2 = TempFile::new().unwrap().into_file();;
+        let f2 = TempFile::new().unwrap().into_file();
         f2.set_len(0x400).unwrap();
 
         let start_addr1 = GuestAddress(0x0);
