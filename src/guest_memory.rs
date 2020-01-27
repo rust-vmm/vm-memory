@@ -405,6 +405,28 @@ pub trait GuestMemory {
     /// Note: the underline guest memory is not protected from memory aliasing, which breaks the
     /// rust memory safety model. It's the caller's responsibility to ensure that there's no
     /// concurrent accesses to the underline guest memory.
+    ///
+    /// # Arguments
+    /// * `guest_addr` - Guest address to convert.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
+    ///
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # fn test_get_host_address() -> Result<(), ()> {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x500)]).map_err(|_| ())?;
+    ///     let addr = gm.get_host_address(GuestAddress(0x1200)).unwrap();
+    ///     println!("Host address is {:p}", addr);
+    ///     Ok(())
+    /// # }
+    ///
+    /// # #[cfg(feature = "backend-mmap")]
+    /// test_get_host_address();
+    /// ```
     fn get_host_address(&self, addr: GuestAddress) -> Result<*mut u8> {
         self.to_region_addr(addr)
             .ok_or_else(|| Error::InvalidGuestAddress(addr))
