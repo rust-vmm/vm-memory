@@ -86,6 +86,31 @@ impl GuestMemoryMmapAtomic {
         Self::from_mmap(mmap)
     }
 
+    /// Insert an region into the `GuestMemoryMmap` object.
+    ///
+    /// Note: this method is not multi-thread safe. If called at runtime to support memory hot-add,
+    /// the caller needs to protect it from concurrent access from both reader and writer side.
+    ///
+    /// # Arguments
+    /// * `region`: the memory region to insert into the guest memory object.
+    pub fn insert_region(&mut self, region: Arc<GuestRegionMmap>) -> result::Result<(), Error> {
+        let inner = match self.inner {
+            State::Outer(ref obj) => obj,
+            _ => panic!("GuestRegionMmapAtomic::insert_region must be called from object itself"),
+        };
+        let _lock = inner
+            .1
+            .lock()
+            .expect("memory hotplug lock has been poisoned");
+
+        let curr = inner.0.load().regions.clone();
+        let mut mmap = GuestMemoryMmap::from_arc_regions(curr)?;
+        mmap.insert_region(region)?;
+        let _old = inner.0.swap(Arc::new(mmap));
+
+        Ok(())
+    }
+
     fn from_mmap(mmap: GuestMemoryMmap) -> result::Result<Self, Error> {
         Ok(GuestMemoryMmapAtomic {
             inner: State::Outer((Arc::new(ArcSwap::new(Arc::new(mmap))), Mutex::new(()))),
@@ -166,7 +191,7 @@ impl GuestMemory for GuestMemoryMmapAtomic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{guest_memory, GuestMemoryRegion, GuestUsize};
+    use crate::{guest_memory, GuestMemoryRegion, GuestUsize, MmapRegion};
 
     #[test]
     fn test_hotplug_basic() {
@@ -279,5 +304,44 @@ mod tests {
         ];
         let gm = GuestMemoryMmapAtomic::new(&regions).unwrap();
         let _ = gm.find_region(GuestAddress(0x1001));
+    }
+
+    #[test]
+    fn test_mmap_memory_hotplug() {
+        let region_size = 0x1000;
+        let regions = vec![
+            (GuestAddress(0x0), region_size),
+            (GuestAddress(0x10_0000), region_size),
+        ];
+        let mut gm = GuestMemoryMmapAtomic::new(&regions).unwrap();
+        let snapshot_orig = gm.snapshot();
+        assert_eq!(snapshot_orig.num_regions(), 2);
+
+        let mmap =
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0x8000)).unwrap();
+        gm.insert_region(Arc::new(mmap)).unwrap();
+        let mmap =
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0x4000)).unwrap();
+        gm.insert_region(Arc::new(mmap)).unwrap();
+        let mmap =
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0xc000)).unwrap();
+        gm.insert_region(Arc::new(mmap)).unwrap();
+        let mmap =
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0xc000)).unwrap();
+        gm.insert_region(Arc::new(mmap)).unwrap_err();
+
+        let snapshot = gm.snapshot();
+        //assert_eq!(snapshot_orig.num_regions(), 2);
+        assert_eq!(snapshot.num_regions(), 5);
+
+        let inner = match snapshot.inner {
+            State::Guard(ref g) => g,
+            _ => panic!("invalid snapshot state"),
+        };
+        assert_eq!(inner.regions[0].start_addr(), GuestAddress(0x0000));
+        assert_eq!(inner.regions[1].start_addr(), GuestAddress(0x4000));
+        assert_eq!(inner.regions[2].start_addr(), GuestAddress(0x8000));
+        assert_eq!(inner.regions[3].start_addr(), GuestAddress(0xc000));
+        assert_eq!(inner.regions[4].start_addr(), GuestAddress(0x10_0000));
     }
 }

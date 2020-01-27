@@ -364,7 +364,7 @@ impl GuestMemoryRegion for GuestRegionMmap {
 /// Tracks memory regions allocated/mapped for the guest in the current process.
 #[derive(Clone, Debug)]
 pub struct GuestMemoryMmap {
-    regions: Vec<Arc<GuestRegionMmap>>,
+    pub(crate) regions: Vec<Arc<GuestRegionMmap>>,
 }
 
 impl GuestMemoryMmap {
@@ -443,6 +443,31 @@ impl GuestMemoryMmap {
         }
 
         Ok(Self { regions })
+    }
+
+    /// Insert a region into the `GuestMemoryMmap` object.
+    ///
+    /// Note: this method is not multi-thread safe. If called at runtime to support memory hot-add,
+    /// the caller needs to protect it from concurrent access from both reader and writer side.
+    ///
+    /// # Arguments
+    /// * `region`: the memory region to insert into the guest memory object.
+    pub fn insert_region(&mut self, region: Arc<GuestRegionMmap>) -> result::Result<(), Error> {
+        // It shouldn't be a huge Vec, so prefer simple implementation.
+        for reg in self.regions.iter() {
+            if region.start_addr() >= reg.start_addr() && region.start_addr() <= reg.last_addr() {
+                return Err(Error::MemoryRegionOverlap);
+            } else if reg.start_addr() >= region.start_addr()
+                && reg.start_addr() <= region.last_addr()
+            {
+                return Err(Error::MemoryRegionOverlap);
+            }
+        }
+
+        self.regions.push(region);
+        self.regions.sort_by_key(|x| x.start_addr());
+
+        Ok(())
     }
 }
 
