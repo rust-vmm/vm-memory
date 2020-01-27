@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     Error, FileOffset, GuestAddress, GuestMemory, GuestMemoryGuard, GuestMemoryMmap,
-    GuestRegionMmap,
+    GuestRegionMmap, GuestUsize,
 };
 
 #[derive(Debug)]
@@ -109,6 +109,39 @@ impl GuestMemoryMmapAtomic {
         let _old = inner.0.swap(Arc::new(mmap));
 
         Ok(())
+    }
+
+    /// Remove a region from the `GuestMemoryMmap` object.
+    ///
+    /// Returns the removed region on success.
+    ///
+    /// Note: this method is not multi-thread safe. If called at runtime to support memory
+    /// hot-remove, the caller needs to protect it from concurrent access from both reader and
+    /// writer side.
+    ///
+    /// # Arguments
+    /// * `base`: base address of the region to be removed
+    /// * `size`: size of the region to be removed
+    pub fn remove_region(
+        &mut self,
+        base: GuestAddress,
+        size: GuestUsize,
+    ) -> result::Result<Arc<GuestRegionMmap>, Error> {
+        let inner = match self.inner {
+            State::Outer(ref obj) => obj,
+            _ => panic!("GuestRegionMmapAtomic::insert_region must be called from object itself"),
+        };
+        let _lock = inner
+            .1
+            .lock()
+            .expect("memory hotplug lock has been poisoned");
+
+        let curr = inner.0.load().regions.clone();
+        let mut mmap = GuestMemoryMmap::from_arc_regions(curr)?;
+        let old = mmap.remove_region(base, size)?;
+        let _ = inner.0.swap(Arc::new(mmap));
+
+        Ok(old)
     }
 
     fn from_mmap(mmap: GuestMemoryMmap) -> result::Result<Self, Error> {
@@ -343,5 +376,23 @@ mod tests {
         assert_eq!(inner.regions[2].start_addr(), GuestAddress(0x8000));
         assert_eq!(inner.regions[3].start_addr(), GuestAddress(0xc000));
         assert_eq!(inner.regions[4].start_addr(), GuestAddress(0x10_0000));
+
+        let old = gm.remove_region(GuestAddress(0x8000), 0x1000).unwrap();
+        assert_eq!(old.start_addr(), GuestAddress(0x8000));
+        let old = gm.remove_region(GuestAddress(0x0000), 0x1000).unwrap();
+        assert_eq!(old.start_addr(), GuestAddress(0x0000));
+        gm.remove_region(GuestAddress(0x0000), 0x1000).unwrap_err();
+        gm.remove_region(GuestAddress(0x0900), 0x1000).unwrap_err();
+
+        let snapshot = gm.snapshot();
+        assert_eq!(snapshot.num_regions(), 3);
+
+        let inner = match snapshot.inner {
+            State::Guard(ref g) => g,
+            _ => panic!("invalid snapshot state"),
+        };
+        assert_eq!(inner.regions[0].start_addr(), GuestAddress(0x4000));
+        assert_eq!(inner.regions[1].start_addr(), GuestAddress(0xc000));
+        assert_eq!(inner.regions[2].start_addr(), GuestAddress(0x10_0000));
     }
 }

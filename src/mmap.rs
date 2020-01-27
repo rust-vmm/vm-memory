@@ -469,6 +469,39 @@ impl GuestMemoryMmap {
 
         Ok(())
     }
+
+    /// Remove a region from the `GuestMemoryMmap` object.
+    ///
+    /// Returns the removed region on success.
+    ///
+    /// Note: this method is not multi-thread safe. If called at runtime to support memory
+    /// hot-remove, the caller needs to protect it from concurrent access from both reader and
+    /// writer side.
+    ///
+    /// # Arguments
+    /// * `base`: base address of the region to be removed
+    /// * `size`: size of the region to be removed
+    pub fn remove_region(
+        &mut self,
+        base: GuestAddress,
+        size: GuestUsize,
+    ) -> result::Result<Arc<GuestRegionMmap>, Error> {
+        let mut found = false;
+        let mut index = 0;
+
+        for (idx, reg) in self.regions.iter().enumerate() {
+            if reg.start_addr() == base && reg.size() as GuestUsize == size {
+                index = idx;
+                found = true;
+            }
+        }
+
+        if found {
+            Ok(self.regions.remove(index))
+        } else {
+            Err(Error::InvalidGuestRegion)
+        }
+    }
 }
 
 impl GuestMemory for GuestMemoryMmap {
