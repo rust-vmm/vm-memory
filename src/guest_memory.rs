@@ -302,6 +302,24 @@ pub trait GuestMemory {
         G: Fn(T, T) -> T;
 
     /// Get maximum (inclusive) address managed by the region.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
+    ///
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # fn test_last_addr() -> Result<(), ()> {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     assert_eq!(start_addr.checked_add(0x3ff), Some(gm.last_addr()));
+    ///     Ok(())
+    /// # }
+    ///
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # test_last_addr();
+    /// ```
     fn last_addr(&self) -> GuestAddress {
         self.map_and_fold(
             GuestAddress(0),
