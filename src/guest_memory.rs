@@ -282,8 +282,10 @@ pub trait GuestMemory {
     ///
     /// ```
     /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryRegion, GuestMemoryMmap};
+    ///
+    /// # #[cfg(feature = "backend-mmap")]
     /// # fn test_map_fold() -> Result<(), ()> {
-    /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryRegion, mmap::GuestMemoryMmap};
     ///     let start_addr1 = GuestAddress(0x0);
     ///     let start_addr2 = GuestAddress(0x400);
     ///     let mem = GuestMemoryMmap::new(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
@@ -295,6 +297,9 @@ pub trait GuestMemory {
     ///     println!("Total memory size = {} KB", total_size);
     ///     Ok(())
     /// # }
+    ///
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # test_map_fold();
     /// ```
     fn map_and_fold<F, G, T>(&self, init: T, mapf: F, foldf: G) -> T
     where
