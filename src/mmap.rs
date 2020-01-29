@@ -518,6 +518,7 @@ mod tests {
     extern crate vmm_sys_util;
 
     use super::*;
+    use crate::GuestAddressSpace;
 
     use std::fs::File;
     use std::mem;
@@ -1078,6 +1079,38 @@ mod tests {
         });
         assert!(res.is_ok());
         let res: guest_memory::Result<()> = gm.with_regions_mut(|_, region| {
+            iterated_regions.push((region.start_addr(), region.len() as usize));
+            Ok(())
+        });
+        assert!(res.is_ok());
+        assert_eq!(regions, iterated_regions);
+
+        assert!(regions
+            .iter()
+            .map(|x| (x.0, x.1))
+            .eq(iterated_regions.iter().map(|x| *x)));
+
+        assert_eq!(gm.clone().regions[0].guest_base, regions[0].0);
+        assert_eq!(gm.clone().regions[1].guest_base, regions[1].0);
+    }
+
+    #[test]
+    fn test_memory() {
+        let region_size = 0x400;
+        let regions = vec![
+            (GuestAddress(0x0), region_size),
+            (GuestAddress(0x1000), region_size),
+        ];
+        let mut iterated_regions = Vec::new();
+        let gm = Arc::new(GuestMemoryMmap::from_ranges(&regions).unwrap());
+        let mem = gm.memory();
+
+        let res: guest_memory::Result<()> = mem.with_regions(|_, region| {
+            assert_eq!(region.len(), region_size as GuestUsize);
+            Ok(())
+        });
+        assert!(res.is_ok());
+        let res: guest_memory::Result<()> = mem.with_regions_mut(|_, region| {
             iterated_regions.push((region.start_addr(), region.len() as usize));
             Ok(())
         });
