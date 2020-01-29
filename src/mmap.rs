@@ -8,17 +8,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-//! A default implementation of the GuestMemory trait by mmap()-ing guest's memory into the current
-//! process.
+//! The default implementation for the [`GuestMemory`](trait.GuestMemory.html) trait.
 //!
-//! The main structs to access guest's memory are:
-//! - [MmapRegion](struct.MmapRegion.html): mmap a continuous region of guest's memory into the
-//! current process
-//! - [GuestRegionMmap](struct.GuestRegionMmap.html): tracks a mapping of memory in the current
-//! process and the corresponding base address. It relays guest memory access requests to the
-//! underline [MmapRegion](struct.MmapRegion.html) object.
-//! - [GuestMemoryMmap](struct.GuestMemoryMmap.html): provides methods to access a collection of
-//! GuestRegionMmap objects.
+//! This implementation is mmap-ing the memory of the guest into the current process.
 
 use std::borrow::Borrow;
 use std::error;
@@ -43,15 +35,25 @@ pub use crate::mmap_windows::MmapRegion;
 #[cfg(windows)]
 pub use std::io::Error as MmapRegionError;
 
-// For MmapRegion
+/// Trait implemented by the underlying `MmapRegion`.
 pub(crate) trait AsSlice {
+    /// Returns a slice corresponding to the data in the underlying `MmapRegion`.
+    ///
+    /// # Safety
+    ///
+    /// This is unsafe because of possible aliasing.
     unsafe fn as_slice(&self) -> &[u8];
 
+    /// Returns a mutable slice corresponding to the data in the underlying `MmapRegion`.
+    ///
+    /// # Safety
+    ///
+    /// This is unsafe because of possible aliasing.
     #[allow(clippy::mut_from_ref)]
     unsafe fn as_mut_slice(&self) -> &mut [u8];
 }
 
-/// Errors that can happen when creating a memory map
+/// Errors that can occur when creating a memory map.
 #[derive(Debug)]
 pub enum Error {
     /// Adding the guest base address to the length of the underlying mapping resulted
@@ -91,6 +93,8 @@ impl error::Error for Error {}
 
 // TODO: use this for Windows as well after we redefine the Error type there.
 #[cfg(unix)]
+/// Checks if a mapping of `size` bytes fits at the provided `file_offset`.
+///
 /// For a borrowed `FileOffset` and size, this function checks whether the mapping does not
 /// extend past EOF, and that adding the size to the file offset does not lead to overflow.
 pub fn check_file_offset(
@@ -113,8 +117,11 @@ pub fn check_file_offset(
     Ok(())
 }
 
-/// Tracks a mapping of memory in the current process and the corresponding base address
-/// in the guest's memory space.
+/// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) implementation that mmaps the guest's
+/// memory region in the current process.
+///
+/// Represents a continuous region of the guest's physical memory that is backed by a mapping
+/// in the virtual address space of the calling process.
 #[derive(Debug)]
 pub struct GuestRegionMmap {
     mapping: MmapRegion,
@@ -122,7 +129,7 @@ pub struct GuestRegionMmap {
 }
 
 impl GuestRegionMmap {
-    /// Create a new memory-mapped memory region for guest's physical memory.
+    /// Create a new memory-mapped memory region for the guest's physical memory.
     pub fn new(mapping: MmapRegion, guest_base: GuestAddress) -> result::Result<Self, Error> {
         if guest_base.0.checked_add(mapping.len() as u64).is_none() {
             return Err(Error::InvalidGuestRegion);
@@ -350,7 +357,6 @@ impl GuestMemoryRegion for GuestRegionMmap {
         Some(self.mapping.as_mut_slice())
     }
 
-    /// Get the host virtual address corresponding to the region address.
     fn get_host_address(&self, addr: MemoryRegionAddress) -> guest_memory::Result<*mut u8> {
         // Not sure why wrapping_offset is not unsafe.  Anyway this
         // is safe because we've just range-checked addr using check_address.
@@ -360,7 +366,12 @@ impl GuestMemoryRegion for GuestRegionMmap {
     }
 }
 
-/// Tracks memory regions allocated/mapped for the guest in the current process.
+/// [`GuestMemory`](trait.GuestMemory.html) implementation that mmaps the guest's memory
+/// in the current process.
+///
+/// Represents the entire physical memory of the guest by tracking all its memory regions.
+/// Each region is an instance of `GuestRegionMmap`, being backed by a mapping in the
+/// virtual address space of the calling process.
 #[derive(Clone, Debug)]
 pub struct GuestMemoryMmap {
     regions: Vec<Arc<GuestRegionMmap>>,
@@ -368,12 +379,14 @@ pub struct GuestMemoryMmap {
 
 impl GuestMemoryMmap {
     /// Creates a container and allocates anonymous memory for guest memory regions.
+    ///
     /// Valid memory regions are specified as a slice of (Address, Size) tuples sorted by Address.
     pub fn new(ranges: &[(GuestAddress, usize)]) -> result::Result<Self, Error> {
         Self::with_files(ranges.iter().map(|r| (r.0, r.1, None)))
     }
 
     /// Creates a container and allocates anonymous memory for guest memory regions.
+    ///
     /// Valid memory regions are specified as a sequence of (Address, Size, Option<FileOffset>)
     /// tuples sorted by Address.
     pub fn with_files<A, T>(ranges: T) -> result::Result<Self, Error>
