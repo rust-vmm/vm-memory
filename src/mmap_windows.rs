@@ -2,16 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-//! A default Windows implementation of the GuestMemory trait using VirtualAlloc() and MapViewOfFile().
-//!
-//! The main structs to access guest's memory are:
-//! - [MmapRegion](struct.MmapRegion.html): mmap a continuous region of guest's memory into the
-//! current process
-//! - [GuestRegionMmap](struct.GuestRegionMmap.html): tracks a mapping of memory in the current
-//! process and the corresponding base address. It relays guest memory access requests to the
-//! underline [MmapRegion](struct.MmapRegion.html) object.
-//! - [GuestMemoryMmap](struct.GuestMemoryMmap.html): provides methods to access a collection of
-//! GuestRegionMmap objects.
+//! Helper structure for working with mmaped memory regions in Windows.
 
 use std;
 use std::io;
@@ -70,11 +61,15 @@ pub const INVALID_HANDLE_VALUE: RawHandle = (-1isize) as RawHandle;
 #[allow(dead_code)]
 pub const ERROR_INVALID_PARAMETER: i32 = 87;
 
-/// A backend driver to access guest's physical memory by mmapping guest's memory into the current
-/// process.
-/// For a combination of 32-bit hypervisor and 64-bit virtual machine, only partial of guest's
-/// physical memory may be mapped into current process due to limited process virtual address
-/// space size.
+/// Helper structure for working with mmaped memory regions in Unix.
+///
+/// The structure is used for accessing the guest's physical memory by mmapping it into
+/// the current process.
+///
+/// # Limitations
+/// When running a 64-bit virtual machine on a 32-bit hypervisor, only part of the guest's
+/// physical memory may be mapped into the current process due to the limited virtual address
+/// space size of the process.
 #[derive(Debug)]
 pub struct MmapRegion {
     addr: *mut u8,
@@ -90,10 +85,10 @@ unsafe impl Send for MmapRegion {}
 unsafe impl Sync for MmapRegion {}
 
 impl MmapRegion {
-    /// Creates an anonymous shared mapping of `size` bytes.
+    /// Creates a shared anonymous mapping of `size` bytes.
     ///
     /// # Arguments
-    /// * `size` - Size of memory region in bytes.
+    /// * `size` - The size of the memory region in bytes.
     pub fn new(size: usize) -> io::Result<Self> {
         if (size == 0) || (size > MM_HIGHEST_VAD_ADDRESS as usize) {
             return Err(io::Error::from_raw_os_error(libc::EINVAL));
@@ -111,12 +106,12 @@ impl MmapRegion {
         })
     }
 
-    /// Maps the `size` bytes starting at `offset` bytes of the given `fd`.
+    /// Creates a shared file mapping of `size` bytes.
     ///
     /// # Arguments
-    /// * `file` - Raw handle to a file to map into the address space.
-    /// * `size` - Size of memory region in bytes.
-    /// * `offset` - Offset in bytes from the beginning of `file` to start the mapping.
+    /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
+    ///                   referred to by `file_offset.file`.
+    /// * `size` - The size of the memory region in bytes.
     pub fn from_file(file_offset: FileOffset, size: usize) -> io::Result<Self> {
         let handle = file_offset.file().as_raw_handle();
         if handle == INVALID_HANDLE_VALUE {
@@ -165,8 +160,9 @@ impl MmapRegion {
         })
     }
 
-    /// Returns a pointer to the beginning of the memory region.  Should only be
-    /// used for passing this region to ioctls for setting guest memory.
+    /// Returns a pointer to the beginning of the memory region.
+    ///
+    /// Should only be used for passing this region to ioctls for setting guest memory.
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr
     }
@@ -183,15 +179,12 @@ impl MmapRegion {
 }
 
 impl AsSlice for MmapRegion {
-    // Returns the region as a slice
-    // used to do crap
     unsafe fn as_slice(&self) -> &[u8] {
         // This is safe because we mapped the area at addr ourselves, so this slice will not
         // overflow. However, it is possible to alias.
         std::slice::from_raw_parts(self.addr, self.size)
     }
 
-    // safe because it's expected interior mutability
     #[allow(clippy::mut_from_ref)]
     unsafe fn as_mut_slice(&self) -> &mut [u8] {
         // This is safe because we mapped the area at addr ourselves, so this slice will not
