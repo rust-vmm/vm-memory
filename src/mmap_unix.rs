@@ -8,17 +8,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-//! A default Unix implementation of the GuestMemory trait by mmap()-ing guest's memory into
-//! the current process.
-//!
-//! The main structs to access guest's memory are:
-//! - [MmapRegion](struct.MmapRegion.html): mmap a continuous region of guest's memory into the
-//! current process
-//! - [GuestRegionMmap](struct.GuestRegionMmap.html): tracks a mapping of memory in the current
-//! process and the corresponding base address. It relays guest memory access requests to the
-//! underline [MmapRegion](struct.MmapRegion.html) object.
-//! - [GuestMemoryMmap](struct.GuestMemoryMmap.html): provides methods to access a collection of
-//! GuestRegionMmap objects.
+//! Helper structure for working with mmaped memory regions in Unix.
 
 use std::error;
 use std::fmt;
@@ -73,11 +63,15 @@ impl error::Error for Error {}
 
 pub type Result<T> = result::Result<T, Error>;
 
-/// A backend driver to access guest's physical memory by mmapping guest's memory into the current
-/// process.
-/// For a combination of 32-bit hypervisor and 64-bit virtual machine, only partial of guest's
-/// physical memory may be mapped into current process due to limited process virtual address
-/// space size.
+/// Helper structure for working with mmaped memory regions in Unix.
+///
+/// The structure is used for accessing the guest's physical memory by mmapping it into
+/// the current process.
+///
+/// # Limitations
+/// When running a 64-bit virtual machine on a 32-bit hypervisor, only part of the guest's
+/// physical memory may be mapped into the current process due to the limited virtual address
+/// space size of the process.
 #[derive(Debug)]
 pub struct MmapRegion {
     addr: *mut u8,
@@ -95,10 +89,10 @@ unsafe impl Send for MmapRegion {}
 unsafe impl Sync for MmapRegion {}
 
 impl MmapRegion {
-    /// Creates an anonymous shared mapping of `size` bytes.
+    /// Creates a shared anonymous mapping of `size` bytes.
     ///
     /// # Arguments
-    /// * `size` - Size of memory region in bytes.
+    /// * `size` - The size of the memory region in bytes.
     pub fn new(size: usize) -> Result<Self> {
         Self::build(
             None,
@@ -108,11 +102,12 @@ impl MmapRegion {
         )
     }
 
-    /// Maps the `size` bytes starting at `offset` bytes of the given `fd`.
+    /// Creates a shared file mapping of `size` bytes.
     ///
     /// # Arguments
-    /// * `file_offset` - File object and offset to mmap from.
-    /// * `size` - Size of memory region in bytes.
+    /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
+    ///                   referred to by `file_offset.file`.
+    /// * `size` - The size of the memory region in bytes.
     pub fn from_file(file_offset: FileOffset, size: usize) -> Result<Self> {
         Self::build(
             Some(file_offset),
@@ -122,7 +117,16 @@ impl MmapRegion {
         )
     }
 
-    /// Creates a new mapping based on the provided arguments.
+    /// Creates a mapping based on the provided arguments.
+    ///
+    /// # Arguments
+    /// * `file_offset` - if provided, the method will create a file mapping at offset
+    ///                   `file_offset.start` in the file referred to by `file_offset.file`.
+    /// * `size` - The size of the memory region in bytes.
+    /// * `prot` - The desired memory protection of the mapping.
+    /// * `flags` - This argument determines whether updates to the mapping are visible to other
+    ///             processes mapping the same region, and whether updates are carried through to
+    ///             the underlying file.
     pub fn build(
         file_offset: Option<FileOffset>,
         size: usize,
@@ -159,8 +163,9 @@ impl MmapRegion {
         })
     }
 
-    /// Returns a pointer to the beginning of the memory region.  Should only be
-    /// used for passing this region to ioctls for setting guest memory.
+    /// Returns a pointer to the beginning of the memory region.
+    ///
+    /// Should only be used for passing this region to ioctls for setting guest memory.
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr
     }
@@ -185,9 +190,11 @@ impl MmapRegion {
         self.flags
     }
 
-    /// Returns true if `self` and `other` map the same file descriptor, and the `(offset, size)`
-    /// pairs overlap. This is mostly a sanity check available for convenience, as different file
-    /// descriptors can alias the same file.
+    /// Checks whether this region and `other` are backed by overlapping
+    /// [`FileOffset`](struct.FileOffset.html) objects.
+    ///
+    /// This is mostly a sanity check available for convenience, as different file descriptors
+    /// can alias the same file.
     pub fn fds_overlap(&self, other: &MmapRegion) -> bool {
         if let Some(f_off1) = self.file_offset() {
             if let Some(f_off2) = other.file_offset() {
@@ -210,15 +217,12 @@ impl MmapRegion {
 }
 
 impl AsSlice for MmapRegion {
-    // Returns the region as a slice
-    // used to do crap
     unsafe fn as_slice(&self) -> &[u8] {
         // This is safe because we mapped the area at addr ourselves, so this slice will not
         // overflow. However, it is possible to alias.
         std::slice::from_raw_parts(self.addr, self.size)
     }
 
-    // safe because it's expected interior mutability
     #[allow(clippy::mut_from_ref)]
     unsafe fn as_mut_slice(&self) -> &mut [u8] {
         // This is safe because we mapped the area at addr ourselves, so this slice will not
