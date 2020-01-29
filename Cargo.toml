@@ -10,9 +10,11 @@ edition = "2018"
 default = []
 integer-atomics = []
 backend-mmap = []
+backend-atomic = ["arc-swap"]
 
 [dependencies]
 libc = ">=0.2.39"
+arc-swap = { version = ">=0.4.4", optional = true }
 
 [target.'cfg(windows)'.dependencies.winapi]
 version = ">=0.3"

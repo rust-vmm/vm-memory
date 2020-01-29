@@ -264,6 +264,8 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
 /// # use std::sync::Arc;
 /// # #[cfg(feature = "backend-mmap")]
 /// # use vm_memory::GuestMemoryMmap;
+/// # #[cfg(feature = "backend-atomic")]
+/// # use vm_memory::GuestMemoryAtomic;
 /// # use vm_memory::{GuestAddress, GuestMemory, GuestAddressSpace};
 ///
 /// pub struct VirtioDevice<AS: GuestAddressSpace> {
@@ -294,6 +296,19 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
 /// let mut another: VirtioDevice<&GuestMemoryMmap> =
 ///     VirtioDevice::new();
 /// another.activate(&mmap);
+/// # }
+///
+/// # #[cfg(all(feature = "backend-mmap", feature = "backend-atomic"))]
+/// # fn test_2() {
+/// // Using `VirtioDevice` with a mutable GuestMemoryMmap:
+/// let mut for_mutable_mmap: VirtioDevice<GuestMemoryAtomic<GuestMemoryMmap>> =
+///     VirtioDevice::new();
+/// let atomic = GuestMemoryAtomic::new(get_mmap());
+/// for_mutable_mmap.activate(atomic.clone());
+/// let mut another: VirtioDevice<GuestMemoryAtomic<GuestMemoryMmap>> =
+///     VirtioDevice::new();
+/// another.activate(atomic.clone());
+/// // atomic can be modified here...
 /// # }
 /// ```
 
