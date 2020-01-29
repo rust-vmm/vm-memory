@@ -38,7 +38,7 @@ use crate::{ByteValued, Bytes};
 // TODO: replace with TryFrom once we can assume 1.34.0.
 extern crate cast;
 
-/// VolatileMemory related error codes
+/// `VolatileMemory` related errors.
 #[allow(missing_docs)]
 #[derive(Debug)]
 pub enum Error {
@@ -88,12 +88,15 @@ impl fmt::Display for Error {
 
 impl error::Error for Error {}
 
-/// Result of volatile memory operations
+/// Result of volatile memory operations.
 pub type Result<T> = result::Result<T, Error>;
 
-/// Convenience function for computing `base + offset` which returns
-/// `Err(Error::Overflow)` instead of panicking in the case `base + offset` exceeds
-/// `usize::MAX`.
+/// Convenience function for computing `base + offset`.
+///
+/// # Errors
+///
+/// Returns [`Err(Error::Overflow)`](enum.Error.html#variant.Overflow) in case `base + offset`
+/// exceeds `usize::MAX`.
 ///
 /// # Examples
 ///
@@ -114,9 +117,11 @@ pub fn compute_offset(base: usize, offset: usize) -> Result<usize> {
     }
 }
 
-/// Trait for objects for which a reference can be extracted safely out of a
-/// VolatileSlice.  Objects that implement this trait must consist exclusively
-/// of atomic types from std::sync::atomic, except for AtomicPtr<T>.
+/// Types that can be read safely from a [`VolatileSlice`](struct.VolatileSlice.html).
+///
+/// Objects that implement this trait must consist exclusively of atomic types
+/// from [`std::sync::atomic`](https://doc.rust-lang.org/std/sync/atomic/), except for
+/// [`AtomicPtr<T>`](https://doc.rust-lang.org/std/sync/atomic/struct.AtomicPtr.html).
 pub unsafe trait AtomicValued: Sync + Send {}
 
 // also conditionalize on #[cfg(target_has_atomic) when it is stabilized
@@ -141,7 +146,7 @@ unsafe impl AtomicValued for std::sync::atomic::AtomicU32 {}
 unsafe impl AtomicValued for std::sync::atomic::AtomicU64 {}
 unsafe impl AtomicValued for std::sync::atomic::AtomicUsize {}
 
-/// Trait for types that support raw volatile access to their data.
+/// Types that support raw volatile access to their data.
 pub trait VolatileMemory {
     /// Gets the size of this slice.
     fn len(&self) -> usize;
@@ -151,8 +156,8 @@ pub trait VolatileMemory {
         self.len() == 0
     }
 
-    /// Gets a slice of memory at `offset` that is `count` bytes in length and supports volatile
-    /// access.
+    /// Returns a [`VolatileSlice`](struct.VolatileSlice.html) of `count` bytes starting at
+    /// `offset`.
     fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice>;
 
     /// Gets a slice of memory for the entire region that supports volatile access.
@@ -170,7 +175,8 @@ pub trait VolatileMemory {
         }
     }
 
-    /// Gets a `VolatileArrayRef` for `n` elements starting at `offset`.
+    /// Returns a [`VolatileArrayRef`](struct.VolatileArrayRef.html) of `n` elements starting at
+    /// `offset`.
     fn get_array_ref<T: ByteValued>(&self, offset: usize, n: usize) -> Result<VolatileArrayRef<T>> {
         // Use isize to avoid problems with ptr::offset and ptr::add down the line.
         let nbytes = cast::isize(n)
@@ -188,30 +194,45 @@ pub trait VolatileMemory {
         }
     }
 
-    /// Gets a reference to T at `offset`.  The resulting pointer must be
-    /// aligned, or the function fails.
+    /// Returns a reference to an instance of `T` at `offset`.
     ///
+    /// # Safety
     /// To use this safely, the caller must guarantee that there are no other
     /// users of the given chunk of memory for the lifetime of the result.
+    ///
+    /// # Errors
+    ///
+    /// If the resulting pointer is not aligned, this method will return an
+    /// [`Error`](enum.Error.html).
     unsafe fn aligned_as_ref<T: ByteValued>(&self, offset: usize) -> Result<&T> {
         let slice = self.get_slice(offset, size_of::<T>())?;
         slice.check_alignment(align_of::<T>())?;
         Ok(&*(slice.addr as *const T))
     }
 
-    /// Gets a reference to T at `offset`.  The resulting pointer must be
-    /// aligned, or the function fails.
+    /// Returns a mutable reference to an instance of `T` at `offset`.
+    ///
+    /// # Safety
     ///
     /// To use this safely, the caller must guarantee that there are no other
     /// users of the given chunk of memory for the lifetime of the result.
+    ///
+    /// # Errors
+    ///
+    /// If the resulting pointer is not aligned, this method will return an
+    /// [`Error`](enum.Error.html).
     unsafe fn aligned_as_mut<T: ByteValued>(&self, offset: usize) -> Result<&mut T> {
         let slice = self.get_slice(offset, size_of::<T>())?;
         slice.check_alignment(align_of::<T>())?;
         Ok(&mut *(slice.addr as *mut T))
     }
 
-    /// Gets a reference to T at `offset`.  The resulting pointer must be
-    /// aligned, or the function fails.
+    /// Returns a reference to an instance of `T` at `offset`.
+    ///
+    /// # Errors
+    ///
+    /// If the resulting pointer is not aligned, this method will return an
+    /// [`Error`](enum.Error.html).
     fn get_atomic_ref<T: AtomicValued>(&self, offset: usize) -> Result<&T> {
         let slice = self.get_slice(offset, size_of::<T>())?;
         slice.check_alignment(align_of::<T>())?;
@@ -223,7 +244,7 @@ pub trait VolatileMemory {
         }
     }
 
-    /// Check that addr + count is valid and return the sum.
+    /// Returns the sum of `base` and `offset` if the resulting address is valid.
     fn compute_end_offset(&self, base: usize, offset: usize) -> Result<usize> {
         let mem_end = compute_offset(base, offset)?;
         if mem_end > self.len() {
@@ -265,6 +286,8 @@ pub struct VolatileSlice<'a> {
 impl<'a> VolatileSlice<'a> {
     /// Creates a slice of raw memory that must support volatile access.
     ///
+    /// # Safety
+    ///
     /// To use this safely, the caller must guarantee that the memory at `addr` is `size` bytes long
     /// and is available for the duration of the lifetime of the new `VolatileSlice`. The caller
     /// must also guarantee that all other users of the given chunk of memory are using volatile
@@ -277,7 +300,7 @@ impl<'a> VolatileSlice<'a> {
         }
     }
 
-    /// Gets the address of this slice's memory.
+    /// Returns a pointer to the beginning of the slice.
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr
     }
@@ -287,13 +310,16 @@ impl<'a> VolatileSlice<'a> {
         self.size
     }
 
-    /// Check whether the slice is empty.
+    /// Checks if the slice is empty.
     pub fn is_empty(&self) -> bool {
         self.size == 0
     }
 
-    /// Creates a copy of this slice with the address increased by `count` bytes, and the size
-    /// reduced by `count` bytes.
+    /// Returns a subslice of this [`VolatileSlice`](struct.VolatileSlice.html) starting at
+    /// `offset`.
+    ///
+    /// The returned subslice is a copy of this slice with the address increased by `count` bytes
+    /// and the size reduced by `count` bytes.
     pub fn offset(self, count: usize) -> Result<VolatileSlice<'a>> {
         let new_addr = (self.addr as usize)
             .checked_add(count)
@@ -312,10 +338,11 @@ impl<'a> VolatileSlice<'a> {
         }
     }
 
-    /// Copies `self.len()` or `buf.len()` times the size of `T` bytes, whichever is smaller, to
-    /// `buf`.
+    /// Copies as many elements of type `T` as possible from this slice to `buf`.
     ///
-    /// The copy happens from smallest to largest address in `T` sized chunks using volatile reads.
+    /// Copies `self.len()` or `buf.len()` times the size of `T` bytes, whichever is smaller,
+    /// to `buf`. The copy happens from smallest to largest address in `T` sized chunks
+    /// using volatile reads.
     ///
     /// # Examples
     ///
@@ -344,9 +371,10 @@ impl<'a> VolatileSlice<'a> {
         source.copy_to(buf)
     }
 
-    /// Copies `self.len()` or `slice.len()` bytes, whichever is smaller, to `slice`.
+    /// Copies as many bytes as possible from this slice to the provided `slice`.
     ///
     /// The copies happen in an undefined order.
+    ///
     /// # Examples
     ///
     /// ```
@@ -369,8 +397,7 @@ impl<'a> VolatileSlice<'a> {
         }
     }
 
-    /// Copies `self.len()` or `buf.len()` times the size of `T` bytes, whichever is smaller, to
-    /// this slice's memory.
+    /// Copies as many elements of type `T` as possible from `buf` to this slice.
     ///
     /// The copy happens from smallest to largest address in `T` sized chunks using volatile writes.
     ///
@@ -401,18 +428,28 @@ impl<'a> VolatileSlice<'a> {
         dest.copy_from(buf)
     }
 
-    // These function are private and only used for the read/write functions. It is not valid in
-    // general to take slices of volatile memory.
+    /// Returns a slice corresponding to the data in the underlying memory.
+    ///
+    /// # Safety
+    ///
+    /// This function is private and only used for the read/write functions. It is not valid in
+    /// general to take slices of volatile memory.
     unsafe fn as_slice(&self) -> &[u8] {
         from_raw_parts(self.addr, self.size)
     }
 
-    // safe because it's expected interior mutability
+    /// Returns a mutable slice corresponding to the data in the underlying memory.
+    ///
+    /// # Safety
+    ///
+    /// This function is private and only used for the read/write functions. It is not valid in
+    /// general to take slices of volatile memory.
     #[allow(clippy::mut_from_ref)]
     unsafe fn as_mut_slice(&self) -> &mut [u8] {
         from_raw_parts_mut(self.addr, self.size)
     }
 
+    /// Checks if the current slice is aligned at `alignment` bytes.
     fn check_alignment(&self, alignment: usize) -> Result<()> {
         // Check that the desired alignment is a power of two.
         debug_assert!((alignment & (alignment - 1)) == 0);
@@ -429,11 +466,6 @@ impl<'a> VolatileSlice<'a> {
 impl Bytes<usize> for VolatileSlice<'_> {
     type E = Error;
 
-    /// Writes a slice to the region at the specified address.
-    /// Returns the number of bytes written. The number of bytes written can
-    /// be less than the length of the slice if there isn't enough room in the
-    /// region.
-    ///
     /// # Examples
     /// * Write a slice at offset 256.
     ///
@@ -459,10 +491,6 @@ impl Bytes<usize> for VolatileSlice<'_> {
         }
     }
 
-    /// Reads to a slice from the region at the specified address.
-    /// Returns the number of bytes read. The number of bytes read can be less than the length
-    /// of the slice if there isn't enough room in the region.
-    ///
     /// # Examples
     /// * Read a slice of size 16 at offset 256.
     ///
@@ -489,8 +517,6 @@ impl Bytes<usize> for VolatileSlice<'_> {
         }
     }
 
-    /// Writes a slice to the region at the specified address.
-    ///
     /// # Examples
     /// * Write a slice at offset 256.
     ///
@@ -514,8 +540,6 @@ impl Bytes<usize> for VolatileSlice<'_> {
         Ok(())
     }
 
-    /// Reads to a slice from the region at the specified address.
-    ///
     /// # Examples
     /// * Read a slice of size 16 at offset 256.
     ///
@@ -540,8 +564,6 @@ impl Bytes<usize> for VolatileSlice<'_> {
         Ok(())
     }
 
-    /// Writes data from a readable object like a File and writes it to the region.
-    ///
     /// # Examples
     ///
     /// * Read bytes from /dev/urandom
@@ -574,8 +596,6 @@ impl Bytes<usize> for VolatileSlice<'_> {
         }
     }
 
-    /// Writes data from a readable object like a File and writes it to the region.
-    ///
     /// # Examples
     ///
     /// * Read bytes from /dev/urandom
@@ -609,8 +629,6 @@ impl Bytes<usize> for VolatileSlice<'_> {
         Ok(())
     }
 
-    /// Reads data from the region to a writable object.
-    ///
     /// # Examples
     ///
     /// * Write 128 bytes to /dev/null
@@ -642,8 +660,6 @@ impl Bytes<usize> for VolatileSlice<'_> {
         }
     }
 
-    /// Reads data from the region to a writable object.
-    ///
     /// # Examples
     ///
     /// * Write 128 bytes to /dev/null
@@ -692,7 +708,7 @@ impl VolatileMemory for VolatileSlice<'_> {
     }
 }
 
-/// A memory location that supports volatile access of a `T`.
+/// A memory location that supports volatile access to an instance of `T`.
 ///
 /// # Examples
 ///
@@ -704,6 +720,7 @@ impl VolatileMemory for VolatileSlice<'_> {
 ///   assert_eq!(v_ref.load(), 5);
 ///   v_ref.store(500);
 ///   assert_eq!(v, 500);
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct VolatileRef<'a, T: ByteValued>
 where
@@ -715,7 +732,9 @@ where
 
 #[allow(clippy::len_without_is_empty)]
 impl<'a, T: ByteValued> VolatileRef<'a, T> {
-    /// Creates a reference to raw memory that must support volatile access of `T` sized chunks.
+    /// Creates a [`VolatileRef`](struct.VolatileRef.html) to an instance of `T`.
+    ///
+    /// # Safety
     ///
     /// To use this safely, the caller must guarantee that the memory at `addr` is big enough for a
     /// `T` and is available for the duration of the lifetime of the new `VolatileRef`. The caller
@@ -728,12 +747,12 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
         }
     }
 
-    /// Gets the address of this slice's memory.
+    /// Returns a pointer to the underlying memory.
     pub fn as_ptr(self) -> *mut u8 {
         self.addr as *mut u8
     }
 
-    /// Gets the size of this slice.
+    /// Gets the size of the referenced type `T`.
     ///
     /// # Examples
     ///
@@ -762,13 +781,14 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
         unsafe { read_volatile(self.addr).0 }
     }
 
-    /// Converts this `T` reference to a raw slice with the same size and address.
+    /// Converts this to a [`VolatileSlice`](struct.VolatileSlice.html) with the same size and
+    /// address.
     pub fn to_slice(self) -> VolatileSlice<'a> {
         unsafe { VolatileSlice::new(self.addr as *mut u8, size_of::<T>()) }
     }
 }
 
-/// A memory location that supports volatile access of an array of `T`.
+/// A memory location that supports volatile access to an array of elements of type `T`.
 ///
 /// # Examples
 ///
@@ -780,6 +800,7 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
 ///   assert_eq!(v_ref.load(), 5);
 ///   v_ref.store(500);
 ///   assert_eq!(v, 500);
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct VolatileArrayRef<'a, T: ByteValued>
 where
@@ -791,7 +812,10 @@ where
 }
 
 impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
-    /// Creates a reference to raw memory that must support volatile access of `T` sized chunks.
+    /// Creates a [`VolatileArrayRef`](struct.VolatileArrayRef.html) to an array of elements of
+    /// type `T`.
+    ///
+    /// # Safety
     ///
     /// To use this safely, the caller must guarantee that the memory at `addr` is big enough for
     /// `nelem` values of type `T` and is available for the duration of the lifetime of the new
@@ -805,7 +829,7 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
         }
     }
 
-    /// Returns whether this slice is empty.
+    /// Returns `true` if this array is empty.
     ///
     /// # Examples
     ///
@@ -818,7 +842,7 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
         self.nelem == 0
     }
 
-    /// Gets the size of this slice.
+    /// Returns the number of elements in the array.
     ///
     /// # Examples
     ///
@@ -831,7 +855,7 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
         self.nelem
     }
 
-    /// Gets the element size of this slice.
+    /// Returns the size of `T`.
     ///
     /// # Examples
     ///
@@ -845,17 +869,17 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
         size_of::<T>()
     }
 
-    /// Gets the address of this slice's memory.
+    /// Returns a pointer to the underlying memory.
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr
     }
 
-    /// Converts this `T` reference to a raw slice with the same size and address.
+    /// Converts this to a `VolatileSlice` with the same size and address.
     pub fn to_slice(&self) -> VolatileSlice<'a> {
         unsafe { VolatileSlice::new(self.addr, self.nelem * self.element_size()) }
     }
 
-    /// Does a volatile read of the I-th value pointed to by this ref.
+    /// Does a volatile read of the element at `index`.
     pub fn ref_at(&self, index: usize) -> VolatileRef<'a, T> {
         assert!(index < self.nelem);
         // Safe because the memory has the same lifetime and points to a subset of the
@@ -868,20 +892,21 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
         }
     }
 
-    /// Does a volatile read of the I-th value pointed to by this ref.
+    /// Does a volatile read of the element at `index`.
     pub fn load(&self, index: usize) -> T {
         self.ref_at(index).load()
     }
 
-    /// Does a volatile write of the I-th value pointed to by this ref.
+    /// Does a volatile write of the element at `index`.
     pub fn store(&self, index: usize, value: T) {
         self.ref_at(index).store(value)
     }
 
-    /// Copies `self.len()` or `buf.len()` times the size of `T` bytes, whichever is smaller, to
-    /// `buf`.
+    /// Copies as many elements of type `T` as possible from this array to `buf`.
     ///
-    /// The copy happens from smallest to largest address in `T` sized chunks using volatile reads.
+    /// Copies `self.len()` or `buf.len()` times the size of `T` bytes, whichever is smaller,
+    /// to `buf`. The copy happens from smallest to largest address in `T` sized chunks
+    /// using volatile reads.
     ///
     /// # Examples
     ///
@@ -918,9 +943,10 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
         i
     }
 
-    /// Copies `self.len()` or `slice.len()` bytes, whichever is smaller, to `slice`.
+    /// Copies as many bytes as possible from this slice to the provided `slice`.
     ///
     /// The copies happen in an undefined order.
+    ///
     /// # Examples
     ///
     /// ```
@@ -947,10 +973,11 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
         }
     }
 
-    /// Copies `self.len()` or `buf.len()` times the size of `T` bytes, whichever is smaller, to
-    /// this slice's memory.
+    /// Copies as many elements of type `T` as possible from `buf` to this slice.
     ///
-    /// The copy happens from smallest to largest address in `T` sized chunks using volatile writes.
+    /// Copies `self.len()` or `buf.len()` times the size of `T` bytes, whichever is smaller,
+    /// to this slice's memory. The copy happens from smallest to largest address in
+    /// `T` sized chunks using volatile writes.
     ///
     /// # Examples
     ///
