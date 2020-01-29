@@ -461,6 +461,43 @@ impl GuestMemoryMmap {
 
         Ok(Self { regions })
     }
+
+    /// Insert a region into the `GuestMemoryMmap` object and return a new `GuestMemoryMmap`.
+    ///
+    /// # Arguments
+    /// * `region`: the memory region to insert into the guest memory object.
+    pub fn insert_region(
+        &self,
+        region: Arc<GuestRegionMmap>,
+    ) -> result::Result<GuestMemoryMmap, Error> {
+        let mut regions = self.regions.clone();
+        regions.push(region);
+        regions.sort_by_key(|x| x.start_addr());
+
+        Self::from_arc_regions(regions)
+    }
+
+    /// Remove a region into the `GuestMemoryMmap` object and return a new `GuestMemoryMmap`
+    /// on success, together with the removed region.
+    ///
+    /// # Arguments
+    /// * `base`: base address of the region to be removed
+    /// * `size`: size of the region to be removed
+    pub fn remove_region(
+        &self,
+        base: GuestAddress,
+        size: GuestUsize,
+    ) -> result::Result<(GuestMemoryMmap, Arc<GuestRegionMmap>), Error> {
+        if let Ok(region_index) = self.regions.binary_search_by_key(&base, |x| x.start_addr()) {
+            if self.regions.get(region_index).unwrap().size() as GuestUsize == size {
+                let mut regions = self.regions.clone();
+                let region = regions.remove(region_index);
+                return Ok((Self { regions }, region));
+            }
+        }
+
+        Err(Error::InvalidGuestRegion)
+    }
 }
 
 impl GuestMemory for GuestMemoryMmap {
@@ -1203,5 +1240,65 @@ mod tests {
         let region = gm.find_region(start_addr).unwrap();
         assert!(region.file_offset().is_some());
         assert_eq!(region.file_offset().unwrap().start(), offset);
+    }
+
+    #[test]
+    fn test_mmap_insert_region() {
+        let region_size = 0x1000;
+        let regions = vec![
+            (GuestAddress(0x0), region_size),
+            (GuestAddress(0x10_0000), region_size),
+        ];
+        let gm = Arc::new(GuestMemoryMmap::from_ranges(&regions).unwrap());
+        let mem_orig = gm.memory();
+        assert_eq!(mem_orig.num_regions(), 2);
+
+        let mmap = Arc::new(
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0x8000)).unwrap(),
+        );
+        let gm = gm.insert_region(mmap).unwrap();
+        let mmap = Arc::new(
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0x4000)).unwrap(),
+        );
+        let gm = gm.insert_region(mmap).unwrap();
+        let mmap = Arc::new(
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0xc000)).unwrap(),
+        );
+        let gm = gm.insert_region(mmap).unwrap();
+        let mmap = Arc::new(
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0xc000)).unwrap(),
+        );
+        gm.insert_region(mmap).unwrap_err();
+
+        assert_eq!(mem_orig.num_regions(), 2);
+        assert_eq!(gm.num_regions(), 5);
+
+        assert_eq!(gm.regions[0].start_addr(), GuestAddress(0x0000));
+        assert_eq!(gm.regions[1].start_addr(), GuestAddress(0x4000));
+        assert_eq!(gm.regions[2].start_addr(), GuestAddress(0x8000));
+        assert_eq!(gm.regions[3].start_addr(), GuestAddress(0xc000));
+        assert_eq!(gm.regions[4].start_addr(), GuestAddress(0x10_0000));
+    }
+
+    #[test]
+    fn test_mmap_remove_region() {
+        let region_size = 0x1000;
+        let regions = vec![
+            (GuestAddress(0x0), region_size),
+            (GuestAddress(0x10_0000), region_size),
+        ];
+        let gm = Arc::new(GuestMemoryMmap::from_ranges(&regions).unwrap());
+        let mem_orig = gm.memory();
+        assert_eq!(mem_orig.num_regions(), 2);
+
+        gm.remove_region(GuestAddress(0), 128).unwrap_err();
+        gm.remove_region(GuestAddress(0x4000), 128).unwrap_err();
+        let (gm, region) = gm.remove_region(GuestAddress(0x10_0000), 0x1000).unwrap();
+
+        assert_eq!(mem_orig.num_regions(), 2);
+        assert_eq!(gm.num_regions(), 1);
+
+        assert_eq!(gm.regions[0].start_addr(), GuestAddress(0x0000));
+        assert_eq!(region.start_addr(), GuestAddress(0x10_0000));
     }
 }
