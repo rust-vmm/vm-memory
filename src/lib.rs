@@ -45,6 +45,11 @@ pub mod mmap;
 #[cfg(feature = "backend-mmap")]
 pub use mmap::{Error, GuestMemoryMmap, GuestRegionMmap, MmapRegion};
 
+#[cfg(feature = "backend-atomic")]
+pub mod atomic;
+#[cfg(feature = "backend-atomic")]
+pub use atomic::{GuestMemoryAtomic, GuestMemoryLoadGuard};
+
 pub mod volatile_memory;
 pub use volatile_memory::{
     AtomicValued, Error as VolatileMemoryError, Result as VolatileMemoryResult, VolatileArrayRef,
