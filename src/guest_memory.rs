@@ -26,12 +26,17 @@
 //!     - hide the detail of accessing guest's physical address.
 //!     - map a request address to a GuestMemoryRegion object and relay the request to it.
 //!     - handle cases where an access request spanning two or more GuestMemoryRegion objects.
+//!
+//! Whenever a collection of GuestMemoryRegion objects is mutable,
+//! [GuestAddressSpace](trait.GuestAddressSpace.html) should be implemented
+//! for clients to obtain a [GuestMemory] reference or smart pointer.
 
 use std::convert::From;
 use std::fmt::{self, Display};
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::ops::{BitAnd, BitOr};
+use std::ops::{BitAnd, BitOr, Deref};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::address::{Address, AddressValue};
@@ -243,14 +248,104 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     }
 }
 
-/// Represents a container for a collection of GuestMemoryRegion objects.
+/// GuestAddressSpace provides a way to retrieve a GuestMemory object.
+/// The vm-memory crate already provides trivial implementation for
+/// references to GuestMemory or reference-counted GuestMemory objects,
+/// but the trait can also be implemented by any other struct in order
+/// to provide temporary access to a snapshot of the memory map.
 ///
-/// The main responsibilities of the GuestMemory trait are:
-/// - hide the detail of accessing guest's physical address.
+/// In order to support generic mutable memory maps, devices (or other things
+/// that access memory) should store the memory as a GuestAddressSpace<M>.
+/// This example shows that references can also be used as the GuestAddressSpace
+/// implementation, providing a zero-cost abstraction whenever immutable memory
+/// maps are sufficient.
+///
+/// ```
+/// # use std::sync::Arc;
+/// # #[cfg(feature = "backend-mmap")]
+/// # use vm_memory::GuestMemoryMmap;
+/// # use vm_memory::{GuestAddress, GuestMemory, GuestAddressSpace};
+///
+/// pub struct VirtioDevice<AS: GuestAddressSpace> {
+///     mem: Option<AS>,
+/// }
+///
+/// impl<AS: GuestAddressSpace> VirtioDevice<AS> {
+///     fn new() -> Self {
+///         VirtioDevice { mem: None }
+///     }
+///     fn activate(&mut self, mem: AS) {
+///         self.mem = Some(mem)
+///     }
+/// }
+///
+/// # #[cfg(feature = "backend-mmap")]
+/// # fn get_mmap() -> GuestMemoryMmap {
+/// #     GuestMemoryMmap::from_ranges(&[(GuestAddress(0),0)]).unwrap()
+/// # }
+///
+/// # #[cfg(feature = "backend-mmap")]
+/// # fn test_1() {
+/// // Using `VirtioDevice` with an immutable GuestMemoryMmap:
+/// let mut for_immutable_mmap: VirtioDevice<&GuestMemoryMmap> =
+///     VirtioDevice::new();
+/// let mmap = get_mmap();
+/// for_immutable_mmap.activate(&mmap);
+/// let mut another: VirtioDevice<&GuestMemoryMmap> =
+///     VirtioDevice::new();
+/// another.activate(&mmap);
+/// # }
+/// ```
+
+pub trait GuestAddressSpace {
+    /// The type that will be used to access guest memory.
+    type M: GuestMemory;
+
+    /// A type that provides access to the memory.
+    type T: Deref<Target = Self::M>;
+
+    /// Return an object (e.g. a reference or guard) that can be used
+    /// to access memory through this address space.  The object provides
+    /// a consistent snapshot of the memory map.
+    fn memory(&self) -> Self::T;
+}
+
+impl<M: GuestMemory> GuestAddressSpace for &M {
+    type T = Self;
+    type M = M;
+
+    fn memory(&self) -> Self {
+        self
+    }
+}
+
+impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
+    type T = Self;
+    type M = M;
+
+    fn memory(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl<M: GuestMemory> GuestAddressSpace for Arc<M> {
+    type T = Self;
+    type M = M;
+
+    fn memory(&self) -> Self {
+        self.clone()
+    }
+}
+
+/// GuestMemory represents a container for an *immutable* collection of
+/// GuestMemoryRegion objects.  GuestMemory provides the `Bytes<GuestAddress>`
+/// trait to hide the details of accessing guest memory by physical address.
+/// Interior mutability is not allowed for implementations of GuestMemory so
+/// that they always provide a consistent view of the memory map.
+///
+/// The task of the GuestMemory trait are:
 /// - map a request address to a GuestMemoryRegion object and relay the request to it.
 /// - handle cases where an access request spanning two or more GuestMemoryRegion objects.
-///
-/// Note: the regions inside a [`GuestMemory`](trait.GuestMemory.html) object must not overlap.
 pub trait GuestMemory {
     /// Type of objects hosted by the address space.
     type R: GuestMemoryRegion;
