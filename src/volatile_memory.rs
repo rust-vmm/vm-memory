@@ -467,7 +467,7 @@ impl Bytes<usize> for VolatileSlice<'_> {
     type E = Error;
 
     /// # Examples
-    /// * Write a slice at offset 256.
+    /// * Write a slice of size 5 at offset 1020 of a 1024-byte VolatileSlice.
     ///
     /// ```
     /// #   use vm_memory::{Bytes, VolatileMemory};
@@ -492,7 +492,7 @@ impl Bytes<usize> for VolatileSlice<'_> {
     }
 
     /// # Examples
-    /// * Read a slice of size 16 at offset 256.
+    /// * Read a slice of size 16 at offset 1010 of a 1024-byte VolatileSlice.
     ///
     /// ```
     /// #   use vm_memory::{Bytes, VolatileMemory};
@@ -526,8 +526,8 @@ impl Bytes<usize> for VolatileSlice<'_> {
     /// #   let mut mem_ref = &mut mem[..];
     /// #   let vslice = mem_ref.as_volatile_slice();
     ///     let res = vslice.write_slice(&[1,2,3,4,5], 256);
-    ///     assert!(res.is_ok());
-    ///     assert_eq!(res.unwrap(), ());
+    /// #   assert!(res.is_ok());
+    /// #   assert_eq!(res.unwrap(), ());
     /// ```
     fn write_slice(&self, buf: &[u8], addr: usize) -> Result<()> {
         let len = self.write(buf, addr)?;
@@ -550,8 +550,8 @@ impl Bytes<usize> for VolatileSlice<'_> {
     /// #   let vslice = mem_ref.as_volatile_slice();
     ///     let buf = &mut [0u8; 16];
     ///     let res = vslice.read_slice(buf, 256);
-    ///     assert!(res.is_ok());
-    ///     assert_eq!(res.unwrap(), ());
+    /// #   assert!(res.is_ok());
+    /// #   assert_eq!(res.unwrap(), ());
     /// ```
     fn read_slice(&self, buf: &mut [u8], addr: usize) -> Result<()> {
         let len = self.read(buf, addr)?;
