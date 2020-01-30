@@ -145,45 +145,61 @@ pub trait Bytes<A> {
     /// Associated error codes
     type E;
 
-    /// Writes a slice into the container at the specified address.
+    /// Writes a slice into the container at `addr`.
+    ///
     /// Returns the number of bytes written. The number of bytes written can
     /// be less than the length of the slice if there isn't enough room in the
     /// container.
     fn write(&self, buf: &[u8], addr: A) -> Result<usize, Self::E>;
 
-    /// Reads to a slice from the container at the specified address.
+    /// Reads data from the container at `addr` into a slice.
+    ///
     /// Returns the number of bytes read. The number of bytes read can be less than the length
-    /// of the slice if there isn't enough room within the container.
+    /// of the slice if there isn't enough data within the container.
     fn read(&self, buf: &mut [u8], addr: A) -> Result<usize, Self::E>;
 
-    /// Writes the entire contents of a slice into the container at the specified address.
+    /// Writes the entire content of a slice into the container at `addr`.
     ///
-    /// Returns an error if there isn't enough room within the container to complete the entire
-    /// write. Part of the data may have been written nevertheless.
+    /// # Errors
+    ///
+    /// Returns an error if there isn't enough space within the container to write the entire slice.
+    /// Part of the data may have been copied nevertheless.
     fn write_slice(&self, buf: &[u8], addr: A) -> Result<(), Self::E>;
 
-    /// Reads from the container at the specified address to fill the entire buffer.
+    /// Reads data from the container at `addr` to fill an entire slice.
     ///
-    /// Returns an error if there isn't enough room within the container to fill the entire buffer.
-    /// Part of the buffer may have been filled nevertheless.
+    /// # Errors
+    ///
+    /// Returns an error if there isn't enough data within the container to fill the entire slice.
+    /// Part of the data may have been copied nevertheless.
     fn read_slice(&self, buf: &mut [u8], addr: A) -> Result<(), Self::E>;
 
-    /// Writes an object into the container at the specified address.
-    /// Returns Ok(()) if the object fits, or Err if it extends past the end.
+    /// Writes an object into the container at `addr`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the object doesn't fit inside the container.
     fn write_obj<T: ByteValued>(&self, val: T, addr: A) -> Result<(), Self::E> {
         self.write_slice(val.as_slice(), addr)
     }
 
-    /// Reads an object from the container at the given address.
+    /// Reads an object from the container at `addr`.
+    ///
     /// Reading from a volatile area isn't strictly safe as it could change mid-read.
     /// However, as long as the type T is plain old data and can handle random initialization,
     /// everything will be OK.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there's not enough data inside the container.
     fn read_obj<T: ByteValued>(&self, addr: A) -> Result<T, Self::E> {
         let mut result: T = Default::default();
         self.read_slice(result.as_mut_slice(), addr).map(|_| result)
     }
 
-    /// Writes data from a readable object like a File and writes it into the container.
+    /// Reads up to `count` bytes from an object and writes them into the container at `addr`.
+    ///
+    /// Returns the number of bytes written into the container.
     ///
     /// # Arguments
     /// * `addr` - Begin writing at this address.
@@ -193,32 +209,44 @@ pub trait Bytes<A> {
     where
         F: Read;
 
-    /// Writes data from a readable object like a File and writes it into the container.
+    /// Reads exactly `count` bytes from an object and writes them into the container at `addr`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `count` bytes couldn't have been copied from `src` to the container.
+    /// Part of the data may have been copied nevertheless.
     ///
     /// # Arguments
     /// * `addr` - Begin writing at this address.
     /// * `src` - Copy from `src` into the container.
-    /// * `count` - Copy `count` bytes from `src` into the container.
+    /// * `count` - Copy exactly `count` bytes from `src` into the container.
     fn read_exact_from<F>(&self, addr: A, src: &mut F, count: usize) -> Result<(), Self::E>
     where
         F: Read;
 
-    /// Reads data from the container to a writable object.
+    /// Reads up to `count` bytes from the container at `addr` and writes them it into an object.
+    ///
+    /// Returns the number of bytes written into the object.
     ///
     /// # Arguments
-    /// * `addr` - Begin reading from this addr.
+    /// * `addr` - Begin reading from this address.
     /// * `dst` - Copy from the container to `dst`.
     /// * `count` - Copy `count` bytes from the container to `dst`.
     fn write_to<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<usize, Self::E>
     where
         F: Write;
 
-    /// Reads data from the container to a writable object.
+    /// Reads exactly `count` bytes from the container at `addr` and writes them into an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `count` bytes couldn't have been copied from the container to `dst`.
+    /// Part of the data may have been copied nevertheless.
     ///
     /// # Arguments
-    /// * `addr` - Begin reading from this addr.
+    /// * `addr` - Begin reading from this address.
     /// * `dst` - Copy from the container to `dst`.
-    /// * `count` - Copy `count` bytes from the container to `dst`.
+    /// * `count` - Copy exactly `count` bytes from the container to `dst`.
     fn write_all_to<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<(), Self::E>
     where
         F: Write;
