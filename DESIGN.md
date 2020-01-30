@@ -51,7 +51,7 @@ with addresses as follows:
    `usize` are used to store the raw value. Pointers such as `*u8`, can not be
    used as an implementation of `AddressValue` because the `Add` and `Sub`
    traits are not implemented for that type.
-- `Address`: implementation of `AddressValue.
+- `Address`: implementation of `AddressValue`.
 - `Bytes`: trait for volatile access to memory. The `Bytes` trait can be
   parameterized with types that represent addresses, in order to enforce that
   addresses are used with the right "kind" of volatile memory.
@@ -78,7 +78,7 @@ of the VM using the following traits:
   main responsibilities of the `GuestMemory` trait are:
   - hide the detail of accessing physical addresses (for example complex
     hierarchical structures).
-  - map a address request to a `GuestMemoryRegion` object and relay the
+  - map an address request to a `GuestMemoryRegion` object and relay the
     request to it.
   - handle cases where an access request is spanning two or more
     `GuestMemoryRegion` objects.
@@ -88,7 +88,7 @@ access VM's physical memory and not on the implementation of the traits.
 
 ### Backend Implementation Based on `mmap`
 
-Provides an implementation of the `GuestMemory` trait by mmapping VM's physical
+Provides an implementation of the `GuestMemory` trait by mmapping the VM's physical
 memory into the current process.
 
 - `MmapRegion`: implementation of mmap a continuous range of physical memory
@@ -109,7 +109,7 @@ simplicity and code complexity:
 ```rust
 let guest_memory_mmap: GuestMemoryMmap = ...
 let addr: GuestAddress = ...
-    let buf = &mut [0u8; 5];
+let buf = &mut [0u8; 5];
 let result = guest_memory_mmap.find_region(addr).unwrap().write(buf, addr);
 ```
 
@@ -118,7 +118,7 @@ let result = guest_memory_mmap.find_region(addr).unwrap().write(buf, addr);
 ```rust
 let guest_memory_mmap: GuestMemoryMmap = ...
 let addr: GuestAddress = ...
-    let buf = &mut [0u8; 5];
+let buf = &mut [0u8; 5];
 let result = guest_memory_mmap.write(buf, addr);
 ```
 
@@ -142,7 +142,7 @@ with minor changes:
 
 - `Address` inherits `AddressValue`
 - `GuestMemoryRegion` inherits `Bytes<MemoryRegionAddress, E = Error>`. The
-  `Bytes` must be implemented.
+  `Bytes` trait must be implemented.
 - `GuestMemory` has a generic implementation of `Bytes<GuestAddress>`.
 
 **Types**:
