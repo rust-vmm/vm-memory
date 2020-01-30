@@ -10,19 +10,20 @@
 
 //! Traits to represent an address within an address space.
 //!
-//! Two traits are defined to present an address within an address space:
-//! - [AddressValue](trait.AddressValue.html): stores the raw value of an address. Typically u32,
-//! u64 or usize is used to store the raw value. But pointers, such as *u8, can't be used because
-//! it doesn't implement the Add and Sub traits.
-//! - [Address](trait.Address.html): encapsulates an AddressValue object and defines methods to
-//! access and manipulate it.
+//! Two traits are defined to represent an address within an address space:
+//! - [AddressValue](trait.AddressValue.html): stores the raw value of an address. Typically `u32`,
+//! `u64` or `usize` is used to store the raw value. But pointers, such as `*u8`, can't be used
+//! because they don't implement the [`Add`](https://doc.rust-lang.org/std/ops/trait.Add.html) and
+//! [`Sub`](https://doc.rust-lang.org/std/ops/trait.Sub.html) traits.
+//! - [Address](trait.Address.html): encapsulates an [`AddressValue`](trait.AddressValue.html)
+//! object and defines methods to access and manipulate it.
 
 use std::cmp::{Eq, Ord, PartialEq, PartialOrd};
 use std::ops::{Add, BitAnd, BitOr, Sub};
 
 /// Simple helper trait used to store a raw address value.
 pub trait AddressValue {
-    /// Type of the address raw value.
+    /// Type of the raw address value.
     type V: Copy
         + PartialEq
         + Eq
@@ -41,7 +42,7 @@ pub trait AddressValue {
 /// could be used to manage address, size and offset. On the other hand, type aliases may be
 /// defined to improve code readability.
 ///
-/// One design rule is applied to the Address trait that operators (+, -, &, | etc) are not
+/// One design rule is applied to the Address trait, namely that operators (+, -, &, | etc) are not
 /// supported and it forces clients to explicitly invoke corresponding methods. But there are
 /// always exceptions:
 ///     Address (BitAnd|BitOr) AddressValue are supported.
@@ -57,10 +58,10 @@ pub trait Address:
     + BitAnd<<Self as AddressValue>::V, Output = Self>
     + BitOr<<Self as AddressValue>::V, Output = Self>
 {
-    /// Create an address from a raw address value.
+    /// Creates an address from a raw address value.
     fn new(addr: Self::V) -> Self;
 
-    /// Get the raw value of the address.
+    /// Returns the raw value of the address.
     fn raw_value(&self) -> Self::V;
 
     /// Returns the bitwise and of the address with the given mask.
@@ -68,12 +69,14 @@ pub trait Address:
         self.raw_value() & mask
     }
 
-    /// Returns the offset from this address to the given base address and None if there is
-    /// underflow.
+    /// Computes the offset from this address to the given base address.
+    ///
+    /// Returns `None` if there is underflow.
     fn checked_offset_from(&self, base: Self) -> Option<Self::V>;
 
-    /// Returns the offset from this address to the given base address.
-    /// Only use this when `base` is guaranteed not to overflow.
+    /// Computes the offset from this address to the given base address.
+    ///
+    /// Results in undefined behavior when an underflow occurs.
     /// # Examples
     ///
     /// ```
@@ -86,24 +89,34 @@ pub trait Address:
         self.raw_value() - base.raw_value()
     }
 
-    /// Returns the result of the add or None if there is overflow.
+    /// Computes `self + other`, returning `None` if overflow occurred.
     fn checked_add(&self, other: Self::V) -> Option<Self>;
 
-    /// Returns the result of the add and a flag identifying whether there was overflow
+    /// Computes `self + other`.
+    ///
+    /// Returns a tuple of the addition result along with a boolean indicating whether an arithmetic
+    /// overflow would occur. If an overflow would have occurred then the wrapped address
+    /// is returned.
     fn overflowing_add(&self, other: Self::V) -> (Self, bool);
 
-    /// Returns the result of the base address + the size.
-    /// Only use this when `offset` is guaranteed not to overflow.
+    /// Computes `self + offset`.
+    ///
+    /// Results in undefined behavior when an overflow occurs.
     fn unchecked_add(&self, offset: Self::V) -> Self;
 
-    /// Returns the result of the subtraction or None if there is underflow.
+    /// Subtracts two addresses, checking for underflow. If underflow happens, `None` is returned.
     fn checked_sub(&self, other: Self::V) -> Option<Self>;
 
-    /// Returns the result of the subtraction and a flag identifying whether there was overflow
+    /// Computes `self - other`.
+    ///
+    /// Returns a tuple of the subtraction result along with a boolean indicating whether an
+    /// arithmetic overflow would occur. If an overflow would have occurred then the wrapped
+    /// address is returned.
     fn overflowing_sub(&self, other: Self::V) -> (Self, bool);
 
-    /// Returns the result of the subtraction.
-    /// Only use this when `other` is guaranteed not to underflow.
+    /// Computes `self - other`.
+    ///
+    /// Results in undefined behavior when an underflow occurs.
     fn unchecked_sub(&self, other: Self::V) -> Self;
 }
 
