@@ -8,11 +8,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-//! Traits to track and access guest's physical memory.
+//! Traits to track and access the physical memory of the guest.
 //!
 //! To make the abstraction as generic as possible, all the core traits declared here only define
 //! methods to access guest's memory, and never define methods to manage (create, delete, insert,
-//! remove etc) guest's memory. By this way, the guest memory consumers (virtio device drivers,
+//! remove etc) guest's memory. This way, the guest memory consumers (virtio device drivers,
 //! vhost drivers and boot loaders etc) may be decoupled from the guest memory provider (typically
 //! a hypervisor).
 //!
@@ -48,7 +48,7 @@ pub enum Error {
     InvalidGuestAddress(GuestAddress),
     /// Couldn't read/write from the given source.
     IOError(io::Error),
-    /// Incomplete read or write
+    /// Incomplete read or write.
     PartialBuffer { expected: usize, completed: usize },
     /// Requested backend address is out of range.
     InvalidBackendAddress,
@@ -75,7 +75,7 @@ impl From<volatile_memory::Error> for Error {
     }
 }
 
-/// Result of guest memory operations
+/// Result of guest memory operations.
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl std::error::Error for Error {}
@@ -104,9 +104,9 @@ impl Display for Error {
 
 /// Represents a guest physical address (GPA).
 ///
-/// Notes:
-/// - On ARM64, a 32-bit hypervisor may be used to support a 64-bit guest. For simplicity,
-/// u64 is used to store the the raw value no matter if the guest a 32-bit or 64-bit virtual
+/// # Notes:
+/// On ARM64, a 32-bit hypervisor may be used to support a 64-bit guest. For simplicity,
+/// `u64` is used to store the the raw value no matter if the guest a 32-bit or 64-bit virtual
 /// machine.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct GuestAddress(pub u64);
@@ -157,20 +157,19 @@ impl FileOffset {
 /// Represents a continuous region of guest physical memory.
 #[allow(clippy::len_without_is_empty)]
 pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
-    /// Get the size of the region.
+    /// Returns the size of the region.
     fn len(&self) -> GuestUsize;
 
-    /// Get minimum (inclusive) address managed by the region.
+    /// Returns the minimum (inclusive) address managed by the region.
     fn start_addr(&self) -> GuestAddress;
 
-    /// Get maximum (inclusive) address managed by the region.
+    /// Returns the maximum (inclusive) address managed by the region.
     fn last_addr(&self) -> GuestAddress {
         // unchecked_add is safe as the region bounds were checked when it was created.
         self.start_addr().unchecked_add(self.len() - 1)
     }
 
-    /// Returns the given address if it is within the memory range accessible
-    /// through this region.
+    /// Returns the given address if it is within this region.
     fn check_address(&self, addr: MemoryRegionAddress) -> Option<MemoryRegionAddress> {
         if self.address_in_range(addr) {
             Some(addr)
@@ -179,13 +178,12 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
         }
     }
 
-    /// Returns true if the given address is within the memory range accessible
-    /// through this region.
+    /// Returns `true` if the given address is within this region.
     fn address_in_range(&self, addr: MemoryRegionAddress) -> bool {
         addr.raw_value() < self.len()
     }
 
-    /// Returns the address plus the offset if it is in range.
+    /// Returns the address plus the offset if it is in this region.
     fn checked_offset(
         &self,
         base: MemoryRegionAddress,
@@ -195,23 +193,24 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
             .and_then(|addr| self.check_address(addr))
     }
 
-    /// Convert an absolute address into an address space (GuestMemory)
-    /// to a relative address within this region, or return an error if
-    /// it is out of bounds.
+    /// Tries to convert an absolute address to a relative address within this region.
+    ///
+    /// Returns `None` if `addr` is out of the bounds of this region.
     fn to_region_addr(&self, addr: GuestAddress) -> Option<MemoryRegionAddress> {
         addr.checked_offset_from(self.start_addr())
             .and_then(|offset| self.check_address(MemoryRegionAddress(offset)))
     }
 
-    /// Get the host virtual address corresponding to the region address.
+    /// Returns the host virtual address corresponding to the region address.
     ///
-    /// Some GuestMemory backends, like the GuestMemoryMmap backend, have the capability to mmap
-    /// guest address range into host virtual address space for direct access, so the corresponding
-    /// host virtual address may be passed to other subsystems.
+    /// Some [`GuestMemory`](trait.GuestMemory.html) implementations, like `GuestMemoryMmap`,
+    /// have the capability to mmap guest address range into host virtual address space for
+    /// direct access, so the corresponding host virtual address may be passed to other subsystems.
     ///
-    /// Note: the underline guest memory is not protected from memory aliasing, which breaks the
-    /// rust memory safety model. It's the caller's responsibility to ensure that there's no
-    /// concurrent accesses to the underline guest memory.
+    /// # Note
+    /// The underlying guest memory is not protected from memory aliasing, which breaks the
+    /// Rust memory safety model. It's the caller's responsibility to ensure that there's no
+    /// concurrent accesses to the underlying guest memory.
     fn get_host_address(&self, _addr: MemoryRegionAddress) -> Result<*mut u8> {
         Err(Error::HostAddressNotAvailable)
     }
@@ -219,16 +218,24 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// Returns information regarding the file and offset backing this memory region.
     fn file_offset(&self) -> Option<&FileOffset>;
 
-    /// Return a slice corresponding to the data in the region; unsafe because of
-    /// possible aliasing.  Return None if the region does not support slice-based
-    /// access.
+    /// Returns a slice corresponding to the data in the region.
+    ///
+    /// Returns `None` if the region does not support slice-based access.
+    ///
+    /// # Safety
+    ///
+    /// Unsafe because of possible aliasing.
     unsafe fn as_slice(&self) -> Option<&[u8]> {
         None
     }
 
-    /// Return a mutable slice corresponding to the data in the region; unsafe because of
-    /// possible aliasing.  Return None if the region does not support slice-based
-    /// access.
+    /// Returns a mutable slice corresponding to the data in the region.
+    ///
+    /// Returns `None` if the region does not support slice-based access.
+    ///
+    /// # Safety
+    ///
+    /// Unsafe because of possible aliasing.
     unsafe fn as_mut_slice(&self) -> Option<&mut [u8]> {
         None
     }
@@ -241,7 +248,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
 /// - map a request address to a GuestMemoryRegion object and relay the request to it.
 /// - handle cases where an access request spanning two or more GuestMemoryRegion objects.
 ///
-/// Note: all regions in a GuestMemory object must not intersect with each other.
+/// Note: the regions inside a [`GuestMemory`](trait.GuestMemory.html) object must not overlap.
 pub trait GuestMemory {
     /// Type of objects hosted by the address space.
     type R: GuestMemoryRegion;
@@ -249,17 +256,19 @@ pub trait GuestMemory {
     /// Returns the number of regions in the collection.
     fn num_regions(&self) -> usize;
 
-    /// Return the region containing the specified address or None.
+    /// Returns the region containing the specified address or `None`.
     fn find_region(&self, addr: GuestAddress) -> Option<&Self::R>;
 
     /// Perform the specified action on each region.
-    /// It only walks children of current region and do not step into sub regions.
+    ///
+    /// It only walks children of current region and does not step into sub regions.
     fn with_regions<F, E>(&self, cb: F) -> std::result::Result<(), E>
     where
         F: Fn(usize, &Self::R) -> std::result::Result<(), E>;
 
     /// Perform the specified action on each region mutably.
-    /// It only walks children of current region and do not step into sub regions.
+    ///
+    /// It only walks children of current region and does not step into sub regions.
     fn with_regions_mut<F, E>(&self, cb: F) -> std::result::Result<(), E>
     where
         F: FnMut(usize, &Self::R) -> std::result::Result<(), E>;
@@ -306,7 +315,8 @@ pub trait GuestMemory {
         F: Fn((usize, &Self::R)) -> T,
         G: Fn(T, T) -> T;
 
-    /// Get maximum (inclusive) address managed by the region.
+    /// Returns the maximum (inclusive) address managed by the
+    /// [`GuestMemory`](trait.GuestMemory.html).
     ///
     /// # Examples
     ///
@@ -333,38 +343,39 @@ pub trait GuestMemory {
         )
     }
 
-    /// Convert an absolute address into an address space (GuestMemory)
-    /// to a relative address within this region, or return None if
-    /// it is out of bounds.
+    /// Tries to convert an absolute address to a relative address within the corresponding region.
+    ///
+    /// Returns `None` if `addr` isn't present within the memory of the guest.
     fn to_region_addr(&self, addr: GuestAddress) -> Option<(&Self::R, MemoryRegionAddress)> {
         self.find_region(addr)
             .map(|r| (r, r.to_region_addr(addr).unwrap()))
     }
 
-    /// Returns true if the given address is within the memory range available to the guest.
+    /// Returns `true` if the given address is present within the memory of the guest.
     fn address_in_range(&self, addr: GuestAddress) -> bool {
         self.find_region(addr).is_some()
     }
 
-    /// Returns the given address if it is within the memory range available to the guest.
+    /// Returns the given address if it is present within the memory of the guest.
     fn check_address(&self, addr: GuestAddress) -> Option<GuestAddress> {
         self.find_region(addr).map(|_| addr)
     }
 
-    /// Returns the address plus the offset if it is in range.
+    /// Returns the address plus the offset if it is present within the memory of the guest.
     fn checked_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress> {
         base.checked_add(offset as u64)
             .and_then(|addr| self.check_address(addr))
     }
 
-    /// Invoke callback `f` to handle data in the address range [addr, addr + count).
+    /// Invokes callback `f` to handle data in the address range `[addr, addr + count)`.
     ///
-    /// The address range [addr, addr + count) may span more than one GuestMemoryRegion objects, or
-    /// even has holes within it. So try_access() invokes the callback 'f' for each GuestMemoryRegion
-    /// object involved and returns:
-    /// - error code returned by the callback 'f'
-    /// - size of data already handled when encountering the first hole
-    /// - size of data already handled when the whole range has been handled
+    /// /// The address range `[addr, addr + count)` may span more than one
+    /// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) objects, or even have holes in it.
+    /// So [`try_access()`](trait.GuestMemory.html#method.try_access) invokes the callback 'f'
+    /// for each [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) object involved and returns:
+    /// - the error code returned by the callback 'f'
+    /// - the size of the already handled data when encountering the first hole
+    /// - the size of the already handled data when the whole range has been handled
     fn try_access<F>(&self, count: usize, addr: GuestAddress, mut f: F) -> Result<usize>
     where
         F: FnMut(usize, usize, MemoryRegionAddress, &Self::R) -> Result<usize>,
@@ -403,13 +414,15 @@ pub trait GuestMemory {
 
     /// Get the host virtual address corresponding to the guest address.
     ///
-    /// Some GuestMemory backends, like the GuestMemoryMmap backend, have the capability to mmap
-    /// guest address range into host virtual address space for direct access, so the corresponding
-    /// host virtual address may be passed to other subsystems.
+    /// Some [`GuestMemory`](trait.GuestMemory.html) implementations, like `GuestMemoryMmap`,
+    /// have the capability to mmap the guest address range into virtual address space of the host
+    /// for direct access, so the corresponding host virtual address may be passed to other
+    /// subsystems.
     ///
-    /// Note: the underline guest memory is not protected from memory aliasing, which breaks the
-    /// rust memory safety model. It's the caller's responsibility to ensure that there's no
-    /// concurrent accesses to the underline guest memory.
+    /// # Note
+    /// The underlying guest memory is not protected from memory aliasing, which breaks the
+    /// Rust memory safety model. It's the caller's responsibility to ensure that there's no
+    /// concurrent accesses to the underlying guest memory.
     ///
     /// # Arguments
     /// * `guest_addr` - Guest address to convert.
