@@ -297,7 +297,8 @@ pub trait GuestMemory {
     /// # fn test_map_fold() -> Result<(), ()> {
     ///     let start_addr1 = GuestAddress(0x0);
     ///     let start_addr2 = GuestAddress(0x400);
-    ///     let mem = GuestMemoryMmap::new(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
+    ///     let mem = GuestMemoryMmap::from_ranges(&vec![(start_addr1, 1024), (start_addr2, 2048)])
+    ///         .unwrap();
     ///     let total_size = mem.map_and_fold(
     ///         0,
     ///         |(_, region)| region.len() / 1024,
@@ -327,7 +328,7 @@ pub trait GuestMemory {
     /// # #[cfg(feature = "backend-mmap")]
     /// # fn test_last_addr() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
-    ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
     ///     assert_eq!(start_addr.checked_add(0x3ff), Some(gm.last_addr()));
     ///     Ok(())
     /// # }
@@ -436,7 +437,7 @@ pub trait GuestMemory {
     /// # #[cfg(feature = "backend-mmap")]
     /// # fn test_get_host_address() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
-    ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x500)]).map_err(|_| ())?;
+    ///     let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x500)]).map_err(|_| ())?;
     ///     let addr = gm.get_host_address(GuestAddress(0x1200)).unwrap();
     ///     println!("Host address is {:p}", addr);
     ///     Ok(())
@@ -486,7 +487,8 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     /// # fn test_write_u64() {
     ///     let start_addr = GuestAddress(0x1000);
     ///     let mut gm =
-    ///             GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).expect("Could not create guest memory");
+    ///             GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
+    ///             .expect("Could not create guest memory");
     ///     let res = gm.write_slice(&[1, 2, 3, 4, 5], start_addr);
     ///     assert!(res.is_ok());
     /// # }
@@ -516,7 +518,8 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     /// # fn test_write_u64() {
     ///     let start_addr = GuestAddress(0x1000);
     ///     let mut gm =
-    ///             GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).expect("Could not create guest memory");
+    ///             GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
+    ///             .expect("Could not create guest memory");
     ///     let buf = &mut [0u8; 16];
     ///     let res = gm.read_slice(buf, start_addr);
     ///     assert!(res.is_ok());
@@ -550,8 +553,10 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     /// # fn test_read_random() {
     ///     let start_addr = GuestAddress(0x1000);
     ///     let gm =
-    ///         GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).expect("Could not create guest memory");
-    ///     let mut file = File::open(Path::new("/dev/urandom")).expect("could not open /dev/urandom");
+    ///         GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
+    ///         .expect("Could not create guest memory");
+    ///     let mut file = File::open(Path::new("/dev/urandom"))
+    ///         .expect("could not open /dev/urandom");
     ///     let addr = GuestAddress(0x1010);
     ///     gm.read_from(addr, &mut file, 128)
     ///         .expect("Could not read from /dev/urandom into guest memory");
@@ -617,7 +622,8 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     /// # fn test_write_null() {
     ///     let start_addr = GuestAddress(0x1000);
     ///     let gm =
-    ///         GuestMemoryMmap::new(&vec![(start_addr, 1024)]).expect("Could not create guest memory");
+    ///         GuestMemoryMmap::from_ranges(&vec![(start_addr, 1024)])
+    ///         .expect("Could not create guest memory");
     ///     let mut file = OpenOptions::new()
     ///         .write(true)
     ///         .open("/dev/null")
@@ -707,7 +713,7 @@ mod tests {
     fn checked_read_from() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x40);
-        let mem = GuestMemoryMmap::new(&[(start_addr1, 64), (start_addr2, 64)]).unwrap();
+        let mem = GuestMemoryMmap::from_ranges(&[(start_addr1, 64), (start_addr2, 64)]).unwrap();
         let image = make_image(0x80);
         let offset = GuestAddress(0x30);
         let count: usize = 0x20;

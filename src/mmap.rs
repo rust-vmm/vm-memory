@@ -158,7 +158,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// ```
     /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    /// # let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).unwrap();
     ///   let res = gm.write(&[1,2,3,4,5], GuestAddress(0x1200)).unwrap();
     ///   assert_eq!(5, res);
     /// ```
@@ -175,7 +175,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// ```
     /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    /// # let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).unwrap();
     ///   let buf = &mut [0u8; 16];
     ///   let res = gm.read(buf, GuestAddress(0x1200)).unwrap();
     ///   assert_eq!(16, res);
@@ -210,7 +210,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).unwrap();
     ///   let mut file = if cfg!(unix) {
     ///       File::open(Path::new("/dev/urandom")).unwrap()
     ///   } else {
@@ -245,7 +245,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).unwrap();
     ///   let mut file = if cfg!(unix) {
     ///       File::open(Path::new("/dev/urandom")).unwrap()
     ///   } else {
@@ -283,7 +283,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::OpenOptions;
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).unwrap();
     ///   let mut file = TempFile::new().unwrap().into_file();
     ///   let mut mem = [0u8; 1024];
     ///   gm.write_to(start_addr, &mut file, 128).unwrap();
@@ -315,7 +315,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::OpenOptions;
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).unwrap();
+    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).unwrap();
     ///   let mut file = TempFile::new().unwrap().into_file();
     ///   let mut mem = [0u8; 1024];
     ///   gm.write_all_to(start_addr, &mut file, 128).unwrap();
@@ -378,18 +378,25 @@ pub struct GuestMemoryMmap {
 }
 
 impl GuestMemoryMmap {
+    /// Creates an empty `GuestMemoryMmap` instance.
+    pub fn new() -> Self {
+        GuestMemoryMmap {
+            regions: Vec::new(),
+        }
+    }
+
     /// Creates a container and allocates anonymous memory for guest memory regions.
     ///
     /// Valid memory regions are specified as a slice of (Address, Size) tuples sorted by Address.
-    pub fn new(ranges: &[(GuestAddress, usize)]) -> result::Result<Self, Error> {
-        Self::with_files(ranges.iter().map(|r| (r.0, r.1, None)))
+    pub fn from_ranges(ranges: &[(GuestAddress, usize)]) -> result::Result<Self, Error> {
+        Self::from_ranges_with_files(ranges.iter().map(|r| (r.0, r.1, None)))
     }
 
     /// Creates a container and allocates anonymous memory for guest memory regions.
     ///
     /// Valid memory regions are specified as a sequence of (Address, Size, Option<FileOffset>)
     /// tuples sorted by Address.
-    pub fn with_files<A, T>(ranges: T) -> result::Result<Self, Error>
+    pub fn from_ranges_with_files<A, T>(ranges: T) -> result::Result<Self, Error>
     where
         A: Borrow<(GuestAddress, usize, Option<FileOffset>)>,
         T: IntoIterator<Item = A>,
@@ -557,7 +564,7 @@ mod tests {
     fn new_guest_memory_mmap(
         regions_summary: &[(GuestAddress, usize)],
     ) -> Result<GuestMemoryMmap, Error> {
-        GuestMemoryMmap::new(regions_summary)
+        GuestMemoryMmap::from_ranges(regions_summary)
     }
 
     fn new_guest_memory_mmap_from_regions(
@@ -603,7 +610,7 @@ mod tests {
             })
             .collect();
 
-        GuestMemoryMmap::with_files(&regions)
+        GuestMemoryMmap::from_ranges_with_files(&regions)
     }
 
     #[test]
@@ -748,6 +755,9 @@ mod tests {
             (GuestAddress(100), 100 as usize),
         ];
 
+        let guest_mem = GuestMemoryMmap::new();
+        assert_eq!(guest_mem.regions.len(), 0);
+
         check_guest_memory_mmap(new_guest_memory_mmap(&regions_summary), &regions_summary);
 
         check_guest_memory_mmap(
@@ -798,8 +808,8 @@ mod tests {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
-            GuestMemoryMmap::new(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        let guest_mem_backed_by_file = GuestMemoryMmap::with_files(&[
+            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
+        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[
             (start_addr1, 0x400, Some(FileOffset::new(f1, 0))),
             (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
         ])
@@ -824,8 +834,8 @@ mod tests {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
-            GuestMemoryMmap::new(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        let guest_mem_backed_by_file = GuestMemoryMmap::with_files(&[
+            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
+        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[
             (start_addr1, 0x400, Some(FileOffset::new(f1, 0))),
             (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
         ])
@@ -856,8 +866,8 @@ mod tests {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
-            GuestMemoryMmap::new(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        let guest_mem_backed_by_file = GuestMemoryMmap::with_files(&[
+            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
+        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[
             (start_addr1, 0x400, Some(FileOffset::new(f1, 0))),
             (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
         ])
@@ -884,8 +894,8 @@ mod tests {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
-            GuestMemoryMmap::new(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        let guest_mem_backed_by_file = GuestMemoryMmap::with_files(&[
+            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
+        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[
             (start_addr1, 0x400, Some(FileOffset::new(f1, 0))),
             (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
         ])
@@ -910,10 +920,13 @@ mod tests {
         f.set_len(0x400).unwrap();
 
         let start_addr = GuestAddress(0x0);
-        let guest_mem = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
-        let guest_mem_backed_by_file =
-            GuestMemoryMmap::with_files(&[(start_addr, 0x400, Some(FileOffset::new(f, 0)))])
-                .unwrap();
+        let guest_mem = GuestMemoryMmap::from_ranges(&[(start_addr, 0x400)]).unwrap();
+        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[(
+            start_addr,
+            0x400,
+            Some(FileOffset::new(f, 0)),
+        )])
+        .unwrap();
 
         let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
@@ -944,8 +957,9 @@ mod tests {
         let bad_addr2 = GuestAddress(0x1ffc);
         let max_addr = GuestAddress(0x2000);
 
-        let gm = GuestMemoryMmap::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let gm_backed_by_file = GuestMemoryMmap::with_files(&[
+        let gm =
+            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[
             (start_addr1, 0x1000, Some(FileOffset::new(f1, 0))),
             (start_addr2, 0x1000, Some(FileOffset::new(f2, 0))),
         ])
@@ -983,10 +997,13 @@ mod tests {
         f.set_len(0x400).unwrap();
 
         let mut start_addr = GuestAddress(0x1000);
-        let gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
-        let gm_backed_by_file =
-            GuestMemoryMmap::with_files(&[(start_addr, 0x400, Some(FileOffset::new(f, 0)))])
-                .unwrap();
+        let gm = GuestMemoryMmap::from_ranges(&[(start_addr, 0x400)]).unwrap();
+        let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[(
+            start_addr,
+            0x400,
+            Some(FileOffset::new(f, 0)),
+        )])
+        .unwrap();
 
         let gm_list = vec![gm, gm_backed_by_file];
         for gm in gm_list.iter() {
@@ -1011,8 +1028,8 @@ mod tests {
         let f = TempFile::new().unwrap().into_file();
         f.set_len(0x400).unwrap();
 
-        let gm = GuestMemoryMmap::new(&[(GuestAddress(0x1000), 0x400)]).unwrap();
-        let gm_backed_by_file = GuestMemoryMmap::with_files(&[(
+        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0x1000), 0x400)]).unwrap();
+        let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[(
             GuestAddress(0x1000),
             0x400,
             Some(FileOffset::new(f, 0)),
@@ -1056,7 +1073,7 @@ mod tests {
             (GuestAddress(0x1000), region_size),
         ];
         let mut iterated_regions = Vec::new();
-        let gm = GuestMemoryMmap::new(&regions).unwrap();
+        let gm = GuestMemoryMmap::from_ranges(&regions).unwrap();
         let res: guest_memory::Result<()> = gm.with_regions(|_, region| {
             assert_eq!(region.len(), region_size as GuestUsize);
             Ok(())
@@ -1087,8 +1104,9 @@ mod tests {
 
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let gm = GuestMemoryMmap::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let gm_backed_by_file = GuestMemoryMmap::with_files(&[
+        let gm =
+            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[
             (start_addr1, 0x1000, Some(FileOffset::new(f1, 0))),
             (start_addr2, 0x1000, Some(FileOffset::new(f2, 0))),
         ])
@@ -1110,13 +1128,17 @@ mod tests {
         f.set_len(0x400).unwrap();
 
         let start_addr = GuestAddress(0x0);
-        let gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
+        let gm = GuestMemoryMmap::from_ranges(&[(start_addr, 0x400)]).unwrap();
         assert!(gm.find_region(start_addr).is_some());
         let region = gm.find_region(start_addr).unwrap();
         assert!(region.file_offset().is_none());
 
-        let gm = GuestMemoryMmap::with_files(&[(start_addr, 0x400, Some(FileOffset::new(f, 0)))])
-            .unwrap();
+        let gm = GuestMemoryMmap::from_ranges_with_files(&[(
+            start_addr,
+            0x400,
+            Some(FileOffset::new(f, 0)),
+        )])
+        .unwrap();
         assert!(gm.find_region(start_addr).is_some());
         let region = gm.find_region(start_addr).unwrap();
         assert!(region.file_offset().is_some());
@@ -1135,14 +1157,17 @@ mod tests {
         let offset = 0x1000;
 
         let start_addr = GuestAddress(0x0);
-        let gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
+        let gm = GuestMemoryMmap::from_ranges(&[(start_addr, 0x400)]).unwrap();
         assert!(gm.find_region(start_addr).is_some());
         let region = gm.find_region(start_addr).unwrap();
         assert!(region.file_offset().is_none());
 
-        let gm =
-            GuestMemoryMmap::with_files(&[(start_addr, 0x400, Some(FileOffset::new(f, offset)))])
-                .unwrap();
+        let gm = GuestMemoryMmap::from_ranges_with_files(&[(
+            start_addr,
+            0x400,
+            Some(FileOffset::new(f, offset)),
+        )])
+        .unwrap();
         assert!(gm.find_region(start_addr).is_some());
         let region = gm.find_region(start_addr).unwrap();
         assert!(region.file_offset().is_some());
