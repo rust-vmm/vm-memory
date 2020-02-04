@@ -23,7 +23,7 @@ multiple virtualization solutions.
 
 ```rust
 fn provide_mem_to_virt_dev() {
-    let gm = GuestMemoryMmap::new(&[
+    let gm = GuestMemoryMmap::from_ranges(&[
         (GuestAddress(0), 0x1000),
         (GuestAddress(0x1000), 0x1000)
     ]).unwrap();
