@@ -1084,8 +1084,8 @@ mod tests {
             format!(
                 "{}",
                 Error::TooBig {
-                    nelements: 100000,
-                    size: 1000000000
+                    nelements: 100_000,
+                    size: 1_000_000_000
                 }
             ),
             "100000 elements of size 1000000000 would overflow a usize"
@@ -1498,8 +1498,8 @@ mod tests {
         let a_ref = &mut a[..];
         let a_slice = a_ref.get_slice(0, a_ref.len()).unwrap();
         let a_array_ref: VolatileArrayRef<u8> = a_slice.into();
-        for i in 0..a_vec.len() {
-            assert_eq!(a_array_ref.load(i), a_vec[i]);
+        for (i, entry) in a_vec.iter().enumerate() {
+            assert_eq!(&a_array_ref.load(i), entry);
         }
     }
 

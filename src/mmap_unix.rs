@@ -271,10 +271,10 @@ mod tests {
     // distinctive value when the error is represented by another variant.
     impl Error {
         pub fn raw_os_error(&self) -> i32 {
-            return match self {
+            match self {
                 Error::Mmap(e) => e.raw_os_error().unwrap(),
                 _ => std::i32::MIN,
-            };
+            }
         }
     }
 
