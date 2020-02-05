@@ -359,7 +359,7 @@ mod tests {
         fn read_slice(&self, buf: &mut [u8], addr: usize) -> Result<(), Self::E> {
             self.validate_slice_op(buf, addr)?;
 
-            buf.copy_from_slice(&self.container[addr..=buf.len() - 1]);
+            buf.copy_from_slice(&self.container[addr..buf.len()]);
 
             Ok(())
         }

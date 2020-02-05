@@ -372,7 +372,7 @@ impl GuestMemoryRegion for GuestRegionMmap {
 /// Represents the entire physical memory of the guest by tracking all its memory regions.
 /// Each region is an instance of `GuestRegionMmap`, being backed by a mapping in the
 /// virtual address space of the calling process.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct GuestMemoryMmap {
     regions: Vec<Arc<GuestRegionMmap>>,
 }
@@ -380,9 +380,7 @@ pub struct GuestMemoryMmap {
 impl GuestMemoryMmap {
     /// Creates an empty `GuestMemoryMmap` instance.
     pub fn new() -> Self {
-        GuestMemoryMmap {
-            regions: Vec::new(),
-        }
+        Self::default()
     }
 
     /// Creates a container and allocates anonymous memory for guest memory regions.
