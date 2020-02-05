@@ -74,8 +74,12 @@ pub type Result<T> = result::Result<T, Error>;
 /// space size of the process.
 #[derive(Debug)]
 pub struct MmapRegion {
-    addr: *mut u8,
-    size: usize,
+    start_addr: *mut libc::c_void,
+    total_size: usize,
+
+    data_addr: *mut libc::c_void,
+    data_size: usize,
+
     file_offset: Option<FileOffset>,
     prot: i32,
     flags: i32,
@@ -154,25 +158,103 @@ impl MmapRegion {
             return Err(Error::Mmap(io::Error::last_os_error()));
         }
 
-        Ok(Self {
-            addr: addr as *mut u8,
-            size,
+        let mut mmap_region = Self {
+            start_addr: addr,
+            total_size: size,
+
+            data_addr: addr,
+            data_size: size,
+
             file_offset,
             prot,
             flags,
-        })
+        };
+
+        // Try to surround the `MmapRegion` with guard pages.
+        // If it's not possible, return it as it is.
+        mmap_region.try_guard();
+
+        Ok(mmap_region)
+    }
+
+    /// Tries to surround the `MmapRegion` with guard pages.
+    ///
+    /// +-----+-------------+---------------+-----+-----------------------+-------------+-----+
+    /// | ... | memory page |  memory page  | ... |      memory page      | memory page | ... |
+    /// +-----+-------------+---------------+-----+-------------+---------+-------------+-----+
+    /// | ... |  guard page | mapping start | ... | mapping end | padding |  guard page | ... |
+    /// +-----+-------------+---------------+-----+-------------+---------+-------------+-----+
+    ///
+    ///  # Return
+    ///
+    /// Returns a boolean indicating whether the operation succeeded.
+    ///
+    pub fn try_guard(&mut self) -> bool {
+        // Check if the `MmapRegion` is already guarded
+        if self.start_addr != self.data_addr && self.total_size != self.data_size {
+            return false;
+        }
+
+        let page_size = match unsafe { libc::sysconf(libc::_SC_PAGESIZE) } {
+            -1 => return false,
+            page_size => page_size as usize,
+        };
+
+        // Create a protected memory mapping of size `self.size + 2 memory pages`
+        let total_size = match self.data_size.checked_add(2 * page_size) {
+            Some(guard_size) => guard_size,
+            None => return false,
+        };
+        let guard_addr = unsafe {
+            libc::mmap(
+                null_mut(),
+                total_size,
+                libc::PROT_NONE,
+                libc::MAP_ANONYMOUS | libc::MAP_SHARED | libc::MAP_NORESERVE,
+                -1,
+                0,
+            )
+        };
+        if guard_addr == libc::MAP_FAILED {
+            unsafe {
+                libc::munmap(guard_addr, total_size);
+            }
+
+            return false;
+        }
+
+        // Move the original memory mapping inside the protected memory mapping.
+        // This way it will be surrounded by 2 guard pages.
+        let remapped_addr = unsafe {
+            libc::mremap(
+                self.data_addr,
+                self.data_size,
+                self.data_size,
+                libc::MREMAP_FIXED | libc::MREMAP_MAYMOVE,
+                guard_addr.add(page_size),
+            )
+        };
+        if remapped_addr == libc::MAP_FAILED {
+            return false;
+        }
+
+        self.data_addr = remapped_addr;
+        self.start_addr = guard_addr;
+        self.total_size = total_size;
+
+        true
     }
 
     /// Returns a pointer to the beginning of the memory region.
     ///
     /// Should only be used for passing this region to ioctls for setting guest memory.
     pub fn as_ptr(&self) -> *mut u8 {
-        self.addr
+        self.data_addr as *mut u8
     }
 
     /// Returns the size of this region.
     pub fn size(&self) -> usize {
-        self.size
+        self.data_size
     }
 
     /// Returns information regarding the offset into the file backing this region (if any).
@@ -220,31 +302,31 @@ impl AsSlice for MmapRegion {
     unsafe fn as_slice(&self) -> &[u8] {
         // This is safe because we mapped the area at addr ourselves, so this slice will not
         // overflow. However, it is possible to alias.
-        std::slice::from_raw_parts(self.addr, self.size)
+        std::slice::from_raw_parts(self.as_ptr(), self.data_size)
     }
 
     #[allow(clippy::mut_from_ref)]
     unsafe fn as_mut_slice(&self) -> &mut [u8] {
         // This is safe because we mapped the area at addr ourselves, so this slice will not
         // overflow. However, it is possible to alias.
-        std::slice::from_raw_parts_mut(self.addr, self.size)
+        std::slice::from_raw_parts_mut(self.as_ptr(), self.data_size)
     }
 }
 
 impl VolatileMemory for MmapRegion {
     fn len(&self) -> usize {
-        self.size
+        self.data_size
     }
 
     fn get_slice(&self, offset: usize, count: usize) -> volatile_memory::Result<VolatileSlice> {
         let end = compute_offset(offset, count)?;
-        if end > self.size {
+        if end > self.data_size {
             return Err(volatile_memory::Error::OutOfBounds { addr: end });
         }
 
         // Safe because we checked that offset + count was within our range and we only ever hand
         // out volatile accessors.
-        Ok(unsafe { VolatileSlice::new((self.addr as usize + offset) as *mut _, count) })
+        Ok(unsafe { VolatileSlice::new((self.data_addr as usize + offset) as *mut _, count) })
     }
 }
 
@@ -253,7 +335,7 @@ impl Drop for MmapRegion {
         // This is safe because we mmap the area at addr ourselves, and nobody
         // else is holding a reference to it.
         unsafe {
-            libc::munmap(self.addr as *mut libc::c_void, self.size);
+            libc::munmap(self.start_addr, self.total_size);
         }
     }
 }
