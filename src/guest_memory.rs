@@ -249,7 +249,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
 /// - handle cases where an access request spanning two or more GuestMemoryRegion objects.
 ///
 /// Note: the regions inside a [`GuestMemory`](trait.GuestMemory.html) object must not overlap.
-pub trait GuestMemory {
+pub trait GuestMemory: Send + Sync {
     /// Type of objects hosted by the address space.
     type R: GuestMemoryRegion;
 
