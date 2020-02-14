@@ -1,6 +1,6 @@
 # vm-memory
 
-A library to access the physical memory of a virtual machine.
+## Design
 
 In a typical Virtual Machine Monitor (VMM) there are several components, such
 as boot loader, virtual device drivers, virtio backend drivers and vhost
@@ -11,14 +11,27 @@ memory of the VM without knowing the implementation details of the VM memory
 provider. Thus VMM components based on these traits can be shared and reused by
 multiple virtualization solutions.
 
-## Platform Support
+The detailed design of the `vm-memory` crate can be found [here](DESIGN.md).
+
+### Platform Support
 
 - Arch: x86, AMD64, ARM64
 - OS: Linux/Unix/Windows
 
-## Example
+## Usage
 
-- Create a VM physical memory objects in hypervisor specific ways using the
+Add `vm-memory` as a dependency in `Cargo.toml`
+
+```toml
+[dependencies]
+vm-memory = "*"
+```
+
+Then add `extern crate vm-memory;` to your crate root.
+
+## Examples
+
+- Creating a VM physical memory object in hypervisor specific ways using the
   `GuestMemoryMmap` implementation of the `GuestMemory` trait:
 
 ```rust
@@ -31,7 +44,7 @@ fn provide_mem_to_virt_dev() {
 }
 ```
 
-- Consumers access VM's physical memory
+- Consumers accessing the VM's physical memory:
 
 ```rust
 fn virt_device_io<T: GuestMemory>(mem: &T) {
@@ -42,12 +55,6 @@ fn virt_device_io<T: GuestMemory>(mem: &T) {
     assert_eq!(buf, sample_buf);
 }
 ```
-
-## Documentations & References
-
-- [Design of The `vm-memory` Crate](DESIGN.md)
-- [TODO List](TODO.md)
-- [The rust-vmm Project](https://github.com/rust-vmm/)
 
 ## License
 
