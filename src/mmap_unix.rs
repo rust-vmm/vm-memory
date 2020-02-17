@@ -13,6 +13,7 @@
 use std::error;
 use std::fmt;
 use std::io;
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::AsRawFd;
 use std::ptr::null_mut;
 use std::result;
@@ -36,6 +37,8 @@ pub enum Error {
     MappingPastEof,
     /// The `mmap` call returned an error.
     Mmap(io::Error),
+    /// Failed to get File metadata
+    FileMetadata(io::Error),
 }
 
 impl fmt::Display for Error {
@@ -55,6 +58,7 @@ impl fmt::Display for Error {
                 "The specified file offset and length is greater then file length"
             ),
             Error::Mmap(error) => write!(f, "{}", error),
+            Error::FileMetadata(error) => write!(f, "Failed to get file metadata: {}", error),
         }
     }
 }
@@ -192,27 +196,27 @@ impl MmapRegion {
 
     /// Checks whether this region and `other` are backed by overlapping
     /// [`FileOffset`](struct.FileOffset.html) objects.
-    ///
-    /// This is mostly a sanity check available for convenience, as different file descriptors
-    /// can alias the same file.
-    pub fn fds_overlap(&self, other: &MmapRegion) -> bool {
-        if let Some(f_off1) = self.file_offset() {
-            if let Some(f_off2) = other.file_offset() {
-                if f_off1.file().as_raw_fd() == f_off2.file().as_raw_fd() {
-                    let s1 = f_off1.start();
-                    let s2 = f_off2.start();
-                    let l1 = self.len() as u64;
-                    let l2 = other.len() as u64;
+    pub fn fds_overlap(&self, other: &MmapRegion) -> Result<bool> {
+        match (&self.file_offset, &other.file_offset) {
+            (Some(offset_1), Some(offset_2)) => {
+                let file_1 = offset_1.file().metadata().map_err(Error::FileMetadata)?;
+                let file_2 = offset_2.file().metadata().map_err(Error::FileMetadata)?;
 
-                    if s1 < s2 {
-                        return s1 + l1 > s2;
-                    } else {
-                        return s2 + l2 > s1;
-                    }
+                if file_1.dev() == file_2.dev() && file_1.ino() == file_2.ino() {
+                    let start_1 = offset_1.start();
+                    let end_1 = start_1 + self.len() as u64;
+
+                    let start_2 = offset_2.start();
+                    let end_2 = start_2 + other.len() as u64;
+
+                    // check overlap using De Morgan’s laws
+                    return Ok(end_1 > start_2 && end_2 > start_1);
                 }
             }
+            _ => {}
         }
-        false
+
+        Ok(false)
     }
 }
 
@@ -382,13 +386,13 @@ mod tests {
 
         let r1 = MmapRegion::from_file(FileOffset::from_arc(a.clone(), 0), 4096).unwrap();
         let r2 = MmapRegion::from_file(FileOffset::from_arc(a.clone(), 4096), 4096).unwrap();
-        assert!(!r1.fds_overlap(&r2));
+        assert!(!r1.fds_overlap(&r2).unwrap());
 
         let r1 = MmapRegion::from_file(FileOffset::from_arc(a.clone(), 0), 5000).unwrap();
-        assert!(r1.fds_overlap(&r2));
+        assert!(r1.fds_overlap(&r2).unwrap());
 
         let r2 = MmapRegion::from_file(FileOffset::from_arc(a.clone(), 0), 1000).unwrap();
-        assert!(r1.fds_overlap(&r2));
+        assert!(r1.fds_overlap(&r2).unwrap());
 
         // Different files, so there's not overlap.
         let new_file = TempFile::new().unwrap().into_file();
@@ -398,10 +402,10 @@ mod tests {
             0
         );
         let r2 = MmapRegion::from_file(FileOffset::new(new_file, 0), 5000).unwrap();
-        assert!(!r1.fds_overlap(&r2));
+        assert!(!r1.fds_overlap(&r2).unwrap());
 
         // R2 is not file backed, so no overlap.
         let r2 = MmapRegion::new(5000).unwrap();
-        assert!(!r1.fds_overlap(&r2));
+        assert!(!r1.fds_overlap(&r2).unwrap());
     }
 }
