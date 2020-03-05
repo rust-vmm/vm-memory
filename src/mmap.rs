@@ -24,7 +24,7 @@ use crate::address::Address;
 use crate::guest_memory::{
     self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
 };
-use crate::volatile_memory::VolatileMemory;
+use crate::volatile_memory::{VolatileMemory, VolatileSlice};
 use crate::Bytes;
 
 #[cfg(unix)]
@@ -165,6 +165,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     fn write(&self, buf: &[u8], addr: MemoryRegionAddress) -> guest_memory::Result<usize> {
         let maddr = addr.raw_value() as usize;
         self.as_volatile_slice()
+            .unwrap()
             .write(buf, maddr)
             .map_err(Into::into)
     }
@@ -183,6 +184,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     fn read(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> guest_memory::Result<usize> {
         let maddr = addr.raw_value() as usize;
         self.as_volatile_slice()
+            .unwrap()
             .read(buf, maddr)
             .map_err(Into::into)
     }
@@ -190,6 +192,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     fn write_slice(&self, buf: &[u8], addr: MemoryRegionAddress) -> guest_memory::Result<()> {
         let maddr = addr.raw_value() as usize;
         self.as_volatile_slice()
+            .unwrap()
             .write_slice(buf, maddr)
             .map_err(Into::into)
     }
@@ -197,6 +200,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     fn read_slice(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> guest_memory::Result<()> {
         let maddr = addr.raw_value() as usize;
         self.as_volatile_slice()
+            .unwrap()
             .read_slice(buf, maddr)
             .map_err(Into::into)
     }
@@ -232,6 +236,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     {
         let maddr = addr.raw_value() as usize;
         self.as_volatile_slice()
+            .unwrap()
             .read_from::<F>(maddr, src, count)
             .map_err(Into::into)
     }
@@ -267,6 +272,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     {
         let maddr = addr.raw_value() as usize;
         self.as_volatile_slice()
+            .unwrap()
             .read_exact_from::<F>(maddr, src, count)
             .map_err(Into::into)
     }
@@ -299,6 +305,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     {
         let maddr = addr.raw_value() as usize;
         self.as_volatile_slice()
+            .unwrap()
             .write_to::<F>(maddr, dst, count)
             .map_err(Into::into)
     }
@@ -331,6 +338,7 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     {
         let maddr = addr.raw_value() as usize;
         self.as_volatile_slice()
+            .unwrap()
             .write_all_to::<F>(maddr, dst, count)
             .map_err(Into::into)
     }
@@ -363,6 +371,15 @@ impl GuestMemoryRegion for GuestRegionMmap {
         self.check_address(addr)
             .ok_or(guest_memory::Error::InvalidBackendAddress)
             .map(|addr| self.as_ptr().wrapping_offset(addr.raw_value() as isize))
+    }
+
+    fn get_slice(
+        &self,
+        offset: MemoryRegionAddress,
+        count: usize,
+    ) -> guest_memory::Result<VolatileSlice> {
+        let slice = self.mapping.get_slice(offset.raw_value() as usize, count)?;
+        Ok(slice)
     }
 }
 
@@ -972,7 +989,8 @@ mod tests {
             let slice = guest_mem
                 .find_region(GuestAddress(0))
                 .unwrap()
-                .as_volatile_slice();
+                .as_volatile_slice()
+                .unwrap();
 
             let buf = &mut [0, 0, 0, 0, 0];
             assert_eq!(slice.read(buf, 0).unwrap(), 5);
@@ -1300,5 +1318,80 @@ mod tests {
 
         assert_eq!(gm.regions[0].start_addr(), GuestAddress(0x0000));
         assert_eq!(region.start_addr(), GuestAddress(0x10_0000));
+    }
+
+    #[test]
+    fn test_guest_memory_mmap_get_slice() {
+        let region_addr = GuestAddress(0);
+        let region_size = 0x400;
+        let region =
+            GuestRegionMmap::new(MmapRegion::new(region_size).unwrap(), region_addr).unwrap();
+
+        // Normal case.
+        let slice_addr = MemoryRegionAddress(0x100);
+        let slice_size = 0x200;
+        let slice = region.get_slice(slice_addr, slice_size).unwrap();
+        assert_eq!(slice.len(), slice_size);
+
+        // Empty slice.
+        let slice_addr = MemoryRegionAddress(0x200);
+        let slice_size = 0x0;
+        let slice = region.get_slice(slice_addr, slice_size).unwrap();
+        assert!(slice.is_empty());
+
+        // Error case when slice_size is beyond the boundary.
+        let slice_addr = MemoryRegionAddress(0x300);
+        let slice_size = 0x200;
+        assert!(region.get_slice(slice_addr, slice_size).is_err());
+    }
+
+    #[test]
+    fn test_guest_memory_mmap_as_volatile_slice() {
+        let region_addr = GuestAddress(0);
+        let region_size = 0x400;
+        let region =
+            GuestRegionMmap::new(MmapRegion::new(region_size).unwrap(), region_addr).unwrap();
+
+        // Test slice length.
+        let slice = region.as_volatile_slice().unwrap();
+        assert_eq!(slice.len(), region_size);
+
+        // Test slice data.
+        let v = 0x1234_5678u32;
+        let r = slice.get_ref::<u32>(0x200).unwrap();
+        r.store(v);
+        assert_eq!(r.load(), v);
+    }
+
+    #[test]
+    fn test_guest_memory_get_slice() {
+        let start_addr1 = GuestAddress(0);
+        let start_addr2 = GuestAddress(0x800);
+        let guest_mem =
+            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
+
+        // Normal cases.
+        let slice_size = 0x200;
+        let slice = guest_mem
+            .get_slice(GuestAddress(0x100), slice_size)
+            .unwrap();
+        assert_eq!(slice.len(), slice_size);
+
+        let slice_size = 0x400;
+        let slice = guest_mem
+            .get_slice(GuestAddress(0x800), slice_size)
+            .unwrap();
+        assert_eq!(slice.len(), slice_size);
+
+        // Empty slice.
+        assert!(guest_mem
+            .get_slice(GuestAddress(0x900), 0)
+            .unwrap()
+            .is_empty());
+
+        // Error cases, wrong size or base address.
+        assert!(guest_mem.get_slice(GuestAddress(0), 0x500).is_err());
+        assert!(guest_mem.get_slice(GuestAddress(0x600), 0x100).is_err());
+        assert!(guest_mem.get_slice(GuestAddress(0xc00), 0x100).is_err());
     }
 }

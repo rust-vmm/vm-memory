@@ -246,6 +246,45 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     unsafe fn as_mut_slice(&self) -> Option<&mut [u8]> {
         None
     }
+
+    /// Returns a [`VolatileSlice`](struct.VolatileSlice.html) of `count` bytes starting at
+    /// `offset`.
+    #[allow(unused_variables)]
+    fn get_slice(
+        &self,
+        offset: MemoryRegionAddress,
+        count: usize,
+    ) -> Result<volatile_memory::VolatileSlice> {
+        Err(Error::HostAddressNotAvailable)
+    }
+
+    /// Gets a slice of memory for the entire region that supports volatile access.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::{GuestAddress, MmapRegion, GuestRegionMmap, GuestMemoryRegion};
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::volatile_memory::{VolatileMemory, VolatileSlice, VolatileRef};
+    ///
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # fn test_as_volatile_slice() {
+    ///     let region =
+    ///         GuestRegionMmap::new(MmapRegion::new(0x400).unwrap(), GuestAddress(0x0))
+    ///         .unwrap();
+    ///     let slice = region.as_volatile_slice().unwrap();
+    ///     let v = 42u32;
+    ///     let r = slice.get_ref::<u32>(0x200).unwrap();
+    ///     r.store(v);
+    ///     assert_eq!(r.load(), v);
+    /// # }
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # test_as_volatile_slice();
+    /// ```
+    fn as_volatile_slice(&self) -> Result<volatile_memory::VolatileSlice> {
+        self.get_slice(MemoryRegionAddress(0), self.len() as usize)
+    }
 }
 
 /// GuestAddressSpace provides a way to retrieve a GuestMemory object.
@@ -562,6 +601,18 @@ pub trait GuestMemory {
         self.to_region_addr(addr)
             .ok_or_else(|| Error::InvalidGuestAddress(addr))
             .and_then(|(r, addr)| r.get_host_address(addr))
+    }
+
+    /// Returns a [`VolatileSlice`](struct.VolatileSlice.html) of `count` bytes starting at
+    /// `addr`.
+    fn get_slice(
+        &self,
+        addr: GuestAddress,
+        count: usize,
+    ) -> Result<volatile_memory::VolatileSlice> {
+        self.to_region_addr(addr)
+            .ok_or_else(|| Error::InvalidGuestAddress(addr))
+            .and_then(|(r, addr)| r.get_slice(addr, count))
     }
 }
 
