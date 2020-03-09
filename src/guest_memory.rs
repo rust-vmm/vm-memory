@@ -356,7 +356,7 @@ pub trait GuestAddressSpace {
     type M: GuestMemory;
 
     /// A type that provides access to the memory.
-    type T: Deref<Target = Self::M>;
+    type T: Clone + Deref<Target = Self::M>;
 
     /// Return an object (e.g. a reference or guard) that can be used
     /// to access memory through this address space.  The object provides

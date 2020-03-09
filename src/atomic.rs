@@ -104,6 +104,14 @@ impl<M: GuestMemory> GuestMemoryLoadGuard<M> {
     }
 }
 
+impl<M: GuestMemory> Clone for GuestMemoryLoadGuard<M> {
+    fn clone(&self) -> Self {
+        GuestMemoryLoadGuard {
+            guard: Guard::from_inner(Arc::clone(&*self.guard)),
+        }
+    }
+}
+
 impl<M: GuestMemory> Deref for GuestMemoryLoadGuard<M> {
     type Target = M;
 
@@ -201,6 +209,22 @@ mod tests {
         assert_eq!(mem3.num_regions(), 2);
         assert!(mem3.find_region(GuestAddress(0x1000)).is_some());
         assert!(mem3.find_region(GuestAddress(0x10000)).is_none());
+    }
+
+    #[test]
+    fn test_clone_guard() {
+        let region_size = 0x400;
+        let regions = vec![
+            (GuestAddress(0x0), region_size),
+            (GuestAddress(0x1000), region_size),
+        ];
+        let gmm = GuestMemoryMmap::from_ranges(&regions).unwrap();
+        let gm = GuestMemoryMmapAtomic::new(gmm);
+        let mem = {
+            let guard1 = gm.memory();
+            Clone::clone(&guard1)
+        };
+        assert_eq!(mem.num_regions(), 2);
     }
 
     #[test]
