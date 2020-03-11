@@ -10,6 +10,7 @@
 
 //! Define the ByteValued trait to mark that it is safe to instantiate the struct with random data.
 
+use crate::VolatileSlice;
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::result::Result;
@@ -99,6 +100,22 @@ pub unsafe trait ByteValued: Copy + Default + Send + Sync {
         // pointer alias. Although this does alias a mutable pointer, we do so by exclusively
         // borrowing the given mutable reference.
         unsafe { from_raw_parts_mut(self as *mut Self as *mut u8, size_of::<Self>()) }
+    }
+
+    /// Converts a mutable reference to `self` into a VolatileSlice.  This is
+    /// useful because `VolatileSlice` provides a `Bytes<usize>` implementation.
+    ///
+    /// # Safety
+    ///
+    /// Unlike most VolatileMemory implementation, this method requires an exclusive
+    /// reference to `self`; this trivially fulfills `VolatileSlice::new`'s requirement
+    /// that all accesses to `self` use volatile accesses (because there can
+    /// be no other accesses).
+    fn as_bytes(&mut self) -> VolatileSlice {
+        unsafe {
+            // This is safe because the lifetime is the same as self
+            VolatileSlice::new(self as *mut Self as usize as *mut _, size_of::<Self>())
+        }
     }
 }
 
@@ -404,5 +421,23 @@ mod tests {
             .write_obj(std::u64::MAX, MOCK_BYTES_CONTAINER_SIZE)
             .is_err());
         assert!(bytes.read_obj::<u64>(MOCK_BYTES_CONTAINER_SIZE).is_err());
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct S {
+        a: u32,
+        b: u32,
+    }
+
+    unsafe impl ByteValued for S {}
+
+    #[test]
+    fn byte_valued_slice() {
+        let a: [u8; 8] = [0, 0, 0, 0, 1, 1, 1, 1];
+        let mut s: S = Default::default();
+        s.as_bytes().copy_from(&a);
+        assert_eq!(s.a, 0);
+        assert_eq!(s.b, 0x1010101);
     }
 }
