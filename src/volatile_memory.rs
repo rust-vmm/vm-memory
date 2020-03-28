@@ -592,7 +592,13 @@ impl Bytes<usize> for VolatileSlice<'_> {
             // memory as a mutable slice is OK because nothing assumes another
             // thread won't change what is loaded.
             let dst = &mut self.as_mut_slice()[addr..end];
-            src.read(dst).map_err(Error::IOError)
+            loop {
+                match src.read(dst) {
+                    Ok(n) => break Ok(n),
+                    Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => break Err(Error::IOError(e)),
+                }
+            }
         }
     }
 
@@ -656,7 +662,13 @@ impl Bytes<usize> for VolatileSlice<'_> {
             // memory as a slice is OK because nothing assumes another thread
             // won't change what is loaded.
             let src = &self.as_mut_slice()[addr..end];
-            dst.write(src).map_err(Error::IOError)
+            loop {
+                match dst.write(src) {
+                    Ok(n) => break Ok(n),
+                    Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => break Err(Error::IOError(e)),
+                }
+            }
         }
     }
 
