@@ -847,9 +847,14 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
 mod tests {
     use super::*;
     #[cfg(feature = "backend-mmap")]
+    use crate::bytes::ByteValued;
+    #[cfg(feature = "backend-mmap")]
     use crate::{GuestAddress, GuestMemoryMmap};
     #[cfg(feature = "backend-mmap")]
     use std::io::Cursor;
+    #[cfg(feature = "backend-mmap")]
+    use std::time::{Duration, Instant};
+
     use vmm_sys_util::tempfile::TempFile;
 
     #[cfg(feature = "backend-mmap")]
@@ -887,5 +892,125 @@ mod tests {
             mem.read_from(offset, &mut Cursor::new(&image), count)
                 .unwrap()
         );
+    }
+
+    // Runs the provided closure in a loop, until at least `duration` time units have elapsed.
+    #[cfg(feature = "backend-mmap")]
+    fn loop_timed<F>(duration: Duration, mut f: F)
+    where
+        F: FnMut() -> (),
+    {
+        // We check the time every `CHECK_PERIOD` iterations.
+        const CHECK_PERIOD: u64 = 1_000_000;
+        let start_time = Instant::now();
+
+        loop {
+            for _ in 0..CHECK_PERIOD {
+                f();
+            }
+            if start_time.elapsed() >= duration {
+                break;
+            }
+        }
+    }
+
+    // Helper method for the following test. It spawns a writer and a reader thread, which
+    // simultaneously try to access an object that is placed at the junction of two memory regions.
+    // The part of the object that's continuously accessed is a member of type T. The writer
+    // flips all the bits of the member with every write, while the reader checks that every byte
+    // has the same value (and thus it did not do a non-atomic access). The test succeeds if
+    // no mismatch is detected after performing accesses for a pre-determined amount of time.
+    #[cfg(feature = "backend-mmap")]
+    fn non_atomic_access_helper<T>()
+    where
+        T: ByteValued
+            + std::fmt::Debug
+            + From<u8>
+            + Into<u128>
+            + std::ops::Not<Output = T>
+            + PartialEq,
+    {
+        use std::mem;
+        use std::thread;
+
+        // A dummy type that's always going to have the same alignment as the first member,
+        // and then adds some bytes at the end.
+        #[derive(Clone, Copy, Debug, Default, PartialEq)]
+        struct Data<T> {
+            val: T,
+            some_bytes: [u8; 7],
+        }
+
+        // Some sanity checks.
+        assert_eq!(mem::align_of::<T>(), mem::align_of::<Data<T>>());
+        assert_eq!(mem::size_of::<T>(), mem::align_of::<T>());
+
+        unsafe impl<T: ByteValued> ByteValued for Data<T> {}
+
+        // Start of first guest memory region.
+        let start = GuestAddress(0);
+        let region_len = 1 << 12;
+
+        // The address where we start writing/reading a Data<T> value.
+        let data_start = GuestAddress((region_len - mem::size_of::<T>()) as u64);
+
+        let mem = GuestMemoryMmap::from_ranges(&[
+            (start, region_len),
+            (start.unchecked_add(region_len as u64), region_len),
+        ])
+        .unwrap();
+
+        // Need to clone this and move it into the new thread we create.
+        let mem2 = mem.clone();
+        // Just some bytes.
+        let some_bytes = [1u8, 2, 4, 16, 32, 64, 128];
+
+        let mut data = Data {
+            val: T::from(0u8),
+            some_bytes,
+        };
+
+        // Simple check that cross-region write/read is ok.
+        mem.write_obj(data, data_start).unwrap();
+        let read_data = mem.read_obj::<Data<T>>(data_start).unwrap();
+        assert_eq!(read_data, data);
+
+        let t = thread::spawn(move || {
+            let mut count: u64 = 0;
+
+            loop_timed(Duration::from_secs(3), || {
+                let data = mem2.read_obj::<Data<T>>(data_start).unwrap();
+
+                // Every time data is written to memory by the other thread, the value of
+                // data.val alternates between 0 and T::MAX, so the inner bytes should always
+                // have the same value. If they don't match, it means we read a partial value,
+                // so the access was not atomic.
+                let bytes = data.val.into().to_le_bytes();
+                for i in 1..mem::size_of::<T>() {
+                    if bytes[0] != bytes[i] {
+                        panic!(
+                            "val bytes don't match {:?} after {} iterations",
+                            &bytes[..mem::size_of::<T>()],
+                            count
+                        );
+                    }
+                }
+                count += 1;
+            });
+        });
+
+        // Write the object while flipping the bits of data.val over and over again.
+        loop_timed(Duration::from_secs(3), || {
+            mem.write_obj(data, data_start).unwrap();
+            data.val = !data.val;
+        });
+
+        t.join().unwrap()
+    }
+
+    #[cfg(feature = "backend-mmap")]
+    #[test]
+    fn test_non_atomic_access() {
+        non_atomic_access_helper::<u16>()
     }
 }
