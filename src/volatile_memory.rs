@@ -463,6 +463,57 @@ impl<'a> VolatileSlice<'a> {
     }
 }
 
+// Return the largest value that `addr` is aligned to. Forcing this function to return 1 will
+// cause test_non_atomic_access to fail.
+fn alignment(addr: usize) -> usize {
+    // Rust is silly and does not let me write addr & -addr.
+    addr & (!addr + 1)
+}
+
+// Has the same safety requirements as `read_volatile` + `write_volatile`, namely:
+// - `src_addr` and `dst_addr` must be valid for reads/writes.
+// - `src_addr` and `dst_addr` must be properly aligned with respect to `align`.
+// - `src_addr` must point to a properly initialized value, which is true here because
+//   we're only using integer primitives.
+unsafe fn copy_single(align: usize, src_addr: usize, dst_addr: usize) {
+    match align {
+        8 => write_volatile(dst_addr as *mut u64, read_volatile(src_addr as *const u64)),
+        4 => write_volatile(dst_addr as *mut u32, read_volatile(src_addr as *const u32)),
+        2 => write_volatile(dst_addr as *mut u16, read_volatile(src_addr as *const u16)),
+        1 => write_volatile(dst_addr as *mut u8, read_volatile(src_addr as *const u8)),
+        _ => unreachable!(),
+    }
+}
+
+fn copy_slice(dst: &mut [u8], src: &[u8]) -> usize {
+    let total = min(src.len(), dst.len());
+    let mut left = total;
+
+    let mut src_addr = src.as_ptr() as usize;
+    let mut dst_addr = dst.as_ptr() as usize;
+    let align = min(alignment(src_addr), alignment(dst_addr));
+
+    let mut copy_aligned_slice = |min_align| {
+        while align >= min_align && left >= min_align {
+            // Safe because we check alignment beforehand, the memory areas are valid for
+            // reads/writes, and the source always contains a valid value.
+            unsafe { copy_single(min_align, src_addr, dst_addr) };
+            src_addr += min_align;
+            dst_addr += min_align;
+            left -= min_align;
+        }
+    };
+
+    if size_of::<usize>() > 4 {
+        copy_aligned_slice(8);
+    }
+    copy_aligned_slice(4);
+    copy_aligned_slice(2);
+    copy_aligned_slice(1);
+
+    total
+}
+
 impl Bytes<usize> for VolatileSlice<'_> {
     type E = Error;
 
@@ -482,13 +533,12 @@ impl Bytes<usize> for VolatileSlice<'_> {
         if addr >= self.size {
             return Err(Error::OutOfBounds { addr });
         }
-        unsafe {
-            // Guest memory can't strictly be modeled as a slice because it is
-            // volatile.  Writing to it with what compiles down to a memcpy
-            // won't hurt anything as long as we get the bounds checks right.
-            let mut slice: &mut [u8] = &mut self.as_mut_slice()[addr..];
-            slice.write(buf).map_err(Error::IOError)
-        }
+
+        // Guest memory can't strictly be modeled as a slice because it is
+        // volatile.  Writing to it with what is essentially a fancy memcpy
+        // won't hurt anything as long as we get the bounds checks right.
+        let slice = unsafe { self.as_mut_slice() }.split_at_mut(addr).1;
+        Ok(copy_slice(slice, buf))
     }
 
     /// # Examples
@@ -504,17 +554,16 @@ impl Bytes<usize> for VolatileSlice<'_> {
     ///     assert!(res.is_ok());
     ///     assert_eq!(res.unwrap(), 14);
     /// ```
-    fn read(&self, mut buf: &mut [u8], addr: usize) -> Result<usize> {
+    fn read(&self, buf: &mut [u8], addr: usize) -> Result<usize> {
         if addr >= self.size {
             return Err(Error::OutOfBounds { addr });
         }
-        unsafe {
-            // Guest memory can't strictly be modeled as a slice because it is
-            // volatile.  Writing to it with what compiles down to a memcpy
-            // won't hurt anything as long as we get the bounds checks right.
-            let slice: &[u8] = &self.as_slice()[addr..];
-            buf.write(slice).map_err(Error::IOError)
-        }
+
+        // Guest memory can't strictly be modeled as a slice because it is
+        // volatile.  Writing to it with what is essentially a fancy memcpy
+        // won't hurt anything as long as we get the bounds checks right.
+        let slice = unsafe { self.as_slice() }.split_at(addr).1;
+        Ok(copy_slice(buf, slice))
     }
 
     /// # Examples
@@ -1559,5 +1608,16 @@ mod tests {
                 size: 4,
             }
         );
+    }
+
+    #[test]
+    fn alignment() {
+        let a = [0u8; 64];
+        let a = &a[a.as_ptr().align_offset(32)] as *const u8 as usize;
+        assert!(super::alignment(a) >= 32);
+        assert_eq!(super::alignment(a + 9), 1);
+        assert_eq!(super::alignment(a + 30), 2);
+        assert_eq!(super::alignment(a + 12), 4);
+        assert_eq!(super::alignment(a + 8), 8);
     }
 }
