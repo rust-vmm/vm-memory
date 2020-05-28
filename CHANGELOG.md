@@ -1,3 +1,9 @@
+# [v0.2.1]
+
+## Fixed
+- [[#93]](https://github.com/rust-vmm/vm-memory/issues/93): Avoid torn writes
+  with memcpy.
+
 # [v0.2.0]
 
 ## Added
