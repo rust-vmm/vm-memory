@@ -43,7 +43,7 @@ pub trait AddressValue {
         0u8.into()
     }
 
-    /// Return the value zero, coerced into the value type `Self::V`
+    /// Return the value one, coerced into the value type `Self::V`
     fn one() -> Self::V {
         1u8.into()
     }
