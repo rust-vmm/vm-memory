@@ -1082,7 +1082,7 @@ mod copy_slice_impl {
         }
     }
 
-    pub(super) fn copy_slice(dst: &mut [u8], src: &[u8]) -> usize {
+    fn copy_slice_volatile(dst: &mut [u8], src: &[u8]) -> usize {
         let total = min(src.len(), dst.len());
         let mut left = total;
 
@@ -1107,6 +1107,17 @@ mod copy_slice_impl {
         copy_aligned_slice(4);
         copy_aligned_slice(2);
         copy_aligned_slice(1);
+
+        total
+    }
+
+    pub(super) fn copy_slice(dst: &mut [u8], src: &[u8]) -> usize {
+        let total = min(src.len(), dst.len());
+        if total <= size_of::<usize>() {
+            copy_slice_volatile(dst, src);
+        } else {
+            dst[..total].copy_from_slice(&src[..total]);
+        }
 
         total
     }
