@@ -368,9 +368,19 @@ impl<'a> VolatileSlice<'a> {
     where
         T: ByteValued,
     {
-        let count = self.size / size_of::<T>();
-        let source = self.get_array_ref::<T>(0, count).unwrap();
-        source.copy_to(buf)
+        // A fast path for u8/i8
+        if size_of::<T>() == 1 {
+            // It is safe because the pointers are range-checked when the slices are created,
+            // and they never escape the VolatileSlices.
+            let source = unsafe { self.as_slice() };
+            // Safe because `T` is a one-byte data structure.
+            let dst = unsafe { from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, buf.len()) };
+            copy_slice(dst, source)
+        } else {
+            let count = self.size / size_of::<T>();
+            let source = self.get_array_ref::<T>(0, count).unwrap();
+            source.copy_to(buf)
+        }
     }
 
     /// Copies as many bytes as possible from this slice to the provided `slice`.
@@ -425,9 +435,19 @@ impl<'a> VolatileSlice<'a> {
     where
         T: ByteValued,
     {
-        let count = self.size / size_of::<T>();
-        let dest = self.get_array_ref::<T>(0, count).unwrap();
-        dest.copy_from(buf)
+        // A fast path for u8/i8
+        if size_of::<T>() == 1 {
+            // It is safe because the pointers are range-checked when the slices are created,
+            // and they never escape the VolatileSlices.
+            let dst = unsafe { self.as_mut_slice() };
+            // Safe because `T` is a one-byte data structure.
+            let src = unsafe { from_raw_parts(buf.as_ptr() as *const u8, buf.len()) };
+            copy_slice(dst, src);
+        } else {
+            let count = self.size / size_of::<T>();
+            let dest = self.get_array_ref::<T>(0, count).unwrap();
+            dest.copy_from(buf)
+        }
     }
 
     /// Returns a slice corresponding to the data in the underlying memory.
@@ -939,6 +959,17 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
     /// # }
     /// ```
     pub fn copy_to(&self, buf: &mut [T]) -> usize {
+        // A fast path for u8/i8
+        if size_of::<T>() == 1 {
+            let source = self.to_slice();
+            // It is safe because the pointers are range-checked when the slices are created,
+            // and they never escape the VolatileSlices.
+            let src = unsafe { source.as_slice() };
+            // Safe because `T` is a one-byte data structure.
+            let dst = unsafe { from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, buf.len()) };
+            return copy_slice(dst, src);
+        }
+
         let mut addr = self.addr;
         let mut i = 0;
         for v in buf.iter_mut().take(self.len()) {
@@ -1010,15 +1041,26 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
     /// # }
     /// ```
     pub fn copy_from(&self, buf: &[T]) {
-        let mut addr = self.addr;
-        for &v in buf.iter().take(self.len()) {
-            unsafe {
-                // write_volatile is safe because the pointers are range-checked when
-                // the slices are created, and they never escape the VolatileSlices.
-                // ptr::add is safe because get_array_ref() validated that
-                // size_of::<T>() * self.len() fits in an isize.
-                write_volatile(addr as *mut Packed<T>, Packed::<T>(v));
-                addr = addr.add(self.element_size());
+        // A fast path for u8/i8
+        if size_of::<T>() == 1 {
+            // It is safe because the pointers are range-checked when the slices are created,
+            // and they never escape the VolatileSlices.
+            let destination = self.to_slice();
+            let dst = unsafe { destination.as_mut_slice() };
+            // Safe because `T` is a one-byte data structure.
+            let src = unsafe { from_raw_parts(buf.as_ptr() as *const u8, buf.len()) };
+            copy_slice(dst, src);
+        } else {
+            let mut addr = self.addr;
+            for &v in buf.iter().take(self.len()) {
+                unsafe {
+                    // write_volatile is safe because the pointers are range-checked when
+                    // the slices are created, and they never escape the VolatileSlices.
+                    // ptr::add is safe because get_array_ref() validated that
+                    // size_of::<T>() * self.len() fits in an isize.
+                    write_volatile(addr as *mut Packed<T>, Packed::<T>(v));
+                    addr = addr.add(self.element_size());
+                }
             }
         }
     }
@@ -1362,8 +1404,8 @@ mod tests {
     }
 
     #[test]
-    fn slice_copy_to() {
-        let mut a = [2, 4, 6, 8, 10];
+    fn slice_copy_to_u8() {
+        let mut a = [2u8, 4, 6, 8, 10];
         let mut b = [0u8; 4];
         let mut c = [0u8; 6];
         let a_ref = &mut a[..];
@@ -1375,8 +1417,23 @@ mod tests {
     }
 
     #[test]
-    fn slice_copy_from() {
-        let a = [2, 4, 6, 8, 10];
+    fn slice_copy_to_u16() {
+        let mut a = [0x01u16, 0x2, 0x03, 0x4, 0x5];
+        let mut b = [0u16; 4];
+        let mut c = [0u16; 6];
+        let a_ref = &mut a[..];
+        let v_ref = unsafe { VolatileSlice::new(a_ref.as_mut_ptr() as *mut u8, 9) };
+
+        v_ref.copy_to(&mut b[..]);
+        v_ref.copy_to(&mut c[..]);
+        assert_eq!(b[0..4], a_ref[0..4]);
+        assert_eq!(c[0..4], a_ref[0..4]);
+        assert_eq!(c[4], 0);
+    }
+
+    #[test]
+    fn slice_copy_from_u8() {
+        let a = [2u8, 4, 6, 8, 10];
         let mut b = [0u8; 4];
         let mut c = [0u8; 6];
         let b_ref = &mut b[..];
@@ -1391,8 +1448,25 @@ mod tests {
     }
 
     #[test]
+    fn slice_copy_from_u16() {
+        let a = [2u16, 4, 6, 8, 10];
+        let mut b = [0u16; 4];
+        let mut c = [0u16; 6];
+        let b_ref = &mut b[..];
+        let v_ref = unsafe { VolatileSlice::new(b_ref.as_mut_ptr() as *mut u8, 8) };
+        v_ref.copy_from(&a[..]);
+        assert_eq!(b_ref[0..4], a[0..4]);
+
+        let c_ref = &mut c[..];
+        let v_ref = unsafe { VolatileSlice::new(c_ref.as_mut_ptr() as *mut u8, 9) };
+        v_ref.copy_from(&a[..]);
+        assert_eq!(c_ref[0..4], a[0..4]);
+        assert_eq!(c_ref[4], 0);
+    }
+
+    #[test]
     fn slice_copy_to_volatile_slice() {
-        let mut a = [2, 4, 6, 8, 10];
+        let mut a = [2u8, 4, 6, 8, 10];
         let a_ref = &mut a[..];
         let a_slice = a_ref.get_slice(0, a_ref.len()).unwrap();
 
