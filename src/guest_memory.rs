@@ -515,6 +515,14 @@ pub trait GuestMemory {
         self.find_region(addr).map(|_| addr)
     }
 
+    /// Check whether the range [base, base + len) is valid.
+    fn check_range(&self, base: GuestAddress, len: usize) -> bool {
+        match self.try_access(len, base, |_, count, _, _| -> Result<usize> { Ok(count) }) {
+            Ok(count) if count == len => true,
+            _ => false,
+        }
+    }
+
     /// Returns the address plus the offset if it is present within the memory of the guest.
     fn checked_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress> {
         base.checked_add(offset as u64)
