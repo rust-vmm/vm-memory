@@ -1394,4 +1394,54 @@ mod tests {
         assert!(guest_mem.get_slice(GuestAddress(0x600), 0x100).is_err());
         assert!(guest_mem.get_slice(GuestAddress(0xc00), 0x100).is_err());
     }
+
+    #[test]
+    fn test_checked_offset() {
+        let start_addr1 = GuestAddress(0);
+        let start_addr2 = GuestAddress(0x800);
+        let start_addr3 = GuestAddress(0xc00);
+        let guest_mem = GuestMemoryMmap::from_ranges(&[
+            (start_addr1, 0x400),
+            (start_addr2, 0x400),
+            (start_addr3, 0x400),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            guest_mem.checked_offset(start_addr1, 0x200),
+            Some(GuestAddress(0x200))
+        );
+        assert_eq!(
+            guest_mem.checked_offset(start_addr1, 0xa00),
+            Some(GuestAddress(0xa00))
+        );
+        assert_eq!(
+            guest_mem.checked_offset(start_addr2, 0x7ff),
+            Some(GuestAddress(0xfff))
+        );
+        assert_eq!(guest_mem.checked_offset(start_addr2, 0xc00), None);
+        assert_eq!(guest_mem.checked_offset(start_addr1, std::usize::MAX), None);
+    }
+
+    #[test]
+    fn test_check_range() {
+        let start_addr1 = GuestAddress(0);
+        let start_addr2 = GuestAddress(0x800);
+        let start_addr3 = GuestAddress(0xc00);
+        let guest_mem = GuestMemoryMmap::from_ranges(&[
+            (start_addr1, 0x400),
+            (start_addr2, 0x400),
+            (start_addr3, 0x400),
+        ])
+        .unwrap();
+
+        assert_eq!(guest_mem.check_range(start_addr1, 0x0), true);
+        assert_eq!(guest_mem.check_range(start_addr1, 0x200), true);
+        assert_eq!(guest_mem.check_range(start_addr1, 0xa00), false);
+        assert_eq!(guest_mem.check_range(start_addr2, 0x7ff), true);
+        assert_eq!(guest_mem.check_range(start_addr2, 0x800), true);
+        assert_eq!(guest_mem.check_range(start_addr2, 0x801), false);
+        assert_eq!(guest_mem.check_range(start_addr2, 0xc00), false);
+        assert_eq!(guest_mem.check_range(start_addr1, std::usize::MAX), false);
+    }
 }

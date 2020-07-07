@@ -8,6 +8,8 @@
 ### Added
 - [[#109]](https://github.com/rust-vmm/vm-memory/pull/109): Added `build_raw` to
   `MmapRegion` which can be used to operate on externally created mappings.
+- [[#101]](https://github.com/rust-vmm/vm-memory/pull/101): Added `check_range` for
+  GuestMemory which could be used to validate a range of guest memory.
 
 ## [v0.2.0]
 
