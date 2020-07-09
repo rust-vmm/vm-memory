@@ -540,7 +540,7 @@ pub trait GuestMemory {
             let len = std::cmp::min(cap, (count - total) as GuestUsize);
             match f(total, len as usize, start, region) {
                 // no more data
-                Ok(0) => break,
+                Ok(0) => return Ok(total),
                 // made some progress
                 Ok(len) => {
                     total += len;
@@ -738,7 +738,7 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     {
         self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
             // Check if something bad happened before doing unsafe things.
-            assert!(offset < count);
+            assert!(offset <= count);
             if let Some(dst) = unsafe { region.as_mut_slice() } {
                 // This is safe cause `start` and `len` are within the `region`.
                 let start = caddr.raw_value() as usize;
@@ -816,7 +816,7 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     {
         self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
             // Check if something bad happened before doing unsafe things.
-            assert!(offset < count);
+            assert!(offset <= count);
             if let Some(src) = unsafe { region.as_slice() } {
                 // This is safe cause `start` and `len` are within the `region`.
                 let start = caddr.raw_value() as usize;
@@ -1029,5 +1029,46 @@ mod tests {
     #[test]
     fn test_non_atomic_access() {
         non_atomic_access_helper::<u16>()
+    }
+
+    #[cfg(feature = "backend-mmap")]
+    #[test]
+    fn test_zero_length_accesses() {
+        #[derive(Default, Clone, Copy)]
+        #[repr(C)]
+        struct ZeroSizedStruct {
+            dummy: [u32; 0],
+        }
+
+        unsafe impl ByteValued for ZeroSizedStruct {}
+
+        let addr = GuestAddress(0x1000);
+        let mem = GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
+        let obj = ZeroSizedStruct::default();
+        let mut image = make_image(0x80);
+
+        assert_eq!(mem.write(&[], addr).unwrap(), 0);
+        assert_eq!(mem.read(&mut [], addr).unwrap(), 0);
+
+        assert!(mem.write_slice(&[], addr).is_ok());
+        assert!(mem.read_slice(&mut [], addr).is_ok());
+
+        assert!(mem.write_obj(obj, addr).is_ok());
+        assert!(mem.read_obj::<ZeroSizedStruct>(addr).is_ok());
+
+        assert_eq!(mem.read_from(addr, &mut Cursor::new(&image), 0).unwrap(), 0);
+
+        assert!(mem
+            .read_exact_from(addr, &mut Cursor::new(&image), 0)
+            .is_ok());
+
+        assert_eq!(
+            mem.write_to(addr, &mut Cursor::new(&mut image), 0).unwrap(),
+            0
+        );
+
+        assert!(mem
+            .write_all_to(addr, &mut Cursor::new(&mut image), 0)
+            .is_ok());
     }
 }
