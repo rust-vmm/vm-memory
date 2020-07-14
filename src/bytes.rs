@@ -438,6 +438,6 @@ mod tests {
         let mut s: S = Default::default();
         s.as_bytes().copy_from(&a);
         assert_eq!(s.a, 0);
-        assert_eq!(s.b, 0x1010101);
+        assert_eq!(s.b, 0x0101_0101);
     }
 }
