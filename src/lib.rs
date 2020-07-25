@@ -53,6 +53,6 @@ pub use atomic::{GuestMemoryAtomic, GuestMemoryLoadGuard};
 
 pub mod volatile_memory;
 pub use volatile_memory::{
-    AtomicValued, Error as VolatileMemoryError, Result as VolatileMemoryResult, VolatileArrayRef,
+    AtomicInteger, Error as VolatileMemoryError, Result as VolatileMemoryResult, VolatileArrayRef,
     VolatileMemory, VolatileRef, VolatileSlice,
 };
