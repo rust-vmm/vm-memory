@@ -33,7 +33,7 @@ pub mod atomic;
 #[cfg(feature = "backend-atomic")]
 pub use atomic::{GuestMemoryAtomic, GuestMemoryLoadGuard};
 
-pub mod bytes;
+mod bytes;
 pub use bytes::{AlignedBytes, ByteValued, Bytes};
 
 pub mod endian;
@@ -62,8 +62,8 @@ pub use refs::{ArrayRef, Ref};
 
 pub mod volatile_memory;
 pub use volatile_memory::{
-    AtomicValued, Error as VolatileMemoryError, Result as VolatileMemoryResult, VolatileArrayRef,
-    VolatileMemory, VolatileRef, VolatileSlice,
+    Error as VolatileMemoryError, Result as VolatileMemoryResult, VolatileArrayRef, VolatileMemory,
+    VolatileRef, VolatileSlice,
 };
 
 // Previous attempts showed it's not really obvious which is the fastest (best?) approach to

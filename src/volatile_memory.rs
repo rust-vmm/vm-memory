@@ -36,6 +36,7 @@ use std::result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::usize;
 
+use crate::bytes::AtomicInteger;
 use crate::{ArrayRef, ByteValued, Bytes, Ref};
 
 /// `VolatileMemory` related errors.
@@ -116,35 +117,6 @@ pub fn compute_offset(base: usize, offset: usize) -> Result<usize> {
         Some(m) => Ok(m),
     }
 }
-
-/// Types that can be read safely from a [`VolatileSlice`](struct.VolatileSlice.html).
-///
-/// Objects that implement this trait must consist exclusively of atomic types
-/// from [`std::sync::atomic`](https://doc.rust-lang.org/std/sync/atomic/), except for
-/// [`AtomicPtr<T>`](https://doc.rust-lang.org/std/sync/atomic/struct.AtomicPtr.html).
-pub unsafe trait AtomicValued: Sync + Send {}
-
-// also conditionalize on #[cfg(target_has_atomic) when it is stabilized
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicBool {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicI8 {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicI16 {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicI32 {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicI64 {}
-unsafe impl AtomicValued for std::sync::atomic::AtomicIsize {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicU8 {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicU16 {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicU32 {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicU64 {}
-unsafe impl AtomicValued for std::sync::atomic::AtomicUsize {}
 
 /// Types that support raw volatile access to their data.
 pub trait VolatileMemory {
@@ -233,7 +205,7 @@ pub trait VolatileMemory {
     ///
     /// If the resulting pointer is not aligned, this method will return an
     /// [`Error`](enum.Error.html).
-    fn get_atomic_ref<T: AtomicValued>(&self, offset: usize) -> Result<&T> {
+    fn get_atomic_ref<T: AtomicInteger>(&self, offset: usize) -> Result<&T> {
         let slice = self.get_slice(offset, size_of::<T>())?;
         slice.check_alignment(align_of::<T>())?;
 
