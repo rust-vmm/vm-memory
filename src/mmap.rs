@@ -16,16 +16,18 @@ use std::borrow::Borrow;
 use std::error;
 use std::fmt;
 use std::io::{Read, Write};
+use std::mem::size_of;
 use std::ops::Deref;
 use std::result;
 use std::sync::Arc;
 
 use crate::address::Address;
+use crate::bytes::{AtomicInteger, Bytes};
 use crate::guest_memory::{
-    self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
+    self, AlignedMemoryRegionAddress, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
+    GuestUsize, MemoryRegionAddress,
 };
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
-use crate::Bytes;
 
 #[cfg(unix)]
 pub use crate::mmap_unix::{Error as MmapRegionError, MmapRegion};
@@ -139,6 +141,31 @@ impl GuestRegionMmap {
             guest_base,
         })
     }
+
+    // Check whether `addr` can be converted into a host pointer that's valid for accesses
+    // with respect to `size_of::<T>` (does not verify alignment).
+    fn check_ptr<T>(&self, addr: MemoryRegionAddress) -> guest_memory::Result<*mut T> {
+        // Sanity check for the `as` conversions between `usize` and `u64` below.
+        assert!(size_of::<usize>() <= size_of::<u64>());
+
+        let last_byte = addr
+            // Ok to use `as` here because the value is not wider than an `u64`.
+            .checked_add(size_of::<T>() as u64 - 1)
+            .ok_or(guest_memory::Error::Overflow)?;
+
+        if self.address_in_range(last_byte) {
+            // The addition cannot overflow because we've checked the offset is within bounds.
+            // Using integer arithmetic instead of `ptr::offset()`, because the safety requirements
+            // become tricky on 32-bit platforms due to an `isize` being quite small. It's ok to
+            // use `as` below due to the check at the beginning of the method.
+            let ptr_value = self.as_ptr() as u64 + addr.raw_value();
+            Ok(ptr_value as *mut T)
+        } else {
+            Err(guest_memory::Error::InvalidMemoryRegionAccess(
+                self.start_addr().unchecked_add(last_byte.raw_value()),
+            ))
+        }
+    }
 }
 
 impl Deref for GuestRegionMmap {
@@ -203,6 +230,16 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
             .unwrap()
             .read_slice(buf, maddr)
             .map_err(Into::into)
+    }
+
+    fn atomic_ref<T: AtomicInteger>(
+        &self,
+        addr: AlignedMemoryRegionAddress<T>,
+    ) -> guest_memory::Result<&T> {
+        let ptr = self.check_ptr(addr.into())? as *const T;
+        // Safe because we've checked the pointer is valid for access, `addr` is guaranteed to
+        // be aligned, and there are no aliasing concerns for atomic integers.
+        Ok(unsafe { &*ptr })
     }
 
     /// # Examples

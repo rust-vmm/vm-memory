@@ -11,11 +11,18 @@
 //! Define the `ByteValued` trait to mark that it is safe to instantiate the struct with random
 //! data.
 
-use crate::VolatileSlice;
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::result::Result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
+use std::sync::atomic::{
+    AtomicI16, AtomicI32, AtomicI8, AtomicIsize, AtomicU16, AtomicU32, AtomicU8, AtomicUsize,
+};
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+use std::sync::atomic::{AtomicI64, AtomicU64};
+
+use crate::align::Aligned;
+use crate::VolatileSlice;
 
 /// Types for which it is safe to initialize from raw data.
 ///
@@ -153,6 +160,33 @@ byte_valued_type!(i32);
 byte_valued_type!(i64);
 byte_valued_type!(isize);
 
+/// Objects that implement this trait must consist exclusively of atomic types
+/// from [`std::sync::atomic`](https://doc.rust-lang.org/std/sync/atomic/), except for
+/// [`AtomicPtr<T>`](https://doc.rust-lang.org/std/sync/atomic/struct.AtomicPtr.html).
+pub unsafe trait AtomicInteger: Sync + Send {}
+
+// TODO: Detect availability using #[cfg(target_has_atomic) when it is stabilized.
+// Right now we essentially assume we're running on either x86 or Arm (32 or 64 bit). AFAIK,
+// Rust starts using additional synchronization primitives to implement atomics when they're
+// not natively available, and that doesn't interact safely with how we cast pointers to
+// atomic value references. We should be wary of this when looking at a broader range of
+// platforms.
+
+unsafe impl AtomicInteger for AtomicI8 {}
+unsafe impl AtomicInteger for AtomicI16 {}
+unsafe impl AtomicInteger for AtomicI32 {}
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+unsafe impl AtomicInteger for AtomicI64 {}
+
+unsafe impl AtomicInteger for AtomicU8 {}
+unsafe impl AtomicInteger for AtomicU16 {}
+unsafe impl AtomicInteger for AtomicU32 {}
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+unsafe impl AtomicInteger for AtomicU64 {}
+
+unsafe impl AtomicInteger for AtomicIsize {}
+unsafe impl AtomicInteger for AtomicUsize {}
+
 /// A container to host a range of bytes and access its content.
 ///
 /// Candidates which may implement this trait include:
@@ -192,6 +226,11 @@ pub trait Bytes<A> {
     /// Returns an error if there isn't enough data within the container to fill the entire slice.
     /// Part of the data may have been copied nevertheless.
     fn read_slice(&self, buf: &mut [u8], addr: A) -> Result<(), Self::E>;
+
+    /// Returns a ref that allows atomic operations for `T` at the specified address.
+    ///
+    /// TODO: add rest of doc
+    fn atomic_ref<T: AtomicInteger>(&self, addr: Aligned<A, T>) -> Result<&T, Self::E>;
 
     /// Writes an object into the container at `addr`.
     ///
@@ -273,11 +312,12 @@ pub trait Bytes<A> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ByteValued, Bytes};
     use std::fmt::Debug;
     use std::io::{Read, Write};
     use std::mem::{align_of, size_of};
     use std::slice;
+
+    use crate::{Aligned, AtomicInteger, ByteValued, Bytes};
 
     fn check_byte_valued_type<T>()
     where
@@ -380,6 +420,10 @@ mod tests {
             buf.copy_from_slice(&self.container[addr..buf.len()]);
 
             Ok(())
+        }
+
+        fn atomic_ref<T: AtomicInteger>(&self, _: Aligned<usize, T>) -> Result<&T, Self::E> {
+            unimplemented!()
         }
 
         fn read_from<F>(&self, _: usize, _: &mut F, _: usize) -> Result<usize, Self::E>

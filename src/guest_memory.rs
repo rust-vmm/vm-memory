@@ -44,7 +44,7 @@ use std::sync::Arc;
 
 use crate::address::{Address, AddressValue};
 use crate::align::{Aligned, AlignmentError};
-use crate::bytes::Bytes;
+use crate::bytes::{AtomicInteger, Bytes};
 use crate::volatile_memory;
 
 static MAX_ACCESS_CHUNK: usize = 4096;
@@ -55,6 +55,8 @@ static MAX_ACCESS_CHUNK: usize = 4096;
 pub enum Error {
     /// Failure in finding a guest address in any memory regions mapped by this guest.
     InvalidGuestAddress(GuestAddress),
+    /// Invalid guest address computed while accessing a memory region.
+    InvalidMemoryRegionAccess(GuestAddress),
     /// Couldn't read/write from the given source.
     IOError(io::Error),
     /// Incomplete read or write.
@@ -63,6 +65,8 @@ pub enum Error {
     InvalidBackendAddress,
     /// Host virtual address not available.
     HostAddressNotAvailable,
+    /// Overflow occurred while computing an address.
+    Overflow,
 }
 
 impl From<volatile_memory::Error> for Error {
@@ -96,6 +100,9 @@ impl Display for Error {
             Error::InvalidGuestAddress(addr) => {
                 write!(f, "invalid guest address {}", addr.raw_value())
             }
+            Error::InvalidMemoryRegionAccess(addr) => {
+                write!(f, "invalid memory region access at {}", addr.raw_value(),)
+            }
             Error::IOError(error) => write!(f, "{}", error),
             Error::PartialBuffer {
                 expected,
@@ -107,6 +114,7 @@ impl Display for Error {
             ),
             Error::InvalidBackendAddress => write!(f, "invalid backend address"),
             Error::HostAddressNotAvailable => write!(f, "host virtual address not available"),
+            Error::Overflow => write!(f, "address overflow"),
         }
     }
 }
@@ -117,9 +125,23 @@ impl Display for Error {
 /// On ARM64, a 32-bit hypervisor may be used to support a 64-bit guest. For simplicity,
 /// `u64` is used to store the the raw value no matter if the guest a 32-bit or 64-bit virtual
 /// machine.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub struct GuestAddress(pub u64);
+
+impl From<u64> for GuestAddress {
+    fn from(value: u64) -> Self {
+        GuestAddress(value)
+    }
+}
+
+impl From<GuestAddress> for u64 {
+    fn from(addr: GuestAddress) -> Self {
+        addr.0
+    }
+}
+
 impl_address_ops!(GuestAddress, u64);
+impl_address_bit_ops!(GuestAddress, u64);
 
 /// Wraps a `GuestAddress` that's known to be aligned with respect to `T`.
 pub type AlignedGuestAddress<T> = Aligned<GuestAddress, T>;
@@ -133,9 +155,23 @@ impl<T> std::convert::TryFrom<GuestAddress> for AlignedGuestAddress<T> {
 }
 
 /// Represents an offset inside a region.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub struct MemoryRegionAddress(pub u64);
+
+impl From<u64> for MemoryRegionAddress {
+    fn from(value: u64) -> Self {
+        MemoryRegionAddress(value)
+    }
+}
+
+impl From<MemoryRegionAddress> for u64 {
+    fn from(addr: MemoryRegionAddress) -> Self {
+        addr.0
+    }
+}
+
 impl_address_ops!(MemoryRegionAddress, u64);
+impl_address_bit_ops!(MemoryRegionAddress, u64);
 
 /// Wraps a `MemoryRegionAddress` that's known to be aligned with respect to `T`.
 pub type AlignedMemoryRegionAddress<T> = Aligned<MemoryRegionAddress, T>;
@@ -642,7 +678,7 @@ pub trait GuestMemory {
     }
 }
 
-impl<T: GuestMemory> Bytes<GuestAddress> for T {
+impl<M: GuestMemory> Bytes<GuestAddress> for M {
     type E = Error;
 
     fn write(&self, buf: &[u8], addr: GuestAddress) -> Result<usize> {
@@ -726,6 +762,15 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
             });
         }
         Ok(())
+    }
+
+    fn atomic_ref<T: AtomicInteger>(&self, addr: AlignedGuestAddress<T>) -> Result<&T> {
+        // An aligned atomic integer cannot span multiple regions.
+        let (region, region_addr) = self
+            .to_region_addr(addr.into())
+            .ok_or_else(|| Error::InvalidGuestAddress(addr.into()))?;
+        // Safe because we know the address is properly aligned.
+        region.atomic_ref(unsafe { AlignedMemoryRegionAddress::new(region_addr) })
     }
 
     /// # Examples

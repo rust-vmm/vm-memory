@@ -33,11 +33,23 @@ fn check_addr_aligned<Addr: Address, T>(addr: Addr) -> result::Result<(), Alignm
 }
 
 /// An address that's aligned with respect to `T`.
-#[derive(Clone, Copy)]
 pub struct Aligned<Addr, T> {
     addr: Addr,
     phantom: PhantomData<*const T>,
 }
+
+// Implementing `Clone` and `Copy` manually because deriving them did not work well
+// (most likely because `T` does not need to be `Clone`/`Copy` here).
+impl<Addr: Clone, T> Clone for Aligned<Addr, T> {
+    fn clone(&self) -> Self {
+        Self {
+            addr: self.addr.clone(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<Addr: Copy, T> Copy for Aligned<Addr, T> {}
 
 impl<Addr, T> Aligned<Addr, T> {
     /// Instantiate a new `Aligned` value without checking the alignment.

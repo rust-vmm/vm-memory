@@ -71,12 +71,18 @@ pub trait Address:
     + PartialOrd
     + BitAnd<<Self as AddressValue>::V, Output = Self>
     + BitOr<<Self as AddressValue>::V, Output = Self>
+    + From<<Self as AddressValue>::V>
+    + Into<<Self as AddressValue>::V>
 {
     /// Creates an address from a raw address value.
-    fn new(addr: Self::V) -> Self;
+    fn new(addr: Self::V) -> Self {
+        Self::from(addr)
+    }
 
-    /// Returns the raw value of the address.
-    fn raw_value(&self) -> Self::V;
+    /// Returns the raw address value.
+    fn raw_value(&self) -> Self::V {
+        (*self).into()
+    }
 
     /// Returns the bitwise and of the address with the given mask.
     fn mask(&self, mask: Self::V) -> Self::V {
@@ -156,56 +162,48 @@ macro_rules! impl_address_ops {
         }
 
         impl Address for $T {
-            fn new(value: $V) -> $T {
-                $T(value)
-            }
-
-            fn raw_value(&self) -> $V {
-                self.0
-            }
-
             fn checked_offset_from(&self, base: $T) -> Option<$V> {
-                self.0.checked_sub(base.0)
+                self.raw_value().checked_sub(base.raw_value())
             }
 
             fn checked_add(&self, other: $V) -> Option<$T> {
-                self.0.checked_add(other).map($T)
+                self.raw_value().checked_add(other).map($T::from)
             }
 
             fn overflowing_add(&self, other: $V) -> ($T, bool) {
-                let (t, ovf) = self.0.overflowing_add(other);
-                ($T(t), ovf)
+                let (t, ovf) = self.raw_value().overflowing_add(other);
+                ($T::from(t), ovf)
             }
 
             fn unchecked_add(&self, offset: $V) -> $T {
-                $T(self.0 + offset)
+                $T::from(self.raw_value() + offset)
             }
 
             fn checked_sub(&self, other: $V) -> Option<$T> {
-                self.0.checked_sub(other).map($T)
+                self.raw_value().checked_sub(other).map($T::from)
             }
 
             fn overflowing_sub(&self, other: $V) -> ($T, bool) {
-                let (t, ovf) = self.0.overflowing_sub(other);
-                ($T(t), ovf)
+                let (t, ovf) = self.raw_value().overflowing_sub(other);
+                ($T::from(t), ovf)
             }
 
             fn unchecked_sub(&self, other: $V) -> $T {
-                $T(self.0 - other)
+                $T::from(self.raw_value() - other)
             }
         }
+    };
+}
 
-        impl Default for $T {
-            fn default() -> $T {
-                Self::new(0 as $V)
-            }
-        }
-
+// Defining this as a separate helper macro because some types already implement
+// the respective bitwise operations.
+macro_rules! impl_address_bit_ops {
+    ($T:ident, $V:ty) => {
         impl BitAnd<$V> for $T {
             type Output = $T;
 
             fn bitand(self, other: $V) -> $T {
-                $T(self.0 & other)
+                $T::from(self.raw_value() & other)
             }
         }
 
@@ -213,19 +211,35 @@ macro_rules! impl_address_ops {
             type Output = $T;
 
             fn bitor(self, other: $V) -> $T {
-                $T(self.0 | other)
+                $T::from(self.raw_value() | other)
             }
         }
     };
 }
 
+impl_address_ops!(usize, usize);
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+    #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
     struct MockAddress(pub u64);
+
+    impl From<u64> for MockAddress {
+        fn from(value: u64) -> Self {
+            MockAddress(value)
+        }
+    }
+
+    impl Into<u64> for MockAddress {
+        fn into(self) -> u64 {
+            self.0
+        }
+    }
+
     impl_address_ops!(MockAddress, u64);
+    impl_address_bit_ops!(MockAddress, u64);
 
     #[test]
     fn test_new() {

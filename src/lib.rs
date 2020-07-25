@@ -27,7 +27,7 @@ pub mod align;
 pub use align::{Aligned, AlignmentError};
 
 pub mod bytes;
-pub use bytes::{ByteValued, Bytes};
+pub use bytes::{AtomicInteger, ByteValued, Bytes};
 
 pub mod endian;
 pub use endian::{Be16, Be32, Be64, BeSize, Le16, Le32, Le64, LeSize};
@@ -57,6 +57,6 @@ pub use atomic::{GuestMemoryAtomic, GuestMemoryLoadGuard};
 
 pub mod volatile_memory;
 pub use volatile_memory::{
-    AtomicInteger, Error as VolatileMemoryError, Result as VolatileMemoryResult, VolatileArrayRef,
-    VolatileMemory, VolatileRef, VolatileSlice,
+    Error as VolatileMemoryError, Result as VolatileMemoryResult, VolatileArrayRef, VolatileMemory,
+    VolatileRef, VolatileSlice,
 };
