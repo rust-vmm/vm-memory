@@ -12,7 +12,6 @@ autobenches = false
 
 [features]
 default = []
-integer-atomics = []
 backend-mmap = []
 backend-atomic = ["arc-swap"]
 

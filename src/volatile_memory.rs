@@ -122,29 +122,29 @@ pub fn compute_offset(base: usize, offset: usize) -> Result<usize> {
 /// Objects that implement this trait must consist exclusively of atomic types
 /// from [`std::sync::atomic`](https://doc.rust-lang.org/std/sync/atomic/), except for
 /// [`AtomicPtr<T>`](https://doc.rust-lang.org/std/sync/atomic/struct.AtomicPtr.html).
-pub unsafe trait AtomicValued: Sync + Send {}
+pub unsafe trait AtomicInteger: Sync + Send {}
 
-// also conditionalize on #[cfg(target_has_atomic) when it is stabilized
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicBool {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicI8 {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicI16 {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicI32 {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicI64 {}
-unsafe impl AtomicValued for std::sync::atomic::AtomicIsize {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicU8 {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicU16 {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicU32 {}
-#[cfg(feature = "integer-atomics")]
-unsafe impl AtomicValued for std::sync::atomic::AtomicU64 {}
-unsafe impl AtomicValued for std::sync::atomic::AtomicUsize {}
+// TODO: Detect availability using #[cfg(target_has_atomic) when it is stabilized.
+// Right now we essentially assume we're running on either x86 or Arm (32 or 64 bit). AFAIK,
+// Rust starts using additional synchronization primitives to implement atomics when they're
+// not natively available, and that doesn't interact safely with how we cast pointers to
+// atomic value references. We should be wary of this when looking at a broader range of
+// platforms.
+
+unsafe impl AtomicInteger for std::sync::atomic::AtomicI8 {}
+unsafe impl AtomicInteger for std::sync::atomic::AtomicI16 {}
+unsafe impl AtomicInteger for std::sync::atomic::AtomicI32 {}
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+unsafe impl AtomicInteger for std::sync::atomic::AtomicI64 {}
+
+unsafe impl AtomicInteger for std::sync::atomic::AtomicU8 {}
+unsafe impl AtomicInteger for std::sync::atomic::AtomicU16 {}
+unsafe impl AtomicInteger for std::sync::atomic::AtomicU32 {}
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+unsafe impl AtomicInteger for std::sync::atomic::AtomicU64 {}
+
+unsafe impl AtomicInteger for std::sync::atomic::AtomicIsize {}
+unsafe impl AtomicInteger for std::sync::atomic::AtomicUsize {}
 
 /// Types that support raw volatile access to their data.
 pub trait VolatileMemory {
@@ -233,7 +233,7 @@ pub trait VolatileMemory {
     ///
     /// If the resulting pointer is not aligned, this method will return an
     /// [`Error`](enum.Error.html).
-    fn get_atomic_ref<T: AtomicValued>(&self, offset: usize) -> Result<&T> {
+    fn get_atomic_ref<T: AtomicInteger>(&self, offset: usize) -> Result<&T> {
         let slice = self.get_slice(offset, size_of::<T>())?;
         slice.check_alignment(align_of::<T>())?;
 
