@@ -39,9 +39,11 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::ops::{BitAnd, BitOr, Deref};
 use std::rc::Rc;
+use std::result;
 use std::sync::Arc;
 
 use crate::address::{Address, AddressValue};
+use crate::align::{Aligned, AlignmentError};
 use crate::bytes::Bytes;
 use crate::volatile_memory;
 
@@ -119,10 +121,32 @@ impl Display for Error {
 pub struct GuestAddress(pub u64);
 impl_address_ops!(GuestAddress, u64);
 
+/// Wraps a `GuestAddress` that's known to be aligned with respect to `T`.
+pub type AlignedGuestAddress<T> = Aligned<GuestAddress, T>;
+
+impl<T> std::convert::TryFrom<GuestAddress> for AlignedGuestAddress<T> {
+    type Error = AlignmentError;
+
+    fn try_from(other: GuestAddress) -> result::Result<Self, Self::Error> {
+        Self::from_addr(other)
+    }
+}
+
 /// Represents an offset inside a region.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct MemoryRegionAddress(pub u64);
 impl_address_ops!(MemoryRegionAddress, u64);
+
+/// Wraps a `MemoryRegionAddress` that's known to be aligned with respect to `T`.
+pub type AlignedMemoryRegionAddress<T> = Aligned<MemoryRegionAddress, T>;
+
+impl<T> std::convert::TryFrom<MemoryRegionAddress> for AlignedMemoryRegionAddress<T> {
+    type Error = AlignmentError;
+
+    fn try_from(other: MemoryRegionAddress) -> result::Result<Self, Self::Error> {
+        Self::from_addr(other)
+    }
+}
 
 /// Type of the raw value stored in a `GuestAddress` object.
 pub type GuestUsize = <GuestAddress as AddressValue>::V;
