@@ -592,6 +592,13 @@ impl Bytes<usize> for VolatileSlice<'_> {
         self.get_atomic_ref(addr.into())
     }
 
+    // TODO: We're currently using the default `Bytes` implementations for `write_aligned` and
+    // `read_aligned`. That's fine as long as there are no additional semantics associated with
+    // the two methods beyond having a parameter whose value is always aligned with respect to
+    // `T`. If that ever changes, we have to be wary of the implications for `VolatileSlice`
+    // objects which do not start at aligned addresses themselves, and thus do not properly
+    // support `Aligned<A, T>` semantics.
+
     /// # Examples
     ///
     /// * Read bytes from /dev/urandom

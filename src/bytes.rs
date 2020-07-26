@@ -12,9 +12,11 @@
 //! data.
 
 use std::io::{Read, Write};
-use std::mem::size_of;
+use std::mem::{align_of, size_of};
+use std::ptr;
 use std::result::Result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
+use std::sync::atomic::Ordering;
 use std::sync::atomic::{
     AtomicI16, AtomicI32, AtomicI8, AtomicIsize, AtomicU16, AtomicU32, AtomicU8, AtomicUsize,
 };
@@ -22,7 +24,7 @@ use std::sync::atomic::{
 use std::sync::atomic::{AtomicI64, AtomicU64};
 
 use crate::align::Aligned;
-use crate::VolatileSlice;
+use crate::{Address, VolatileSlice};
 
 /// Types for which it is safe to initialize from raw data.
 ///
@@ -125,6 +127,26 @@ pub unsafe trait ByteValued: Copy + Default + Send + Sync {
             VolatileSlice::new(self as *mut Self as usize as *mut _, size_of::<Self>())
         }
     }
+
+    /// Attempts to reinterpret `self` as a value of type `U`, which is a safe operation
+    /// for `ByteValued` types as long as they have the same size. This method is a no-op
+    /// if `U` has the same alignment as `Self`.
+    fn transmute<U: ByteValued>(&self) -> Option<U> {
+        if size_of::<Self>() != size_of::<U>() {
+            return None;
+        }
+
+        let src = self as *const Self as *const U;
+
+        Some(if align_of::<U>() <= align_of::<Self>() {
+            // Safe because `src` is valid for reads, properly aligned, and (trivially)
+            // properly initialized.
+            unsafe { ptr::read(src) }
+        } else {
+            // Safe because `src` is valid for reads and (trivially) properly initialized.
+            unsafe { ptr::read_unaligned(src) }
+        })
+    }
 }
 
 // All intrinsic types and arrays of intrinsic types are ByteValued. They are just numbers.
@@ -187,6 +209,24 @@ unsafe impl AtomicInteger for AtomicU64 {}
 unsafe impl AtomicInteger for AtomicIsize {}
 unsafe impl AtomicInteger for AtomicUsize {}
 
+/// A marker trait used to identify types which can be accessed atomically. We need to add some
+/// more details here, but one important requirement is for types marked with `AtomicAccess` not
+/// to span multiple regions when aligned.
+pub unsafe trait AtomicAccess: ByteValued {}
+
+unsafe impl AtomicAccess for u8 {}
+unsafe impl AtomicAccess for u16 {}
+unsafe impl AtomicAccess for u32 {}
+unsafe impl AtomicAccess for usize {}
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+unsafe impl AtomicAccess for u64 {}
+unsafe impl AtomicAccess for i8 {}
+unsafe impl AtomicAccess for i16 {}
+unsafe impl AtomicAccess for i32 {}
+unsafe impl AtomicAccess for isize {}
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+unsafe impl AtomicAccess for i64 {}
+
 /// A container to host a range of bytes and access its content.
 ///
 /// Candidates which may implement this trait include:
@@ -194,7 +234,7 @@ unsafe impl AtomicInteger for AtomicUsize {}
 /// - mmapped memory areas
 /// - data files
 /// - a proxy to access memory on remote
-pub trait Bytes<A> {
+pub trait Bytes<A: Address> {
     /// Associated error codes
     type E;
 
@@ -231,6 +271,87 @@ pub trait Bytes<A> {
     ///
     /// TODO: add rest of doc
     fn atomic_ref<T: AtomicInteger>(&self, addr: Aligned<A, T>) -> Result<&T, Self::E>;
+
+    /// Perform an atomic write at the specified address.
+    fn write_atomic<T: AtomicAccess>(
+        &self,
+        val: T,
+        addr: Aligned<A, T>,
+        order: Ordering,
+    ) -> Result<(), Self::E> {
+        // This invariant must hold for every type that implements `AtomicAccess`.
+        assert_eq!(size_of::<T>(), align_of::<T>());
+
+        match size_of::<T>() {
+            // The `addr.cast().unwrap()` and `val.transmute().unwrap()` are both no-ops
+            // because we ensure the types have the same size and alignment.
+            1 => self
+                .atomic_ref::<AtomicU8>(addr.cast().unwrap())?
+                .store(val.transmute().unwrap(), order),
+            2 => self
+                .atomic_ref::<AtomicU16>(addr.cast().unwrap())?
+                .store(val.transmute().unwrap(), order),
+            4 => self
+                .atomic_ref::<AtomicU32>(addr.cast().unwrap())?
+                .store(val.transmute().unwrap(), order),
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+            8 => self
+                .atomic_ref::<AtomicU64>(addr.cast().unwrap())?
+                .store(val.transmute().unwrap(), order),
+            _ => unreachable!(),
+        }
+
+        Ok(())
+    }
+
+    /// Perform an atomic read from the specified address.
+    fn read_atomic<T: AtomicAccess>(
+        &self,
+        addr: Aligned<A, T>,
+        order: Ordering,
+    ) -> Result<T, Self::E> {
+        // This invariant must hold for every type that implements `AtomicAccess`.
+        assert_eq!(size_of::<T>(), align_of::<T>());
+
+        Ok(match size_of::<T>() {
+            // The `addr.cast().unwrap()` and `transmute().unwrap()` are both no-ops
+            // because we ensure the types have the same size and alignment.
+            1 => self
+                .atomic_ref::<AtomicU8>(addr.cast().unwrap())?
+                .load(order)
+                .transmute()
+                .unwrap(),
+            2 => self
+                .atomic_ref::<AtomicU16>(addr.cast().unwrap())?
+                .load(order)
+                .transmute()
+                .unwrap(),
+            4 => self
+                .atomic_ref::<AtomicU32>(addr.cast().unwrap())?
+                .load(order)
+                .transmute()
+                .unwrap(),
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+            8 => self
+                .atomic_ref::<AtomicU64>(addr.cast().unwrap())?
+                .load(order)
+                .transmute()
+                .unwrap(),
+            _ => unreachable!(),
+        })
+    }
+
+    /// Writes an object into the container at `addr`, which is guaranteed to be aligned with
+    /// respect to `T`.
+    fn write_aligned<T: ByteValued>(&self, val: T, addr: Aligned<A, T>) -> Result<(), Self::E> {
+        self.write_obj(val, addr.into())
+    }
+
+    /// Reads an object from the container at `addr`, which is guaranteed to be aligned with
+    /// respect to `T`.
+    fn read_aligned<T: ByteValued>(&self, addr: Aligned<A, T>) -> Result<T, Self::E> {
+        self.read_obj(addr.into())
+    }
 
     /// Writes an object into the container at `addr`.
     ///

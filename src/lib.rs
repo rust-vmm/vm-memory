@@ -27,7 +27,7 @@ pub mod align;
 pub use align::{Aligned, AlignmentError};
 
 pub mod bytes;
-pub use bytes::{AtomicInteger, ByteValued, Bytes};
+pub use bytes::{AtomicAccess, AtomicInteger, ByteValued, Bytes};
 
 pub mod endian;
 pub use endian::{Be16, Be32, Be64, BeSize, Le16, Le32, Le64, LeSize};
