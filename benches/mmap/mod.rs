@@ -13,7 +13,7 @@ use std::path::Path;
 
 use criterion::{black_box, Criterion};
 
-use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory};
 
 const REGION_SIZE: u64 = 0x8000_0000;
 const REGIONS_COUNT: u64 = 8;
@@ -62,12 +62,8 @@ impl AccessKind {
 }
 
 pub fn benchmark_for_mmap(c: &mut Criterion) {
-    let mut regions: Vec<(GuestAddress, usize)> = Vec::new();
-    for i in 0..REGIONS_COUNT {
-        regions.push((GuestAddress(i * REGION_SIZE), REGION_SIZE as usize));
-    }
+    let memory = super::create_guest_memory_mmap(REGION_SIZE, REGIONS_COUNT);
 
-    let memory = GuestMemoryMmap::from_ranges(regions.as_slice()).unwrap();
     // Just a sanity check.
     assert_eq!(
         memory.last_addr(),
