@@ -5,6 +5,10 @@
 - [[#106]](https://github.com/rust-vmm/vm-memory/issues/106): Asserts trigger
   on zero-length access.  
 
+### Added
+- [[#109]](https://github.com/rust-vmm/vm-memory/pull/109): Added `build_raw` to
+  `MmapRegion` which can be used to operate on externally created mappings.
+
 ## [v0.2.0]
 
 ### Added

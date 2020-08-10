@@ -28,6 +28,10 @@ use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice
 pub enum Error {
     /// The specified file offset and length cause overflow when added.
     InvalidOffsetLength,
+    /// The specified pointer to the mapping is not page-aligned.
+    InvalidPointer,
+    /// The specified size for the region is not a multiple of the page size.
+    InvalidSize,
     /// The forbidden `MAP_FIXED` flag was specified.
     MapFixed,
     /// Mappings using the same fd overlap in terms of file offset and length.
@@ -44,6 +48,14 @@ impl fmt::Display for Error {
             Error::InvalidOffsetLength => write!(
                 f,
                 "The specified file offset and length cause overflow when added"
+            ),
+            Error::InvalidPointer => write!(
+                f,
+                "The specified pointer to the mapping is not page-aligned",
+            ),
+            Error::InvalidSize => write!(
+                f,
+                "The specified size for the region is not a multiple of the page size",
             ),
             Error::MapFixed => write!(f, "The forbidden `MAP_FIXED` flag was specified"),
             Error::MappingOverlap => write!(
@@ -79,6 +91,7 @@ pub struct MmapRegion {
     file_offset: Option<FileOffset>,
     prot: i32,
     flags: i32,
+    owned: bool,
 }
 
 // Send and Sync aren't automatically inherited for the raw address pointer.
@@ -160,6 +173,48 @@ impl MmapRegion {
             file_offset,
             prot,
             flags,
+            owned: true,
+        })
+    }
+
+    /// Creates a MmapRegion instance for an externally managed mapping.
+    ///
+    /// This method is intended to be used exclusively in situations in which the mapping backing
+    /// the region is provided by an entity outside the control of the caller (e.g. the dynamic
+    /// linker).
+    ///
+    /// # Arguments
+    /// * `addr` - Pointer to the start of the mapping. Must be page-aligned.
+    /// * `size` - The size of the memory region in bytes. Must be a multiple of the page size.
+    /// * `prot` - Must correspond to the memory protection attributes of the existing mapping.
+    /// * `flags` - Must correspond to the flags that were passed to `mmap` for the creation of
+    ///             the existing mapping.
+    ///
+    /// # Safety
+    ///
+    /// To use this safely, the caller must guarantee that `addr` and `size` define a region within
+    /// a valid mapping that is already present in the process.
+    pub unsafe fn build_raw(addr: *mut u8, size: usize, prot: i32, flags: i32) -> Result<Self> {
+        // Safe because this call just returns the page size and doesn't have any side effects.
+        let page_size = libc::sysconf(libc::_SC_PAGESIZE) as usize;
+
+        // Check that the pointer to the mapping is page-aligned.
+        if (addr as usize) & (page_size - 1) != 0 {
+            return Err(Error::InvalidPointer);
+        }
+
+        // Check that the size is a multiple of the page size.
+        if size & (page_size - 1) != 0 {
+            return Err(Error::InvalidSize);
+        }
+
+        Ok(Self {
+            addr,
+            size,
+            file_offset: None,
+            prot,
+            flags,
+            owned: false,
         })
     }
 
@@ -188,6 +243,11 @@ impl MmapRegion {
     /// Returns the value of the `flags` parameter passed to `mmap` when mapping this region.
     pub fn flags(&self) -> i32 {
         self.flags
+    }
+
+    /// Returns `true` if the mapping is owned by this `MmapRegion` instance.
+    pub fn owned(&self) -> bool {
+        self.owned
     }
 
     /// Checks whether this region and `other` are backed by overlapping
@@ -252,8 +312,10 @@ impl Drop for MmapRegion {
     fn drop(&mut self) {
         // This is safe because we mmap the area at addr ourselves, and nobody
         // else is holding a reference to it.
-        unsafe {
-            libc::munmap(self.addr as *mut libc::c_void, self.size);
+        if self.owned {
+            unsafe {
+                libc::munmap(self.addr as *mut libc::c_void, self.size);
+            }
         }
     }
 }
@@ -373,6 +435,28 @@ mod tests {
         assert_eq!(r.file_offset().unwrap().start(), offset as u64);
         assert_eq!(r.prot(), libc::PROT_READ | libc::PROT_WRITE);
         assert_eq!(r.flags(), libc::MAP_NORESERVE | libc::MAP_PRIVATE);
+        assert!(r.owned());
+    }
+
+    #[test]
+    fn test_mmap_region_build_raw() {
+        let addr = 0;
+        let size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+        let prot = libc::PROT_READ | libc::PROT_WRITE;
+        let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
+
+        let r = unsafe { MmapRegion::build_raw((addr + 1) as *mut u8, size, prot, flags) };
+        assert_eq!(format!("{:?}", r.unwrap_err()), format!("InvalidPointer"));
+
+        let r = unsafe { MmapRegion::build_raw(addr as *mut u8, size + 1, prot, flags) };
+        assert_eq!(format!("{:?}", r.unwrap_err()), format!("InvalidSize"));
+
+        let r = unsafe { MmapRegion::build_raw(addr as *mut u8, size, prot, flags).unwrap() };
+
+        assert_eq!(r.size(), size);
+        assert_eq!(r.prot(), libc::PROT_READ | libc::PROT_WRITE);
+        assert_eq!(r.flags(), libc::MAP_NORESERVE | libc::MAP_PRIVATE);
+        assert!(!r.owned());
     }
 
     #[test]
