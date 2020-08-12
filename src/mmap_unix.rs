@@ -17,8 +17,6 @@ use std::os::unix::io::AsRawFd;
 use std::ptr::null_mut;
 use std::result;
 
-use libc;
-
 use crate::guest_memory::FileOffset;
 use crate::mmap::{check_file_offset, AsSlice};
 use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
