@@ -8,7 +8,7 @@
 
 //! Traits for allocating, handling and interacting with the VM's physical memory.
 //!
-//! For a typical hypervisor, there are seveval components, such as boot loader, virtual device
+//! For a typical hypervisor, there are several components, such as boot loader, virtual device
 //! drivers, virtio backend drivers and vhost drivers etc, that need to access VM's physical memory.
 //! This crate aims to provide a set of stable traits to decouple VM memory consumers from VM
 //! memory providers. Based on these traits, VM memory consumers could access VM's physical memory

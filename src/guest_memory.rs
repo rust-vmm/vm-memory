@@ -521,8 +521,8 @@ pub trait GuestMemory {
 
     /// Invokes callback `f` to handle data in the address range `[addr, addr + count)`.
     ///
-    /// /// The address range `[addr, addr + count)` may span more than one
-    /// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) objects, or even have holes in it.
+    /// The address range `[addr, addr + count)` may span more than one
+    /// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) object, or even have holes in it.
     /// So [`try_access()`](trait.GuestMemory.html#method.try_access) invokes the callback 'f'
     /// for each [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) object involved and returns:
     /// - the error code returned by the callback 'f'
@@ -577,7 +577,7 @@ pub trait GuestMemory {
     /// concurrent accesses to the underlying guest memory.
     ///
     /// # Arguments
-    /// * `guest_addr` - Guest address to convert.
+    /// * `addr` - Guest address to convert.
     ///
     /// # Examples
     ///
@@ -640,14 +640,14 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     }
 
     /// # Examples
-    /// * Write a slice at guestaddress 0x200.
+    /// * Write a slice at guestaddress 0x1000.
     ///
     /// ```
     /// # #[cfg(feature = "backend-mmap")]
     /// # use vm_memory::{Bytes, GuestAddress, mmap::GuestMemoryMmap};
     ///
     /// # #[cfg(feature = "backend-mmap")]
-    /// # fn test_write_u64() {
+    /// # fn test_write_slice() {
     ///     let start_addr = GuestAddress(0x1000);
     ///     let mut gm =
     ///             GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
@@ -657,7 +657,7 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     /// # }
     ///
     /// # #[cfg(feature = "backend-mmap")]
-    /// # test_write_u64();
+    /// # test_write_slice();
     /// ```
     fn write_slice(&self, buf: &[u8], addr: GuestAddress) -> Result<()> {
         let res = self.write(buf, addr)?;
@@ -671,14 +671,14 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     }
 
     /// # Examples
-    /// * Read a slice of length 16 at guestaddress 0x200.
+    /// * Read a slice of length 16 at guestaddress 0x1000.
     ///
     /// ```
     /// # #[cfg(feature = "backend-mmap")]
     /// # use vm_memory::{Bytes, GuestAddress, mmap::GuestMemoryMmap};
     ///
     /// # #[cfg(feature = "backend-mmap")]
-    /// # fn test_write_u64() {
+    /// # fn test_read_slice() {
     ///     let start_addr = GuestAddress(0x1000);
     ///     let mut gm =
     ///             GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
@@ -689,7 +689,7 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     /// # }
     ///
     /// # #[cfg(feature = "backend-mmap")]
-    /// # test_write_u64()
+    /// # test_read_slice()
     /// ```
     fn read_slice(&self, buf: &mut [u8], addr: GuestAddress) -> Result<()> {
         let res = self.read(buf, addr)?;
