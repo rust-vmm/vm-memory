@@ -1,14 +1,10 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE-BSD-3-Clause file.
-//
-// SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
+// SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 #![cfg(feature = "backend-mmap")]
 
 extern crate criterion;
 extern crate vm_memory;
-extern crate vmm_sys_util;
 
 use std::fs::{File, OpenOptions};
 use std::io::Cursor;
@@ -176,7 +172,7 @@ pub fn benchmark_for_mmap(c: &mut Criterion) {
             })
         });
 
-        c.bench_function(format!("write_exact_to_{:#0x}", offset).as_str(), |b| {
+        c.bench_function(format!("write_exact_to_{:#0X}", offset).as_str(), |b| {
             b.iter(|| {
                 black_box(
                     memory
