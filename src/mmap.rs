@@ -1431,4 +1431,22 @@ mod tests {
         assert!(guest_mem.get_slice(GuestAddress(0x600), 0x100).is_err());
         assert!(guest_mem.get_slice(GuestAddress(0xc00), 0x100).is_err());
     }
+
+    #[test]
+    fn test_region_check_ptr() {
+        let region_size = 0x1000;
+        let region =
+            GuestRegionMmap::new(MmapRegion::new(region_size).unwrap(), GuestAddress(0)).unwrap();
+
+        for addr_value in [0, 0x123, region_size as u64 - 8].iter().copied() {
+            let ptr = region
+                .check_ptr::<u64>(MemoryRegionAddress(addr_value))
+                .unwrap();
+            assert_eq!(ptr as u64, region.mapping.as_ptr() as u64 + addr_value);
+        }
+
+        assert!(region
+            .check_ptr::<u64>(MemoryRegionAddress(region_size as u64 - 4))
+            .is_err());
+    }
 }

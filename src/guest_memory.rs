@@ -932,8 +932,9 @@ impl<M: GuestMemory> Bytes<GuestAddress> for M {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
     #[cfg(feature = "backend-mmap")]
     use crate::bytes::ByteValued;
     #[cfg(feature = "backend-mmap")]
@@ -1141,5 +1142,26 @@ mod tests {
         assert!(mem
             .write_all_to(addr, &mut Cursor::new(&mut image), 0)
             .is_ok());
+    }
+
+    #[cfg(feature = "backend-mmap")]
+    #[test]
+    fn test_atomic_methods() {
+        use crate::bytes::tests::test_atomic_access;
+
+        let region_len = 0x1000;
+        let addr = GuestAddress(region_len as u64);
+        let bad_offset = 0x1_0000;
+
+        let mem =
+            GuestMemoryMmap::from_ranges(&[(GuestAddress(0), region_len), (addr, region_len)])
+                .unwrap();
+
+        // Test the guest memory object.
+        test_atomic_access(&mem, addr, bad_offset);
+
+        // Test the guest memory region object.
+        let region = mem.find_region(addr).unwrap();
+        test_atomic_access(region, MemoryRegionAddress(0), bad_offset);
     }
 }

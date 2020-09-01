@@ -267,9 +267,7 @@ pub trait Bytes<A: Address> {
     /// Part of the data may have been copied nevertheless.
     fn read_slice(&self, buf: &mut [u8], addr: A) -> Result<(), Self::E>;
 
-    /// Returns a ref that allows atomic operations for `T` at the specified address.
-    ///
-    /// TODO: add rest of doc
+    /// Returns a reference that allows atomic operations for `T` at the specified address.
     fn atomic_ref<T: AtomicInteger>(&self, addr: Aligned<A, T>) -> Result<&T, Self::E>;
 
     /// Perform an atomic write at the specified address.
@@ -432,13 +430,15 @@ pub trait Bytes<A: Address> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::fmt::Debug;
     use std::io::{Read, Write};
     use std::mem::{align_of, size_of};
     use std::slice;
 
-    use crate::{Aligned, AtomicInteger, ByteValued, Bytes};
+    use crate::{AddressValue, Aligned, AtomicInteger, ByteValued, Bytes};
+
+    use super::*;
 
     fn check_byte_valued_type<T>()
     where
@@ -576,6 +576,55 @@ mod tests {
         }
     }
 
+    // Making this pub to be used by different `Bytes` implementors. It helps testing the
+    // `atomic_ref`, `atomic_write`, and `atomic_read` method implementations.
+    pub(crate) fn test_atomic_access<A, B>(bytes: &B, addr: A, bad_offset: <A as AddressValue>::V)
+    where
+        A: Address,
+        B: Bytes<A>,
+        B::E: Debug,
+    {
+        let aligned_atomic = Aligned::<A, AtomicU32>::from_addr(addr).unwrap();
+        let aligned_u32 = aligned_atomic.cast::<u32>().unwrap();
+
+        let value = 123;
+        let another_value = 456;
+
+        bytes
+            .atomic_ref(aligned_atomic)
+            .unwrap()
+            .store(value, Ordering::Relaxed);
+        assert_eq!(bytes.read_aligned(aligned_u32).unwrap(), value);
+
+        bytes
+            .write_atomic(another_value, aligned_u32, Ordering::Relaxed)
+            .unwrap();
+        assert_eq!(
+            bytes.read_atomic(aligned_u32, Ordering::Relaxed).unwrap(),
+            another_value
+        );
+
+        // Invalid addresses.
+        assert!(bytes
+            .atomic_ref(aligned_atomic.offset::<AtomicU32>(bad_offset).unwrap())
+            .is_err());
+
+        assert!(bytes
+            .write_atomic(
+                value,
+                aligned_u32.offset(bad_offset).unwrap(),
+                Ordering::Relaxed
+            )
+            .is_err());
+
+        assert!(bytes
+            .read_atomic(
+                aligned_u32.offset::<u32>(bad_offset).unwrap(),
+                Ordering::Relaxed
+            )
+            .is_err());
+    }
+
     #[test]
     fn test_bytes() {
         let bytes = MockBytesContainer::new();
@@ -605,5 +654,14 @@ mod tests {
         s.as_bytes().copy_from(&a);
         assert_eq!(s.a, 0);
         assert_eq!(s.b, 0x0101_0101);
+    }
+
+    #[test]
+    fn test_transmute() {
+        let a: u64 = 1234;
+        let b = a.transmute::<S>().unwrap();
+
+        assert_eq!(a, b.transmute::<u64>().unwrap());
+        assert!(a.transmute::<u32>().is_none());
     }
 }

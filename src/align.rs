@@ -2,6 +2,7 @@
 //! of addresses by leveraging the type system.
 
 use std::convert::TryFrom;
+use std::fmt::{self, Debug, Formatter};
 use std::marker::PhantomData;
 use std::mem::align_of;
 use std::result;
@@ -50,6 +51,12 @@ impl<Addr: Clone, T> Clone for Aligned<Addr, T> {
 }
 
 impl<Addr: Copy, T> Copy for Aligned<Addr, T> {}
+
+impl<Addr: Debug, T> Debug for Aligned<Addr, T> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "Aligned({:?}, {})", self.addr, align_of::<T>())
+    }
+}
 
 impl<Addr, T> Aligned<Addr, T> {
     /// Instantiate a new `Aligned` value without checking the alignment.
@@ -120,6 +127,83 @@ impl<Addr: Address, T> Aligned<Addr, T> {
             Ok(unsafe { Aligned::new(addr) })
         } else {
             Aligned::from_addr(addr)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::GuestAddress;
+
+    use super::*;
+
+    #[test]
+    fn test_check_addr_aligned() {
+        assert!(check_addr_aligned::<_, u64>(GuestAddress(0x8)).is_ok());
+        assert_eq!(
+            check_addr_aligned::<_, u64>(GuestAddress(0x107)).unwrap_err(),
+            AlignmentError::Misaligned
+        );
+        assert_eq!(
+            check_addr_aligned::<_, u64>(GuestAddress(std::u64::MAX)).unwrap_err(),
+            AlignmentError::Overflow
+        );
+    }
+
+    #[test]
+    fn test_aligned() {
+        let guest_addr = GuestAddress(0x100);
+        let odd_guest_addr = GuestAddress(0x101);
+
+        let a = unsafe { Aligned::<_, u32>::new(guest_addr) };
+        assert_eq!(a.addr, guest_addr);
+        assert_eq!(a.into(), guest_addr);
+
+        {
+            let b = a.clone();
+            assert_eq!(a.addr, b.addr);
+        }
+
+        {
+            let b = unsafe { a.reinterpret::<i32>() };
+            assert_eq!(a.addr, b.addr);
+        }
+
+        {
+            let b = Aligned::<_, u32>::from_addr(guest_addr).unwrap();
+            assert_eq!(b.addr, guest_addr);
+
+            assert_eq!(
+                Aligned::<_, u32>::from_addr(odd_guest_addr).unwrap_err(),
+                AlignmentError::Misaligned
+            );
+        }
+
+        {
+            let b = a.cast::<u16>().unwrap();
+            assert_eq!(a.addr, b.addr);
+            // This is ok because, even though `a` is an `Aligned<GuestAddress, u32>`, the
+            // inner `addr` value is aligned w.r.t. `u64` as well.
+            assert!(a.cast::<u64>().is_ok());
+
+            // Let's also try out an `Aligned<GuestAddress, u32>` that's no longer
+            // aligned for `u64`.
+            let c = Aligned::<_, u32>::from_addr(GuestAddress(0x4)).unwrap();
+            assert_eq!(c.cast::<u64>().unwrap_err(), AlignmentError::Misaligned);
+        }
+
+        {
+            let u32_offset = 4;
+            let b = a.offset::<u32>(u32_offset).unwrap();
+            assert_eq!(b.addr, a.addr.unchecked_add(u32_offset));
+
+            assert_eq!(
+                a.offset::<u64>(u32_offset).unwrap_err(),
+                AlignmentError::Misaligned
+            );
+
+            let c = b.offset::<u64>(u32_offset).unwrap();
+            assert_eq!(c.addr, b.addr.unchecked_add(u32_offset));
         }
     }
 }

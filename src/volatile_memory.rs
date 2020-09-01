@@ -1606,4 +1606,16 @@ mod tests {
         assert_eq!(super::alignment(a + 12), 4);
         assert_eq!(super::alignment(a + 8), 8);
     }
+
+    #[test]
+    fn test_atomic_ref() {
+        use crate::bytes::tests::test_atomic_access;
+
+        let vec_mem = VecMem::new(0x1000);
+        let volatile_slice = vec_mem.as_volatile_slice();
+        let addr = 0;
+        let bad_offset = 0x1_0000;
+
+        test_atomic_access(&volatile_slice, addr, bad_offset);
+    }
 }
