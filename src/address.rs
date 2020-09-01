@@ -11,8 +11,8 @@
 //! Traits to represent an address within an address space.
 //!
 //! Two traits are defined to represent an address within an address space:
-//! - [AddressValue](trait.AddressValue.html): stores the raw value of an address. Typically `u32`,
-//! `u64` or `usize` is used to store the raw value. But pointers, such as `*u8`, can't be used
+//! - [`AddressValue`](trait.AddressValue.html): stores the raw value of an address. Typically
+//! `u32`,`u64` or `usize` is used to store the raw value. But pointers, such as `*u8`, can't be used
 //! because they don't implement the [`Add`](https://doc.rust-lang.org/std/ops/trait.Add.html) and
 //! [`Sub`](https://doc.rust-lang.org/std/ops/trait.Sub.html) traits.
 //! - [Address](trait.Address.html): encapsulates an [`AddressValue`](trait.AddressValue.html)
@@ -51,15 +51,15 @@ pub trait AddressValue {
 
 /// Trait to represent an address within an address space.
 ///
-/// To simplify the design and implementation, assume the same raw data type (AddressValue::V)
-/// could be used to store address, size and offset for the address space. Thus the Address trait
+/// To simplify the design and implementation, assume the same raw data type `(AddressValue::V)`
+/// could be used to store address, size and offset for the address space. Thus the `Address` trait
 /// could be used to manage address, size and offset. On the other hand, type aliases may be
 /// defined to improve code readability.
 ///
-/// One design rule is applied to the Address trait, namely that operators (+, -, &, | etc) are not
-/// supported and it forces clients to explicitly invoke corresponding methods. But there are
+/// One design rule is applied to the `Address` trait, namely that operators (+, -, &, | etc) are
+/// not supported and it forces clients to explicitly invoke corresponding methods. But there are
 /// always exceptions:
-///     Address (BitAnd|BitOr) AddressValue are supported.
+///     `Address` (BitAnd|BitOr) `AddressValue` are supported.
 pub trait Address:
     AddressValue
     + Sized
