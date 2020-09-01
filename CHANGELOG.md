@@ -1,11 +1,16 @@
 # Changelog 
+
 ## [Unreleased]
 
 ### Fixed
+
 - [[#106]](https://github.com/rust-vmm/vm-memory/issues/106): Asserts trigger
   on zero-length access.  
 
 ### Added
+
+- [[#104]](https://github.com/rust-vmm/vm-memory/pull/104): Add explicit atomic
+  and aligned operations to the `Bytes` interface.
 - [[#109]](https://github.com/rust-vmm/vm-memory/pull/109): Added `build_raw` to
   `MmapRegion` which can be used to operate on externally created mappings.
 
