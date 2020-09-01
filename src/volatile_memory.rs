@@ -518,7 +518,7 @@ impl Bytes<usize> for VolatileSlice<'_> {
     type E = Error;
 
     /// # Examples
-    /// * Write a slice of size 5 at offset 1020 of a 1024-byte VolatileSlice.
+    /// * Write a slice of size 5 at offset 1020 of a 1024-byte `VolatileSlice`.
     ///
     /// ```
     /// #   use vm_memory::{Bytes, VolatileMemory};
@@ -542,7 +542,7 @@ impl Bytes<usize> for VolatileSlice<'_> {
     }
 
     /// # Examples
-    /// * Read a slice of size 16 at offset 1010 of a 1024-byte VolatileSlice.
+    /// * Read a slice of size 16 at offset 1010 of a 1024-byte `VolatileSlice`.
     ///
     /// ```
     /// #   use vm_memory::{Bytes, VolatileMemory};

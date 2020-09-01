@@ -8,7 +8,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-//! Define the ByteValued trait to mark that it is safe to instantiate the struct with random data.
+//! Define the `ByteValued` trait to mark that it is safe to instantiate the struct with random
+//! data.
 
 use crate::VolatileSlice;
 use std::io::{Read, Write};
@@ -102,12 +103,12 @@ pub unsafe trait ByteValued: Copy + Default + Send + Sync {
         unsafe { from_raw_parts_mut(self as *mut Self as *mut u8, size_of::<Self>()) }
     }
 
-    /// Converts a mutable reference to `self` into a VolatileSlice.  This is
+    /// Converts a mutable reference to `self` into a `VolatileSlice`.  This is
     /// useful because `VolatileSlice` provides a `Bytes<usize>` implementation.
     ///
     /// # Safety
     ///
-    /// Unlike most VolatileMemory implementation, this method requires an exclusive
+    /// Unlike most `VolatileMemory` implementation, this method requires an exclusive
     /// reference to `self`; this trivially fulfills `VolatileSlice::new`'s requirement
     /// that all accesses to `self` use volatile accesses (because there can
     /// be no other accesses).

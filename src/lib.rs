@@ -16,6 +16,7 @@
 //! components, such as boot loader, virtual device drivers, virtio backend drivers and vhost
 //! drivers etc, could be shared and reused by multiple hypervisors.
 
+#![deny(clippy::doc_markdown)]
 #![deny(missing_docs)]
 
 #[macro_use]
