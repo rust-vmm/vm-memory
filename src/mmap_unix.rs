@@ -154,6 +154,8 @@ impl MmapRegion {
             return Err(Error::Mmap(io::Error::last_os_error()));
         }
 
+        let _ret = unsafe { libc::madvise(addr, size, libc::MADV_HUGEPAGE) };
+
         Ok(Self {
             addr: addr as *mut u8,
             size,
