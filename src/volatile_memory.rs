@@ -311,6 +311,26 @@ impl<'a> VolatileSlice<'a> {
     }
 
     /// Returns a subslice of this [`VolatileSlice`](struct.VolatileSlice.html) starting at
+    /// `offset` with `count` length.
+    ///
+    /// The returned subslice is a copy of this slice with the address increased by `offset` bytes
+    /// and the size set to `count` bytes.
+    pub fn subslice(self, offset: usize, count: usize) -> Result<VolatileSlice<'a>> {
+        let mem_end = compute_offset(offset, count)?;
+        if mem_end > self.len() {
+            return Err(Error::OutOfBounds { addr: mem_end });
+        }
+        unsafe {
+            // This is safe because the pointer is range-checked by compute_end_offset, and
+            // the lifetime is the same as the original slice.
+            Ok(VolatileSlice::new(
+                (self.as_ptr() as usize + offset) as *mut u8,
+                count,
+            ))
+        }
+    }
+
+    /// Returns a subslice of this [`VolatileSlice`](struct.VolatileSlice.html) starting at
     /// `offset`.
     ///
     /// The returned subslice is a copy of this slice with the address increased by `count` bytes
@@ -1397,6 +1417,38 @@ mod tests {
 
         let slice = mem.get_slice(34, 0).unwrap();
         assert!(slice.is_empty());
+    }
+
+    #[test]
+    fn slice_subslice() {
+        let mem = VecMem::new(100);
+        let slice = mem.get_slice(0, 100).unwrap();
+        assert!(slice.write(&[1; 80], 10).is_ok());
+
+        assert!(slice.subslice(0, 0).is_ok());
+        assert!(slice.subslice(0, 101).is_err());
+
+        assert!(slice.subslice(99, 0).is_ok());
+        assert!(slice.subslice(99, 1).is_ok());
+        assert!(slice.subslice(99, 2).is_err());
+
+        assert!(slice.subslice(100, 0).is_ok());
+        assert!(slice.subslice(100, 1).is_err());
+
+        assert!(slice.subslice(101, 0).is_err());
+        assert!(slice.subslice(101, 1).is_err());
+
+        assert!(slice.subslice(std::usize::MAX, 2).is_err());
+        assert!(slice.subslice(2, std::usize::MAX).is_err());
+
+        let maybe_offset_slice = slice.subslice(10, 80);
+        assert!(maybe_offset_slice.is_ok());
+        let offset_slice = maybe_offset_slice.unwrap();
+        assert_eq!(offset_slice.len(), 80);
+
+        let mut buf = [0; 80];
+        assert!(offset_slice.read(&mut buf, 0).is_ok());
+        assert_eq!(&buf[0..80], &[1; 80][0..80]);
     }
 
     #[test]
