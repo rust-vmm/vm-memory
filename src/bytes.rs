@@ -11,7 +11,7 @@
 //! Define the `ByteValued` trait to mark that it is safe to instantiate the struct with random
 //! data.
 
-use crate::VolatileSlice;
+use crate::{Aligned, ArrayRef, Ref, VolatileSlice};
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::result::Result;
@@ -269,6 +269,38 @@ pub trait Bytes<A> {
     fn write_all_to<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<(), Self::E>
     where
         F: Write;
+
+    /// Return a `Ref<T>` for the specified address. Fails if `addr` is not properly aligned.
+    fn ref_at<T: ByteValued>(&self, addr: A) -> Result<Ref<T>, Self::E>;
+
+    /// Return an `ArrayRef<T>` for the specified address and number of elements. Fails if
+    /// `addr` is not properly aligned.
+    fn array_ref_at<T: ByteValued>(&self, addr: A, len: usize) -> Result<ArrayRef<T>, Self::E>;
+}
+
+/// Stands for containers that are inherently aligned and thus compatible with `Aligned<A, T>`
+/// addresses (for example, `GuestMemory` and `GuestMemoryRegion` objects are expected to be
+/// aligned to a page boundary).
+pub trait AlignedBytes<A>: Bytes<A> {
+    /// Writes an object into the container at an address that's known to be properly aligned.
+    fn write_aligned<T: ByteValued>(&self, val: T, addr: Aligned<A, T>) -> Result<(), Self::E> {
+        self.ref_aligned(addr).map(|r| r.write(val))
+    }
+
+    /// Reads an object from the container at an address that's known to be properly aligned.
+    fn read_aligned<T: ByteValued>(&self, addr: Aligned<A, T>) -> Result<T, Self::E> {
+        self.ref_aligned(addr).map(|r| r.read())
+    }
+
+    /// Return a `Ref<T>` for an address that's known to be aligned for `T`.
+    fn ref_aligned<T: ByteValued>(&self, addr: Aligned<A, T>) -> Result<Ref<T>, Self::E>;
+
+    /// Return an `ArrayRef<T>` for an address that's known to be aligned for `T`.
+    fn array_ref<T: ByteValued>(
+        &self,
+        addr: Aligned<A, T>,
+        len: usize,
+    ) -> Result<ArrayRef<T>, Self::E>;
 }
 
 #[cfg(test)]

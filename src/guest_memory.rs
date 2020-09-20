@@ -43,7 +43,7 @@ use std::sync::Arc;
 
 use crate::address::{Address, AddressValue};
 use crate::align::Aligned;
-use crate::bytes::Bytes;
+use crate::bytes::AlignedBytes;
 use crate::volatile_memory;
 
 /// Errors associated with handling guest memory accesses.
@@ -179,7 +179,7 @@ impl FileOffset {
 
 /// Represents a continuous region of guest physical memory.
 #[allow(clippy::len_without_is_empty)]
-pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
+pub trait GuestMemoryRegion: AlignedBytes<MemoryRegionAddress, E = Error> {
     /// Returns the size of the region.
     fn len(&self) -> GuestUsize;
 
@@ -418,7 +418,7 @@ impl<M: GuestMemory> GuestAddressSpace for Arc<M> {
 /// The task of the `GuestMemory` trait are:
 /// - map a request address to a `GuestMemoryRegion` object and relay the request to it.
 /// - handle cases where an access request spanning two or more `GuestMemoryRegion` objects.
-pub trait GuestMemory: Bytes<GuestAddress, E = Error> {
+pub trait GuestMemory: AlignedBytes<GuestAddress, E = Error> {
     /// Type of objects hosted by the address space.
     type R: GuestMemoryRegion;
 

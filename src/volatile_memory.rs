@@ -36,7 +36,7 @@ use std::result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::usize;
 
-use crate::{ByteValued, Bytes};
+use crate::{ArrayRef, ByteValued, Bytes, Ref};
 
 /// `VolatileMemory` related errors.
 #[allow(missing_docs)]
@@ -751,6 +751,14 @@ impl Bytes<usize> for VolatileSlice<'_> {
             dst.write_all(src).map_err(Error::IOError)?;
         }
         Ok(())
+    }
+
+    fn ref_at<T: ByteValued>(&self, _addr: usize) -> Result<Ref<T>> {
+        unimplemented!()
+    }
+
+    fn array_ref_at<T: ByteValued>(&self, _addr: usize, _len: usize) -> Result<ArrayRef<T>> {
+        unimplemented!()
     }
 }
 

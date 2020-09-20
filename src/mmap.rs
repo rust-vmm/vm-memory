@@ -19,7 +19,7 @@ use std::ops::Deref;
 use std::result;
 use std::sync::Arc;
 
-use crate::access::{AutoBytes, CheckAccess, HostRegion};
+use crate::access::{AutoAlignedBytes, AutoBytes, CheckAccess, HostRegion};
 use crate::guest_memory::{
     self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
 };
@@ -184,6 +184,10 @@ impl CheckAccess<MemoryRegionAddress> for GuestRegionMmap {
 
 // Provides an automatic `Bytes` implementation based on `CheckAccess<MemoryRegionAddress>`.
 impl AutoBytes<MemoryRegionAddress> for GuestRegionMmap {}
+
+// Provides the automatic `AlignedBytes` implementation based on `CheckAccess<MemoryRegionAddress>`.
+// Safe because `GuestRegionMmap` objects are aligned to a page boundary.
+unsafe impl AutoAlignedBytes<MemoryRegionAddress> for GuestRegionMmap {}
 
 impl GuestMemoryRegion for GuestRegionMmap {
     fn len(&self) -> GuestUsize {
@@ -503,6 +507,10 @@ impl CheckAccess<GuestAddress> for GuestMemoryMmap {
 
 // Provides the automatic `Bytes` implementation based on `CheckAccess<GuestAddress>`.
 impl AutoBytes<GuestAddress> for GuestMemoryMmap {}
+
+// Provides the automatic `AlignedBytes` implementation based on `CheckAccess<GuestAddress>`. Safe
+// because `GuestMemoryMmap` objects are aligned to a page boundary.
+unsafe impl AutoAlignedBytes<GuestAddress> for GuestMemoryMmap {}
 
 impl GuestMemory for GuestMemoryMmap {
     type R = GuestRegionMmap;

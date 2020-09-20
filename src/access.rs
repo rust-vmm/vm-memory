@@ -1,10 +1,12 @@
 use std::cmp;
 use std::io::{Read, Write};
-use std::mem::size_of;
+use std::mem::{align_of, size_of};
 use std::ptr;
 use std::result;
 
-use crate::{copy_bytes, ByteValued, Bytes, GuestMemoryError};
+use crate::{
+    copy_bytes, Address, Aligned, AlignedBytes, ArrayRef, ByteValued, Bytes, GuestMemoryError, Ref,
+};
 
 // This module contains internal (they don't need to be explicitly brought into scope or otherwise
 // acknowledged by consumers of `vm-memory`) helper abstractions which provide a single
@@ -237,5 +239,60 @@ impl<A, C: AutoBytes<A>> Bytes<A> for C {
                     Ok(())
                 }
             })
+    }
+
+    fn ref_at<T: ByteValued>(&self, addr: A) -> Result<Ref<T>> {
+        self.array_ref_at(addr, 1).and_then(|array| array.at(0))
+    }
+
+    fn array_ref_at<T: ByteValued>(&self, addr: A, len: usize) -> Result<ArrayRef<T>> {
+        // Check that size computation does not overflow.
+        let byte_size = len
+            .checked_mul(size_of::<T>())
+            .ok_or(GuestMemoryError::Overflow)?;
+
+        // Check access and validate the resulting pointer is properly aligned.
+        self.check_access(addr.into(), byte_size).and_then(|ptr| {
+            if (ptr as usize) & (align_of::<T>() - 1) == 0 {
+                // Safe because accesses starting at `ptr` are valid for up to `len`
+                // elements, and we checked that `ptr` is properly aligned.
+                Ok(unsafe { ArrayRef::new(ptr, len) })
+            } else {
+                Err(GuestMemoryError::Misaligned)
+            }
+        })
+    }
+}
+
+// Implementing this trait for a type `T` will automatically add an `AlignedBytes` implementation
+// for `T` based on the logic below. It's marked as unsafe because `T` must be inherently
+// aligned (i.e. as `GuestMemory` and `GuestMemoryRegion` objects are, because they are
+// expected to be page aligned).
+pub unsafe trait AutoAlignedBytes<A>:
+    Bytes<A, E = GuestMemoryError> + CheckAccess<A>
+where
+    A: Address,
+{
+}
+
+impl<A, C> AlignedBytes<A> for C
+where
+    A: Address,
+    C: AutoAlignedBytes<A>,
+{
+    fn ref_aligned<T: ByteValued>(&self, addr: Aligned<A, T>) -> Result<Ref<T>> {
+        self.array_ref(addr, 1).and_then(|array| array.at(0))
+    }
+
+    fn array_ref<T: ByteValued>(&self, addr: Aligned<A, T>, len: usize) -> Result<ArrayRef<T>> {
+        // Check that size computation does not overflow.
+        let byte_size = len
+            .checked_mul(size_of::<T>())
+            .ok_or(GuestMemoryError::Overflow)?;
+
+        self.check_access(addr.into(), byte_size)
+            // Safe because `ptr` is guaranteed to be properly aligned, and is valid for accesses
+            // of up to `len` elements.
+            .map(|ptr| unsafe { ArrayRef::new(ptr, len) })
     }
 }
