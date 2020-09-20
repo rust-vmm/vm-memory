@@ -69,7 +69,7 @@ pub fn benchmark_for_mmap(c: &mut Criterion) {
     // contiguous w.r.t. GPAs to do the same for HVAs, we need to manually ensure this holds for
     // our region configuration (until we provide functionality for building, and not just checking
     // in `vm-memory`. We're using a quick approach where we allocate one large region, which is
-    // then used to build subregions based on `MmapRegion::build_raw`. 
+    // then used to build subregions based on `MmapRegion::build_raw`.
     let helper_region = MmapRegion::new((REGION_SIZE * REGIONS_COUNT) as usize).unwrap();
     let memory = GuestMemoryMmap::from_regions(
         (0..REGIONS_COUNT as usize)

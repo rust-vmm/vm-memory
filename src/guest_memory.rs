@@ -49,6 +49,10 @@ use crate::volatile_memory;
 #[allow(missing_docs)]
 #[derive(Debug)]
 pub enum Error {
+    // TODO: This variant is a generic error that we'll use for some operations until we
+    // have a better look at error handling within `vm-memory` as well.
+    /// Attempted to perform an invalid access.
+    InvalidAccess,
     /// Failure in finding a guest address in any memory regions mapped by this guest.
     InvalidGuestAddress(GuestAddress),
     /// Couldn't read/write from the given source.
@@ -89,6 +93,7 @@ impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Guest memory error: ")?;
         match self {
+            Error::InvalidAccess => write!(f, "invalid access"),
             Error::InvalidGuestAddress(addr) => {
                 write!(f, "invalid guest address {}", addr.raw_value())
             }

@@ -19,6 +19,8 @@
 #![deny(clippy::doc_markdown)]
 #![deny(missing_docs)]
 
+mod access;
+
 #[macro_use]
 pub mod address;
 pub use address::{Address, AddressValue};
@@ -56,3 +58,11 @@ pub use volatile_memory::{
     AtomicValued, Error as VolatileMemoryError, Result as VolatileMemoryResult, VolatileArrayRef,
     VolatileMemory, VolatileRef, VolatileSlice,
 };
+
+// Previous attempts showed it's not really obvious which is the fastest (best?) approach to
+// bulk byte copies. This method is meant to be called whenever a copy is necessary,  so we can
+// easily change the behaviour in the future by altering its actual implementation. For now, we
+// simply rely on `std::ptr::copy_nonoverlapping`, which should be equivalent to `memcpy`.
+unsafe fn copy_bytes(src: *const u8, dst: *mut u8, len: usize) {
+    std::ptr::copy_nonoverlapping(src, dst, len)
+}
