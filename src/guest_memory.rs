@@ -42,6 +42,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::address::{Address, AddressValue};
+use crate::align::Aligned;
 use crate::bytes::Bytes;
 use crate::volatile_memory;
 
@@ -63,6 +64,10 @@ pub enum Error {
     InvalidBackendAddress,
     /// Host virtual address not available.
     HostAddressNotAvailable,
+    /// Misaligned address provided.
+    Misaligned,
+    /// Overflow occurred while computing an address value.
+    Overflow,
 }
 
 impl From<volatile_memory::Error> for Error {
@@ -108,6 +113,8 @@ impl Display for Error {
             ),
             Error::InvalidBackendAddress => write!(f, "invalid backend address"),
             Error::HostAddressNotAvailable => write!(f, "host virtual address not available"),
+            Error::Misaligned => write!(f, "misaligned address"),
+            Error::Overflow => write!(f, "overflow detected"),
         }
     }
 }
@@ -122,10 +129,16 @@ impl Display for Error {
 pub struct GuestAddress(pub u64);
 impl_address_ops!(GuestAddress, u64);
 
+/// A `GuestAddress` that's known to be aligned with respect to `T`.
+pub type AlignedGuestAddress<T> = Aligned<GuestAddress, T>;
+
 /// Represents an offset inside a region.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct MemoryRegionAddress(pub u64);
 impl_address_ops!(MemoryRegionAddress, u64);
+
+/// A `MemoryRegionAddress` that's known to be aligned with respect to `T`.
+pub type AlignedMemoryRegionAddress<T> = Aligned<MemoryRegionAddress, T>;
 
 /// Type of the raw value stored in a `GuestAddress` object.
 pub type GuestUsize = <GuestAddress as AddressValue>::V;
