@@ -4,12 +4,14 @@
 //! through these objects are inherently aligned.
 
 use std::marker::PhantomData;
-use std::mem::size_of;
+use std::mem::{align_of, size_of};
 use std::ptr;
+use std::slice;
+use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering};
 
 use crate::access::{AutoBytes, HostRegion};
-use crate::ByteValued;
-use crate::GuestMemoryError;
+use crate::bytes::{AtomicAccess, AtomicInteger};
+use crate::{ByteValued, GuestMemoryError};
 
 /// Alias for the result of operations defined in this module.
 pub type Result<T> = std::result::Result<T, GuestMemoryError>;
@@ -49,6 +51,62 @@ impl<T: ByteValued> Ref<'_, T> {
     pub fn write(&self, value: T) {
         // Safe because `addr` is valid for writes and properly aligned.
         unsafe { ptr::write_volatile(self.as_ptr(), value) }
+    }
+}
+
+// Adds methods for atomic access to the inner value.
+impl<T: AtomicAccess> Ref<'_, T> {
+    // This is just a helper method for now. The current public facing a atomic functionality
+    // is exposed via  `store` and `load`. It's TBD what the best way of exposing other atomic
+    // operations  (fetch+arithmetic, swap, etc).
+    fn atomic_ref<I: AtomicInteger>(&self) -> &I {
+        assert_eq!(size_of::<T>(), align_of::<T>());
+        assert_eq!(size_of::<T>(), size_of::<I>());
+        // Safe because ...
+        unsafe { slice::from_raw_parts(self.addr as *const I, 1) }
+            .first()
+            .unwrap()
+    }
+
+    /// Perform an atomic load from the inner memory location.
+    pub fn load(&self, order: Ordering) -> T {
+        // This invariant must hold for every type that implements `AtomicAccess`.
+        assert_eq!(size_of::<T>(), align_of::<T>());
+
+        // The unwrap cannot fail because the types have the same size.
+        match size_of::<T>() {
+            1 => self.atomic_ref::<AtomicU8>().load(order).transmute(),
+            2 => self.atomic_ref::<AtomicU16>().load(order).transmute(),
+            4 => self.atomic_ref::<AtomicU32>().load(order).transmute(),
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+            8 => self.atomic_ref::<AtomicU64>().load(order).transmute(),
+            _ => unreachable!(),
+        }
+        .unwrap()
+    }
+
+    /// Perform an atomic store at the inner memory location.
+    pub fn store(&self, value: T, order: Ordering) {
+        // This invariant must hold for every type that implements `AtomicAccess`.
+        assert_eq!(size_of::<T>(), align_of::<T>());
+
+        // The unwraps cannot fail because the types have the same size.
+        match size_of::<T>() {
+            1 => self
+                .atomic_ref::<AtomicU8>()
+                .store(value.transmute().unwrap(), order),
+            2 => self
+                .atomic_ref::<AtomicU16>()
+                .store(value.transmute().unwrap(), order),
+            4 => self
+                .atomic_ref::<AtomicU32>()
+                .store(value.transmute().unwrap(), order),
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+            8 => self
+                .atomic_ref::<AtomicU64>()
+                .store(value.transmute().unwrap(), order),
+            _ => unreachable!(),
+        }
     }
 }
 

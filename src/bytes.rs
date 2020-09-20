@@ -13,9 +13,11 @@
 
 use crate::{Aligned, ArrayRef, Ref, VolatileSlice};
 use std::io::{Read, Write};
-use std::mem::size_of;
+use std::mem::{align_of, size_of};
+use std::ptr;
 use std::result::Result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
+use std::sync::atomic::Ordering;
 
 /// Objects that implement this trait must consist exclusively of atomic types
 /// from [`std::sync::atomic`](https://doc.rust-lang.org/std/sync/atomic/), except for
@@ -146,6 +148,25 @@ pub unsafe trait ByteValued: Copy + Default + Send + Sync {
             VolatileSlice::new(self as *mut Self as usize as *mut _, size_of::<Self>())
         }
     }
+
+    /// Attempts to reinterpret `self` as a value of type `U`, which is a safe operation
+    /// for `ByteValued` types as long as they have the same size.
+    fn transmute<U: ByteValued>(&self) -> Option<U> {
+        if size_of::<Self>() != size_of::<U>() {
+            return None;
+        }
+
+        let src = self as *const Self as *const U;
+
+        Some(if align_of::<U>() <= align_of::<Self>() {
+            // Safe because `src` is valid for reads, properly aligned, and (trivially)
+            // properly initialized.
+            unsafe { ptr::read(src) }
+        } else {
+            // Safe because `src` is valid for reads and (trivially) properly initialized.
+            unsafe { ptr::read_unaligned(src) }
+        })
+    }
 }
 
 // All intrinsic types and arrays of intrinsic types are ByteValued. They are just numbers.
@@ -180,6 +201,24 @@ byte_valued_type!(i16);
 byte_valued_type!(i32);
 byte_valued_type!(i64);
 byte_valued_type!(isize);
+
+/// A marker trait used to identify types which can be accessed atomically. We need to add some
+/// more details here.
+pub unsafe trait AtomicAccess: ByteValued {}
+
+unsafe impl AtomicAccess for u8 {}
+unsafe impl AtomicAccess for u16 {}
+unsafe impl AtomicAccess for u32 {}
+unsafe impl AtomicAccess for usize {}
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+unsafe impl AtomicAccess for u64 {}
+
+unsafe impl AtomicAccess for i8 {}
+unsafe impl AtomicAccess for i16 {}
+unsafe impl AtomicAccess for i32 {}
+unsafe impl AtomicAccess for isize {}
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+unsafe impl AtomicAccess for i64 {}
 
 /// A container to host a range of bytes and access its content.
 ///
@@ -304,6 +343,16 @@ pub trait Bytes<A> {
     /// Return an `ArrayRef<T>` for the specified address and number of elements. Fails if
     /// `addr` is not properly aligned.
     fn array_ref_at<T: ByteValued>(&self, addr: A, len: usize) -> Result<ArrayRef<T>, Self::E>;
+
+    /// Attempt an atomic store at the specified address. Fails if `addr` is not properly aligned.
+    fn store<T: AtomicAccess>(&self, val: T, addr: A, order: Ordering) -> Result<(), Self::E> {
+        self.ref_at(addr).map(|r| r.store(val, order))
+    }
+
+    /// Attempt an atomic load from the specified address. Fails if `addr` is not properly aligned.
+    fn load<T: AtomicAccess>(&self, addr: A, order: Ordering) -> Result<T, Self::E> {
+        self.ref_at(addr).map(|r| r.load(order))
+    }
 }
 
 /// Stands for containers that are inherently aligned and thus compatible with `Aligned<A, T>`
@@ -329,6 +378,25 @@ pub trait AlignedBytes<A>: Bytes<A> {
         addr: Aligned<A, T>,
         len: usize,
     ) -> Result<ArrayRef<T>, Self::E>;
+
+    /// Perform an atomic store at the specified address
+    fn store_aligned<T: AtomicAccess>(
+        &self,
+        val: T,
+        addr: Aligned<A, T>,
+        order: Ordering,
+    ) -> Result<(), Self::E> {
+        self.ref_aligned(addr).map(|r| r.store(val, order))
+    }
+
+    /// Perform an atomic load from the specified address
+    fn load_aligned<T: AtomicAccess>(
+        &self,
+        addr: Aligned<A, T>,
+        order: Ordering,
+    ) -> Result<T, Self::E> {
+        self.ref_aligned(addr).map(|r| r.load(order))
+    }
 }
 
 #[cfg(test)]
