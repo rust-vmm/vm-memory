@@ -65,6 +65,8 @@ pub enum Error {
     NoMemoryRegion,
     /// Some of the memory regions intersect with each other.
     MemoryRegionOverlap,
+    /// Address computation overflow.
+    Overflow,
     /// The provided memory regions haven't been sorted.
     UnsortedMemoryRegions,
 }
@@ -82,6 +84,7 @@ impl fmt::Display for Error {
             Error::MemoryRegionOverlap => {
                 write!(f, "Some of the memory regions intersect with each other")
             }
+            Error::Overflow => write!(f, "Address computation overflowed"),
             Error::UnsortedMemoryRegions => {
                 write!(f, "The provided memory regions haven't been sorted")
             }
@@ -383,6 +386,54 @@ impl GuestMemoryRegion for GuestRegionMmap {
     }
 }
 
+// Helper internal struct which represents a memory range that's contiguous in both guest physical
+// memory and the host process virtual address space. If we can leverage the assumption that
+// `GuestRegionMmap` objects which are adjacent in guest physical space are also adjacent in
+// VMM process memory, then we can combine multiple regions as a single range. This has the
+// advantage that cross-region accesses no longer need special handling, since discontinuities
+// in the host virtual address space stop being a problem (every access happens entirely within
+// a single range).
+#[derive(Clone, Debug)]
+struct GuestRange {
+    start: GuestAddress,
+    hva: usize,
+    len: usize,
+}
+
+impl GuestRange {
+    fn new(start: GuestAddress, hva: usize, len: usize) -> result::Result<Self, Error> {
+        if start.checked_add(len as u64).is_none() || hva.checked_add(len).is_none() {
+            return Err(Error::Overflow);
+        }
+        Ok(GuestRange { start, hva, len })
+    }
+
+    // Creates an empty (`len == 0`) range.
+    fn empty(start: GuestAddress, hva: usize) -> Self {
+        // `unwrap` is ok to use because we can't have overflow with `len == 0`.
+        Self::new(start, hva, 0).unwrap()
+    }
+
+    // Return the `GuestAddress` of the byte located immediately after this range.
+    fn next(&self) -> GuestAddress {
+        // `unchecked_add` is ok because we ensure the range is valid when constructing
+        // or mutating it.
+        self.start.unchecked_add(self.len as u64)
+    }
+
+    // Return the VMM virtual address (as an `usize`) of the byte located immediately
+    // after this range.
+    fn hva_next(&self) -> usize {
+        self.hva + self.len
+    }
+
+    // Increase the length of the range by the specified amount.
+    fn expand(&mut self, value: usize) -> result::Result<(), Error> {
+        self.len = self.len.checked_add(value).ok_or(Error::Overflow)?;
+        Ok(())
+    }
+}
+
 /// [`GuestMemory`](trait.GuestMemory.html) implementation that mmaps the guest's memory
 /// in the current process.
 ///
@@ -392,6 +443,7 @@ impl GuestMemoryRegion for GuestRegionMmap {
 #[derive(Clone, Debug, Default)]
 pub struct GuestMemoryMmap {
     regions: Vec<Arc<GuestRegionMmap>>,
+    ranges: Vec<GuestRange>,
 }
 
 impl GuestMemoryMmap {
@@ -476,7 +528,43 @@ impl GuestMemoryMmap {
             }
         }
 
-        Ok(Self { regions })
+        // The following part computes the `GuestRange` configuration resulting from the
+        // regions provided to this function.
+
+        // We start with an empty range with the same starting location as the first guest
+        // memory region.
+        let mut ranges = vec![GuestRange::empty(
+            regions[0].guest_base,
+            regions[0].mapping.as_ptr() as usize,
+        )];
+
+        // We now iterate through all regions, and do the following: if the current region's guest
+        // start address matches the end of the current range, then we check whether the start
+        // virtual address also matches the end of the range. If so, we increase the length of the
+        // current range by that of the region, and proceed to the next region. Otherwise, return
+        // an error, because regions contiguous in terms of GPAs must be so for HVAs as well.
+        //
+        // If the current region and the current range are discontinuous, then we add a new
+        // range based on the current region, and the process continues.
+        for region in regions.iter() {
+            let hva = region.mapping.as_ptr() as usize;
+            let start = region.guest_base;
+            let len = region.size();
+
+            // `unwrap` is ok here because `ranges` always has at least one element.
+            let last_range = ranges.last_mut().unwrap();
+
+            if last_range.next() == start {
+                if hva != last_range.hva_next() {
+                    return Err(Error::InvalidGuestRegion);
+                }
+                last_range.expand(len)?;
+            } else {
+                ranges.push(GuestRange::new(start, hva, len)?)
+            }
+        }
+
+        Ok(Self { regions, ranges })
     }
 
     /// Insert a region into the `GuestMemoryMmap` object and return a new `GuestMemoryMmap`.
@@ -509,7 +597,14 @@ impl GuestMemoryMmap {
             if self.regions.get(region_index).unwrap().size() as GuestUsize == size {
                 let mut regions = self.regions.clone();
                 let region = regions.remove(region_index);
-                return Ok((Self { regions }, region));
+                return Ok((
+                    Self {
+                        regions,
+                        // TODO: Actually handle updating the ranges when no longer a prototype.
+                        ranges: Vec::new(),
+                    },
+                    region,
+                ));
             }
         }
 

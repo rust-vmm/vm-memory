@@ -13,7 +13,10 @@ use std::path::Path;
 
 use criterion::{black_box, Criterion};
 
-use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+use vm_memory::{
+    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestRegionMmap,
+    MmapRegion,
+};
 
 const REGION_SIZE: u64 = 0x8000_0000;
 const REGIONS_COUNT: u64 = 8;
@@ -62,12 +65,36 @@ impl AccessKind {
 }
 
 pub fn benchmark_for_mmap(c: &mut Criterion) {
-    let mut regions: Vec<(GuestAddress, usize)> = Vec::new();
-    for i in 0..REGIONS_COUNT {
-        regions.push((GuestAddress(i * REGION_SIZE), REGION_SIZE as usize));
-    }
+    // Since we've changed the `GuestMemoryMmap` constructor to require regions which are
+    // contiguous w.r.t. GPAs to do the same for HVAs, we need to manually ensure this holds for
+    // our region configuration (until we provide functionality for building, and not just checking
+    // in `vm-memory`. We're using a quick approach where we allocate one large region, which is
+    // then used to build subregions based on `MmapRegion::build_raw`. 
+    let helper_region = MmapRegion::new((REGION_SIZE * REGIONS_COUNT) as usize).unwrap();
+    let memory = GuestMemoryMmap::from_regions(
+        (0..REGIONS_COUNT as usize)
+            .into_iter()
+            .map(|idx| {
+                // The following are safe because this is just for testing/illustration purposes.
+                let addr = unsafe {
+                    helper_region
+                        .as_ptr()
+                        .offset(idx as isize * REGION_SIZE as isize)
+                };
 
-    let memory = GuestMemoryMmap::from_ranges(regions.as_slice()).unwrap();
+                let mmap_region =
+                    unsafe { MmapRegion::build_raw(addr, REGION_SIZE as usize, 0, 0) }.unwrap();
+
+                GuestRegionMmap::new(
+                    mmap_region,
+                    GuestAddress(0).unchecked_add(REGION_SIZE * idx as u64),
+                )
+                .unwrap()
+            })
+            .collect(),
+    )
+    .unwrap();
+
     // Just a sanity check.
     assert_eq!(
         memory.last_addr(),
