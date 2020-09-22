@@ -34,10 +34,11 @@ use std::ptr::copy;
 use std::ptr::{read_volatile, write_volatile};
 use std::result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
+use std::sync::atomic::Ordering;
 use std::usize;
 
 use crate::atomic_integer::AtomicInteger;
-use crate::{ByteValued, Bytes};
+use crate::{AtomicAccess, ByteValued, Bytes};
 
 use copy_slice_impl::copy_slice;
 
@@ -694,6 +695,16 @@ impl Bytes<usize> for VolatileSlice<'_> {
             dst.write_all(src).map_err(Error::IOError)?;
         }
         Ok(())
+    }
+
+    fn store<T: AtomicAccess>(&self, val: T, addr: usize, order: Ordering) -> Result<()> {
+        self.get_atomic_ref::<T::A>(addr)
+            .map(|r| r.store(val.into(), order))
+    }
+
+    fn load<T: AtomicAccess>(&self, addr: usize, order: Ordering) -> Result<T> {
+        self.get_atomic_ref::<T::A>(addr)
+            .map(|r| r.load(order).into())
     }
 }
 
@@ -1671,5 +1682,13 @@ mod tests {
         assert_eq!(super::alignment(a + 30), 2);
         assert_eq!(super::alignment(a + 12), 4);
         assert_eq!(super::alignment(a + 8), 8);
+    }
+
+    #[test]
+    fn test_atomic_accesses() {
+        let a = VecMem::new(0x1000);
+        let s = a.as_volatile_slice();
+
+        crate::bytes::tests::check_atomic_accesses(s, 0, 0x1000);
     }
 }

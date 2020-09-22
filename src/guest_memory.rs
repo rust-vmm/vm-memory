@@ -39,10 +39,11 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::ops::{BitAnd, BitOr, Deref};
 use std::rc::Rc;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::address::{Address, AddressValue};
-use crate::bytes::Bytes;
+use crate::bytes::{AtomicAccess, Bytes};
 use crate::volatile_memory;
 
 static MAX_ACCESS_CHUNK: usize = 4096;
@@ -868,6 +869,20 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
         }
         Ok(())
     }
+
+    fn store<O: AtomicAccess>(&self, val: O, addr: GuestAddress, order: Ordering) -> Result<()> {
+        // `find_region` should really do what `to_region_addr` is doing right now, except
+        // it should keep returning a `Result`.
+        self.to_region_addr(addr)
+            .ok_or(Error::InvalidGuestAddress(addr))
+            .and_then(|(region, region_addr)| region.store(val, region_addr, order))
+    }
+
+    fn load<O: AtomicAccess>(&self, addr: GuestAddress, order: Ordering) -> Result<O> {
+        self.to_region_addr(addr)
+            .ok_or(Error::InvalidGuestAddress(addr))
+            .and_then(|(region, region_addr)| region.load(region_addr, order))
+    }
 }
 
 #[cfg(test)]
@@ -1080,5 +1095,15 @@ mod tests {
         assert!(mem
             .write_all_to(addr, &mut Cursor::new(&mut image), 0)
             .is_ok());
+    }
+
+    #[cfg(feature = "backend-mmap")]
+    #[test]
+    fn test_atomic_accesses() {
+        let addr = GuestAddress(0x1000);
+        let mem = GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
+        let bad_addr = addr.unchecked_add(0x1000);
+
+        crate::bytes::tests::check_atomic_accesses(mem, addr, bad_addr);
     }
 }
