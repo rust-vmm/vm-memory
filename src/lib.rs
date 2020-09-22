@@ -32,7 +32,7 @@ mod atomic_integer;
 pub use atomic_integer::AtomicInteger;
 
 pub mod bytes;
-pub use bytes::{ByteValued, Bytes};
+pub use bytes::{AtomicAccess, ByteValued, Bytes};
 
 pub mod endian;
 pub use endian::{Be16, Be32, Be64, BeSize, Le16, Le32, Le64, LeSize};

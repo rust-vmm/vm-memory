@@ -18,6 +18,7 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::ops::Deref;
 use std::result;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::address::Address;
@@ -25,7 +26,7 @@ use crate::guest_memory::{
     self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
 };
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
-use crate::Bytes;
+use crate::{AtomicAccess, Bytes};
 
 #[cfg(unix)]
 pub use crate::mmap_unix::{Error as MmapRegionError, MmapRegion};
@@ -341,6 +342,27 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
             .unwrap()
             .write_all_to::<F>(maddr, dst, count)
             .map_err(Into::into)
+    }
+
+    fn store<T: AtomicAccess>(
+        &self,
+        val: T,
+        addr: MemoryRegionAddress,
+        order: Ordering,
+    ) -> guest_memory::Result<()> {
+        self.as_volatile_slice().and_then(|s| {
+            s.store(val, addr.raw_value() as usize, order)
+                .map_err(Into::into)
+        })
+    }
+
+    fn load<T: AtomicAccess>(
+        &self,
+        addr: MemoryRegionAddress,
+        order: Ordering,
+    ) -> guest_memory::Result<T> {
+        self.as_volatile_slice()
+            .and_then(|s| s.load(addr.raw_value() as usize, order).map_err(Into::into))
     }
 }
 
@@ -1443,5 +1465,17 @@ mod tests {
         assert_eq!(guest_mem.check_range(start_addr2, 0x801), false);
         assert_eq!(guest_mem.check_range(start_addr2, 0xc00), false);
         assert_eq!(guest_mem.check_range(start_addr1, std::usize::MAX), false);
+    }
+
+    #[test]
+    fn test_atomic_accesses() {
+        let region =
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0)).unwrap();
+
+        crate::bytes::tests::check_atomic_accesses(
+            region,
+            MemoryRegionAddress(0),
+            MemoryRegionAddress(0x1000),
+        );
     }
 }

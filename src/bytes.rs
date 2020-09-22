@@ -11,11 +11,14 @@
 //! Define the `ByteValued` trait to mark that it is safe to instantiate the struct with random
 //! data.
 
-use crate::VolatileSlice;
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::result::Result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
+use std::sync::atomic::Ordering;
+
+use crate::atomic_integer::AtomicInteger;
+use crate::VolatileSlice;
 
 /// Types for which it is safe to initialize from raw data.
 ///
@@ -153,6 +156,41 @@ byte_valued_type!(i32);
 byte_valued_type!(i64);
 byte_valued_type!(isize);
 
+/// A trait used to identify types which can be accessed atomically by proxy.
+pub trait AtomicAccess:
+    ByteValued
+    // Could not find a more succinct way of stating that `Self` can be converted
+    // into `Self::A::V`, and the other way around.
+    + From<<<Self as AtomicAccess>::A as AtomicInteger>::V>
+    + Into<<<Self as AtomicAccess>::A as AtomicInteger>::V>
+{
+    /// The `AtomicInteger` that atomic operations on `Self` are based on.
+    type A: AtomicInteger;
+}
+
+macro_rules! impl_atomic_access {
+    ($T:ty, $A:path) => {
+        impl AtomicAccess for $T {
+            type A = $A;
+        }
+    };
+}
+
+impl_atomic_access!(i8, std::sync::atomic::AtomicI8);
+impl_atomic_access!(i16, std::sync::atomic::AtomicI16);
+impl_atomic_access!(i32, std::sync::atomic::AtomicI32);
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+impl_atomic_access!(i64, std::sync::atomic::AtomicI64);
+
+impl_atomic_access!(u8, std::sync::atomic::AtomicU8);
+impl_atomic_access!(u16, std::sync::atomic::AtomicU16);
+impl_atomic_access!(u32, std::sync::atomic::AtomicU32);
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+impl_atomic_access!(u64, std::sync::atomic::AtomicU64);
+
+impl_atomic_access!(isize, std::sync::atomic::AtomicIsize);
+impl_atomic_access!(usize, std::sync::atomic::AtomicUsize);
+
 /// A container to host a range of bytes and access its content.
 ///
 /// Candidates which may implement this trait include:
@@ -269,15 +307,39 @@ pub trait Bytes<A> {
     fn write_all_to<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<(), Self::E>
     where
         F: Write;
+
+    /// Atomically store a value at the specified address.
+    fn store<T: AtomicAccess>(&self, val: T, addr: A, order: Ordering) -> Result<(), Self::E>;
+
+    /// Atomically load a value from the specified address.
+    fn load<T: AtomicAccess>(&self, addr: A, order: Ordering) -> Result<T, Self::E>;
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::{ByteValued, Bytes};
+pub(crate) mod tests {
+    use super::*;
+
     use std::fmt::Debug;
-    use std::io::{Read, Write};
-    use std::mem::{align_of, size_of};
+    use std::mem::align_of;
     use std::slice;
+
+    // Helper method to test atomic accesses for a given `b: Bytes` that's supposed to be
+    // zero-initialized.
+    pub fn check_atomic_accesses<A, B>(b: B, addr: A, bad_addr: A)
+    where
+        A: Copy,
+        B: Bytes<A>,
+        B::E: Debug,
+    {
+        let val = 100u32;
+
+        assert_eq!(b.load::<u32>(addr, Ordering::Relaxed).unwrap(), 0);
+        b.store(val, addr, Ordering::Relaxed).unwrap();
+        assert_eq!(b.load::<u32>(addr, Ordering::Relaxed).unwrap(), val);
+
+        assert!(b.load::<u32>(bad_addr, Ordering::Relaxed).is_err());
+        assert!(b.store(val, bad_addr, Ordering::Relaxed).is_err());
+    }
 
     fn check_byte_valued_type<T>()
     where
@@ -407,6 +469,19 @@ mod tests {
         where
             F: Write,
         {
+            unimplemented!()
+        }
+
+        fn store<T: AtomicAccess>(
+            &self,
+            _val: T,
+            _addr: usize,
+            _order: Ordering,
+        ) -> Result<(), Self::E> {
+            unimplemented!()
+        }
+
+        fn load<T: AtomicAccess>(&self, _addr: usize, _order: Ordering) -> Result<T, Self::E> {
             unimplemented!()
         }
     }
