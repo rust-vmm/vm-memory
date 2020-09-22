@@ -23,6 +23,14 @@
 pub mod address;
 pub use address::{Address, AddressValue};
 
+#[cfg(feature = "backend-atomic")]
+pub mod atomic;
+#[cfg(feature = "backend-atomic")]
+pub use atomic::{GuestMemoryAtomic, GuestMemoryLoadGuard};
+
+mod atomic_integer;
+pub use atomic_integer::AtomicInteger;
+
 pub mod bytes;
 pub use bytes::{ByteValued, Bytes};
 
@@ -46,13 +54,8 @@ pub mod mmap;
 #[cfg(feature = "backend-mmap")]
 pub use mmap::{Error, GuestMemoryMmap, GuestRegionMmap, MmapRegion};
 
-#[cfg(feature = "backend-atomic")]
-pub mod atomic;
-#[cfg(feature = "backend-atomic")]
-pub use atomic::{GuestMemoryAtomic, GuestMemoryLoadGuard};
-
 pub mod volatile_memory;
 pub use volatile_memory::{
-    AtomicInteger, Error as VolatileMemoryError, Result as VolatileMemoryResult, VolatileArrayRef,
-    VolatileMemory, VolatileRef, VolatileSlice,
+    Error as VolatileMemoryError, Result as VolatileMemoryResult, VolatileArrayRef, VolatileMemory,
+    VolatileRef, VolatileSlice,
 };
