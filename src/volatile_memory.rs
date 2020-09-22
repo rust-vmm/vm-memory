@@ -36,6 +36,7 @@ use std::result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::usize;
 
+use crate::atomic_integer::AtomicInteger;
 use crate::{ByteValued, Bytes};
 
 use copy_slice_impl::copy_slice;
@@ -118,35 +119,6 @@ pub fn compute_offset(base: usize, offset: usize) -> Result<usize> {
         Some(m) => Ok(m),
     }
 }
-
-/// Types that can be read safely from a [`VolatileSlice`](struct.VolatileSlice.html).
-///
-/// Objects that implement this trait must consist exclusively of atomic types
-/// from [`std::sync::atomic`](https://doc.rust-lang.org/std/sync/atomic/), except for
-/// [`AtomicPtr<T>`](https://doc.rust-lang.org/std/sync/atomic/struct.AtomicPtr.html).
-pub unsafe trait AtomicInteger: Sync + Send {}
-
-// TODO: Detect availability using #[cfg(target_has_atomic) when it is stabilized.
-// Right now we essentially assume we're running on either x86 or Arm (32 or 64 bit). AFAIK,
-// Rust starts using additional synchronization primitives to implement atomics when they're
-// not natively available, and that doesn't interact safely with how we cast pointers to
-// atomic value references. We should be wary of this when looking at a broader range of
-// platforms.
-
-unsafe impl AtomicInteger for std::sync::atomic::AtomicI8 {}
-unsafe impl AtomicInteger for std::sync::atomic::AtomicI16 {}
-unsafe impl AtomicInteger for std::sync::atomic::AtomicI32 {}
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-unsafe impl AtomicInteger for std::sync::atomic::AtomicI64 {}
-
-unsafe impl AtomicInteger for std::sync::atomic::AtomicU8 {}
-unsafe impl AtomicInteger for std::sync::atomic::AtomicU16 {}
-unsafe impl AtomicInteger for std::sync::atomic::AtomicU32 {}
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-unsafe impl AtomicInteger for std::sync::atomic::AtomicU64 {}
-
-unsafe impl AtomicInteger for std::sync::atomic::AtomicIsize {}
-unsafe impl AtomicInteger for std::sync::atomic::AtomicUsize {}
 
 /// Types that support raw volatile access to their data.
 pub trait VolatileMemory {
