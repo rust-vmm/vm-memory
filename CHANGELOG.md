@@ -1,15 +1,23 @@
 # Changelog 
 ## [Unreleased]
 
-### Fixed
-- [[#106]](https://github.com/rust-vmm/vm-memory/issues/106): Asserts trigger
-  on zero-length access.  
-
 ### Added
+
 - [[#109]](https://github.com/rust-vmm/vm-memory/pull/109): Added `build_raw` to
   `MmapRegion` which can be used to operate on externally created mappings.
 - [[#101]](https://github.com/rust-vmm/vm-memory/pull/101): Added `check_range` for
   GuestMemory which could be used to validate a range of guest memory.
+- [[#115]](https://github.com/rust-vmm/vm-memory/pull/115): Add methods for atomic
+  access to `Bytes`.
+
+### Fixed
+
+- [[#106]](https://github.com/rust-vmm/vm-memory/issues/106): Asserts trigger
+  on zero-length access.  
+
+### Removed
+
+- `integer-atomics` is no longer a distinct feature of the crate.
 
 ## [v0.2.0]
 
