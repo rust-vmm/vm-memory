@@ -1,5 +1,6 @@
 # Changelog 
-## [Unreleased]
+
+## [v0.3.0]
 
 ### Added
 
@@ -12,6 +13,8 @@
 
 ### Fixed
 
+- [[#93]](https://github.com/rust-vmm/vm-memory/issues/93): DoS issue when using
+  virtio with rust-vmm/vm-memory.
 - [[#106]](https://github.com/rust-vmm/vm-memory/issues/106): Asserts trigger
   on zero-length access.  
 
