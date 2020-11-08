@@ -289,6 +289,26 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     fn as_volatile_slice(&self) -> Result<volatile_memory::VolatileSlice> {
         self.get_slice(MemoryRegionAddress(0), self.len() as usize)
     }
+
+    /// Show if the region is based on the `HugeTLBFS`.
+    /// Returns Some(true) if the region is backed by hugetlbfs.
+    /// None represents that no information is available.
+    ///
+    /// # Examples (uses the `backend-mmap` feature)
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # {
+    /// #   use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestRegionMmap};
+    ///     let addr = GuestAddress(0x1000);
+    ///     let mem = GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
+    ///     let r = mem.find_region(addr).unwrap();
+    ///     assert_eq!(r.is_hugetlbfs(), None);
+    /// # }
+    /// ```
+    fn is_hugetlbfs(&self) -> Option<bool> {
+        None
+    }
 }
 
 /// `GuestAddressSpace` provides a way to retrieve a `GuestMemory` object.
@@ -1198,5 +1218,14 @@ mod tests {
         let bad_addr = addr.unchecked_add(0x1000);
 
         crate::bytes::tests::check_atomic_accesses(mem, addr, bad_addr);
+    }
+
+    #[cfg(feature = "backend-mmap")]
+    #[test]
+    fn test_guest_memory_mmap_is_hugetlbfs() {
+        let addr = GuestAddress(0x1000);
+        let mem = GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
+        let r = mem.find_region(addr).unwrap();
+        assert_eq!(r.is_hugetlbfs(), None);
     }
 }
