@@ -90,6 +90,7 @@ pub struct MmapRegion {
     prot: i32,
     flags: i32,
     owned: bool,
+    hugetlbfs: Option<bool>,
 }
 
 // Send and Sync aren't automatically inherited for the raw address pointer.
@@ -172,6 +173,7 @@ impl MmapRegion {
             prot,
             flags,
             owned: true,
+            hugetlbfs: None,
         })
     }
 
@@ -213,6 +215,7 @@ impl MmapRegion {
             prot,
             flags,
             owned: false,
+            hugetlbfs: None,
         })
     }
 
@@ -271,6 +274,16 @@ impl MmapRegion {
             }
         }
         false
+    }
+
+    /// Set the hugetlbfs of the region
+    pub fn set_hugetlbfs(&mut self, hugetlbfs: bool) {
+        self.hugetlbfs = Some(hugetlbfs)
+    }
+
+    /// Returns `true` if the region is hugetlbfs
+    pub fn is_hugetlbfs(&self) -> Option<bool> {
+        self.hugetlbfs
     }
 }
 
@@ -352,6 +365,45 @@ mod tests {
             r.flags(),
             libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE
         );
+    }
+
+    #[test]
+    fn test_mmap_region_set_hugetlbfs() {
+        assert!(MmapRegion::new(0).is_err());
+
+        let size = 4096;
+
+        let r = MmapRegion::new(size).unwrap();
+        assert_eq!(r.size(), size);
+        assert!(r.file_offset().is_none());
+        assert_eq!(r.prot(), libc::PROT_READ | libc::PROT_WRITE);
+        assert_eq!(
+            r.flags(),
+            libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE
+        );
+        assert_eq!(r.is_hugetlbfs(), None);
+
+        let mut r = MmapRegion::new(size).unwrap();
+        r.set_hugetlbfs(false);
+        assert_eq!(r.size(), size);
+        assert!(r.file_offset().is_none());
+        assert_eq!(r.prot(), libc::PROT_READ | libc::PROT_WRITE);
+        assert_eq!(
+            r.flags(),
+            libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE
+        );
+        assert_eq!(r.is_hugetlbfs(), Some(false));
+
+        let mut r = MmapRegion::new(size).unwrap();
+        r.set_hugetlbfs(true);
+        assert_eq!(r.size(), size);
+        assert!(r.file_offset().is_none());
+        assert_eq!(r.prot(), libc::PROT_READ | libc::PROT_WRITE);
+        assert_eq!(
+            r.flags(),
+            libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE
+        );
+        assert_eq!(r.is_hugetlbfs(), Some(true));
     }
 
     #[test]
