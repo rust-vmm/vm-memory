@@ -1443,6 +1443,12 @@ mod tests {
         );
         assert_eq!(guest_mem.checked_offset(start_addr2, 0xc00), None);
         assert_eq!(guest_mem.checked_offset(start_addr1, std::usize::MAX), None);
+
+        assert_eq!(guest_mem.checked_offset(start_addr1, 0x400), None);
+        assert_eq!(
+            guest_mem.checked_offset(start_addr1, 0x400 - 1),
+            Some(GuestAddress(0x400 - 1))
+        );
     }
 
     #[test]
@@ -1459,6 +1465,7 @@ mod tests {
 
         assert_eq!(guest_mem.check_range(start_addr1, 0x0), true);
         assert_eq!(guest_mem.check_range(start_addr1, 0x200), true);
+        assert_eq!(guest_mem.check_range(start_addr1, 0x400), true);
         assert_eq!(guest_mem.check_range(start_addr1, 0xa00), false);
         assert_eq!(guest_mem.check_range(start_addr2, 0x7ff), true);
         assert_eq!(guest_mem.check_range(start_addr2, 0x800), true);
