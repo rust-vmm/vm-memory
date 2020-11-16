@@ -52,7 +52,7 @@ impl<M: GuestMemory> GuestMemoryAtomic<M> {
         Arc::new(map).into()
     }
 
-    fn load(&self) -> Guard<'static, Arc<M>> {
+    fn load(&self) -> Guard<Arc<M>> {
         self.inner.0.load()
     }
 
@@ -90,7 +90,7 @@ impl<M: GuestMemory> GuestAddressSpace for GuestMemoryAtomic<M> {
 /// access memory.
 #[derive(Debug)]
 pub struct GuestMemoryLoadGuard<M: GuestMemory> {
-    guard: Guard<'static, Arc<M>>,
+    guard: Guard<Arc<M>>,
 }
 
 impl<M: GuestMemory> GuestMemoryLoadGuard<M> {
