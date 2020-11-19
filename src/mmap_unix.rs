@@ -20,6 +20,7 @@ use std::result;
 use libc;
 
 use crate::guest_memory::FileOffset;
+use crate::guest_memory::GuestMemoryOptions;
 use crate::mmap::{check_file_offset, AsSlice};
 use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
 
@@ -93,12 +94,13 @@ impl MmapRegion {
     ///
     /// # Arguments
     /// * `size` - The size of the memory region in bytes.
-    pub fn new(size: usize) -> Result<Self> {
+    pub fn new(size: usize, options: GuestMemoryOptions) -> Result<Self> {
         Self::build(
             None,
             size,
             libc::PROT_READ | libc::PROT_WRITE,
             libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE,
+            options
         )
     }
 
@@ -108,12 +110,13 @@ impl MmapRegion {
     /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
     ///                   referred to by `file_offset.file`.
     /// * `size` - The size of the memory region in bytes.
-    pub fn from_file(file_offset: FileOffset, size: usize) -> Result<Self> {
+    pub fn from_file(file_offset: FileOffset, size: usize, options: GuestMemoryOptions) -> Result<Self> {
         Self::build(
             Some(file_offset),
             size,
             libc::PROT_READ | libc::PROT_WRITE,
             libc::MAP_NORESERVE | libc::MAP_SHARED,
+            options
         )
     }
 
@@ -132,6 +135,7 @@ impl MmapRegion {
         size: usize,
         prot: i32,
         flags: i32,
+        options: GuestMemoryOptions,
     ) -> Result<Self> {
         // Forbid MAP_FIXED, as it doesn't make sense in this context, and is pretty dangerous
         // in general.
@@ -152,6 +156,14 @@ impl MmapRegion {
 
         if addr == libc::MAP_FAILED {
             return Err(Error::Mmap(io::Error::last_os_error()));
+        }
+
+        if options.huge_page {
+            if options.transparent_huge_page {
+                if size > 2 * 1024 * 4096 {
+                    let _ret = unsafe { libc::madvise(addr, size, libc::MADV_HUGEPAGE) };
+                }
+            }
         }
 
         Ok(Self {

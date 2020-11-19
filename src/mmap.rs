@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use crate::address::Address;
 use crate::guest_memory::{
-    self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
+    self, FileOffset, GuestAddress, GuestMemory, GuestMemoryOptions, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
 };
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
 use crate::Bytes;
@@ -391,6 +391,7 @@ impl GuestMemoryRegion for GuestRegionMmap {
 /// virtual address space of the calling process.
 #[derive(Clone, Debug, Default)]
 pub struct GuestMemoryMmap {
+    options: GuestMemoryOptions,
     regions: Vec<Arc<GuestRegionMmap>>,
 }
 
@@ -416,6 +417,7 @@ impl GuestMemoryMmap {
         A: Borrow<(GuestAddress, usize, Option<FileOffset>)>,
         T: IntoIterator<Item = A>,
     {
+        let options = GuestMemoryOptions {huge_page : false, transparent_huge_page : false};
         Self::from_regions(
             ranges
                 .into_iter()
@@ -424,9 +426,9 @@ impl GuestMemoryMmap {
                     let size = x.borrow().1;
 
                     if let Some(ref f_off) = x.borrow().2 {
-                        MmapRegion::from_file(f_off.clone(), size)
+                        MmapRegion::from_file(f_off.clone(), size, options)
                     } else {
-                        MmapRegion::new(size)
+                        MmapRegion::new(size, options)
                     }
                     .map_err(Error::MmapRegion)
                     .and_then(|r| GuestRegionMmap::new(r, guest_base))
@@ -476,7 +478,7 @@ impl GuestMemoryMmap {
             }
         }
 
-        Ok(Self { regions })
+        Ok(Self { regions, options: GuestMemoryOptions {huge_page : false, transparent_huge_page : false} })
     }
 
     /// Insert a region into the `GuestMemoryMmap` object and return a new `GuestMemoryMmap`.
@@ -509,7 +511,7 @@ impl GuestMemoryMmap {
             if self.regions.get(region_index).unwrap().size() as GuestUsize == size {
                 let mut regions = self.regions.clone();
                 let region = regions.remove(region_index);
-                return Ok((Self { regions }, region));
+                return Ok((Self { regions, options: GuestMemoryOptions {huge_page : false, transparent_huge_page : false} }, region));
             }
         }
 

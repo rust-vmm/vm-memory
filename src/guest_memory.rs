@@ -159,6 +159,15 @@ impl FileOffset {
     }
 }
 
+/// Configurations options usable for Guest Memory
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
+pub struct GuestMemoryOptions {
+    /// Use huge pages to back guest memory
+    pub huge_page: bool,
+    /// Use transparent huge pages to back guest memory
+    pub transparent_huge_page: bool,
+}
+
 /// Represents a continuous region of guest physical memory.
 #[allow(clippy::len_without_is_empty)]
 pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
