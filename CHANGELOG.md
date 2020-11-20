@@ -1,4 +1,13 @@
-# Changelog 
+# Changelog
+
+## [v0.4.0]
+
+### Fixed
+
+- [[#100]](https://github.com/rust-vmm/vm-memory/issues/100): Performance
+  degradation after fixing [#95](https://github.com/rust-vmm/vm-memory/pull/95).
+- [[#122]](https://github.com/rust-vmm/vm-memory/pull/122): atomic,
+  Cargo.toml: Update for arc-swap 1.0.0.
 
 ## [v0.3.0]
 

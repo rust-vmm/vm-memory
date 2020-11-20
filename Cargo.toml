@@ -1,6 +1,6 @@
 [package]
 name = "vm-memory"
-version = "0.3.0"
+version = "0.4.0"
 description = "Safe abstractions for accessing the VM physical memory"
 keywords = ["memory"]
 authors = ["Liu Jiang <gerry@linux.alibaba.com>"]
