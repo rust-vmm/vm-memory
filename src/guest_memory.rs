@@ -32,6 +32,14 @@
 //! Whenever a collection of `GuestMemoryRegion` objects is mutable,
 //! [`GuestAddressSpace`](trait.GuestAddressSpace.html) should be implemented
 //! for clients to obtain a [`GuestMemory`] reference or smart pointer.
+//!
+//! The `GuestMemoryRegion` trait has an associated `B: Bitmap` type which is used to handle
+//! dirty bitmap tracking. Backends are free to define the granularity (or whether tracking is
+//! actually performed at all). Those that do implement tracking functionality are expected to
+//! ensure the correctness of the underlying `Bytes` implementation. The user has to explicitly
+//! record (using the handle returned by `GuestRegionMmap::bitmap`) write accesses performed
+//! via pointers, references, or slices returned by methods of `GuestMemory`,`GuestMemoryRegion`,
+//! `VolatileSlice`, `VolatileRef`, or `VolatileArrayRef`.
 
 use std::convert::From;
 use std::fmt::{self, Display};
@@ -43,8 +51,9 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::address::{Address, AddressValue};
+use crate::bitmap::{Bitmap, BS, MS};
 use crate::bytes::{AtomicAccess, Bytes};
-use crate::volatile_memory;
+use crate::volatile_memory::{self, VolatileSlice};
 
 static MAX_ACCESS_CHUNK: usize = 4096;
 
@@ -165,6 +174,9 @@ impl FileOffset {
 /// Represents a continuous region of guest physical memory.
 #[allow(clippy::len_without_is_empty)]
 pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
+    /// Type used for dirty memory tracking.
+    type B: Bitmap;
+
     /// Returns the size of the region.
     fn len(&self) -> GuestUsize;
 
@@ -176,6 +188,9 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
         // unchecked_add is safe as the region bounds were checked when it was created.
         self.start_addr().unchecked_add(self.len() - 1)
     }
+
+    /// Borrow the associated `Bitmap` object.
+    fn bitmap(&self) -> &Self::B;
 
     /// Returns the given address if it is within this region.
     fn check_address(&self, addr: MemoryRegionAddress) -> Option<MemoryRegionAddress> {
@@ -245,7 +260,9 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     ///
     /// # Safety
     ///
-    /// Unsafe because of possible aliasing.
+    /// Unsafe because of possible aliasing. Mutable accesses performed through the
+    /// returned slice are not visible to the dirty bitmap tracking functionality of
+    /// the region, and must be manually recorded using the associated bitmap object.
     unsafe fn as_mut_slice(&self) -> Option<&mut [u8]> {
         None
     }
@@ -257,7 +274,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
         &self,
         offset: MemoryRegionAddress,
         count: usize,
-    ) -> Result<volatile_memory::VolatileSlice> {
+    ) -> Result<VolatileSlice<BS<Self::B>>> {
         Err(Error::HostAddressNotAvailable)
     }
 
@@ -286,7 +303,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// assert_eq!(r.load(), v);
     /// # }
     /// ```
-    fn as_volatile_slice(&self) -> Result<volatile_memory::VolatileSlice> {
+    fn as_volatile_slice(&self) -> Result<VolatileSlice<BS<Self::B>>> {
         self.get_slice(MemoryRegionAddress(0), self.len() as usize)
     }
 
@@ -386,8 +403,8 @@ pub trait GuestAddressSpace {
 }
 
 impl<M: GuestMemory> GuestAddressSpace for &M {
-    type T = Self;
     type M = M;
+    type T = Self;
 
     fn memory(&self) -> Self {
         self
@@ -395,8 +412,8 @@ impl<M: GuestMemory> GuestAddressSpace for &M {
 }
 
 impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
-    type T = Self;
     type M = M;
+    type T = Self;
 
     fn memory(&self) -> Self {
         self.clone()
@@ -404,8 +421,8 @@ impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
 }
 
 impl<M: GuestMemory> GuestAddressSpace for Arc<M> {
-    type T = Self;
     type M = M;
+    type T = Self;
 
     fn memory(&self) -> Self {
         self.clone()
@@ -705,11 +722,7 @@ pub trait GuestMemory {
 
     /// Returns a [`VolatileSlice`](struct.VolatileSlice.html) of `count` bytes starting at
     /// `addr`.
-    fn get_slice(
-        &self,
-        addr: GuestAddress,
-        count: usize,
-    ) -> Result<volatile_memory::VolatileSlice> {
+    fn get_slice(&self, addr: GuestAddress, count: usize) -> Result<VolatileSlice<MS<Self>>> {
         self.to_region_addr(addr)
             .ok_or(Error::InvalidGuestAddress(addr))
             .and_then(|(r, addr)| r.get_slice(addr, count))
@@ -836,22 +849,29 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
             // Check if something bad happened before doing unsafe things.
             assert!(offset <= count);
             if let Some(dst) = unsafe { region.as_mut_slice() } {
-                // This is safe cause `start` and `len` are within the `region`.
+                // This is safe cause `start` and `len` are within the `region`, and we manually
+                // record the dirty status of the written range below.
                 let start = caddr.raw_value() as usize;
                 let end = start + len;
-                loop {
+                let result = loop {
                     match src.read(&mut dst[start..end]) {
                         Ok(n) => break Ok(n),
                         Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                         Err(e) => break Err(Error::IOError(e)),
                     }
-                }
+                };
+
+                region.bitmap().mark_dirty(start, len);
+                result
             } else {
                 let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
                 let mut buf = vec![0u8; len].into_boxed_slice();
                 loop {
                     match src.read(&mut buf[..]) {
                         Ok(bytes_read) => {
+                            // We don't need to update the dirty bitmap manually here because it's
+                            // expected to be handled by the logic within the `Bytes`
+                            // implementation for the region object.
                             let bytes_written = region.write(&buf[0..bytes_read], caddr)?;
                             assert_eq!(bytes_written, bytes_read);
                             break Ok(bytes_read);
@@ -1008,13 +1028,16 @@ mod tests {
     #[cfg(feature = "backend-mmap")]
     use crate::bytes::ByteValued;
     #[cfg(feature = "backend-mmap")]
-    use crate::{GuestAddress, GuestMemoryMmap};
+    use crate::GuestAddress;
     #[cfg(feature = "backend-mmap")]
     use std::io::Cursor;
     #[cfg(feature = "backend-mmap")]
     use std::time::{Duration, Instant};
 
     use vmm_sys_util::tempfile::TempFile;
+
+    #[cfg(feature = "backend-mmap")]
+    type GuestMemoryMmap = crate::GuestMemoryMmap<()>;
 
     #[cfg(feature = "backend-mmap")]
     fn make_image(size: u8) -> Vec<u8> {

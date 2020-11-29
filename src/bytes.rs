@@ -18,7 +18,7 @@ use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::sync::atomic::Ordering;
 
 use crate::atomic_integer::AtomicInteger;
-use crate::VolatileSlice;
+use crate::volatile_memory::VolatileSlice;
 
 /// Types for which it is safe to initialize from raw data.
 ///

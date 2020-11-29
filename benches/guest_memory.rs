@@ -4,6 +4,8 @@
 #![cfg(feature = "backend-mmap")]
 
 pub use criterion::{black_box, Criterion};
+
+use vm_memory::bitmap::Bitmap;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 
 const REGION_SIZE: usize = 0x10_0000;
@@ -13,7 +15,10 @@ pub fn benchmark_for_guest_memory(c: &mut Criterion) {
     benchmark_find_region(c);
 }
 
-fn find_region(mem: &GuestMemoryMmap) {
+fn find_region<B>(mem: &GuestMemoryMmap<B>)
+where
+    B: Bitmap + 'static,
+{
     for i in 0..REGIONS_COUNT {
         let _ = mem
             .find_region(black_box(GuestAddress(i * REGION_SIZE as u64)))
