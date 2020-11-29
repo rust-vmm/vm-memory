@@ -142,11 +142,10 @@ impl<M: GuestMemory> GuestMemoryExclusiveGuard<'_, M> {
 #[cfg(feature = "backend-mmap")]
 mod tests {
     use super::*;
-    use crate::{
-        GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap, GuestUsize,
-        MmapRegion,
-    };
+    use crate::{GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MmapRegion};
 
+    type GuestMemoryMmap = crate::GuestMemoryMmap<()>;
+    type GuestRegionMmap = crate::GuestRegionMmap<()>;
     type GuestMemoryMmapAtomic = GuestMemoryAtomic<GuestMemoryMmap>;
 
     #[test]

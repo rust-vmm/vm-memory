@@ -17,7 +17,7 @@ use volatile::benchmark_for_volatile;
 #[cfg(feature = "backend-mmap")]
 // Use this function with caution. It does not check against overflows
 // and `GuestMemoryMmap::from_ranges` errors.
-fn create_guest_memory_mmap(size: usize, count: u64) -> GuestMemoryMmap {
+fn create_guest_memory_mmap(size: usize, count: u64) -> GuestMemoryMmap<()> {
     let mut regions: Vec<(GuestAddress, usize)> = Vec::new();
     for i in 0..count {
         regions.push((GuestAddress(i * size as u64), size));

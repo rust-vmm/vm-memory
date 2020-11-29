@@ -17,8 +17,9 @@ use std::os::unix::io::AsRawFd;
 use std::ptr::null_mut;
 use std::result;
 
+use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::FileOffset;
-use crate::mmap::{check_file_offset, AsSlice};
+use crate::mmap::{check_file_offset, AsSlice, NewBitmap};
 use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
@@ -83,9 +84,10 @@ pub type Result<T> = result::Result<T, Error>;
 /// physical memory may be mapped into the current process due to the limited virtual address
 /// space size of the process.
 #[derive(Debug)]
-pub struct MmapRegion {
+pub struct MmapRegion<B = ()> {
     addr: *mut u8,
     size: usize,
+    bitmap: B,
     file_offset: Option<FileOffset>,
     prot: i32,
     flags: i32,
@@ -97,10 +99,10 @@ pub struct MmapRegion {
 // Accessing that pointer is only done through the stateless interface which
 // allows the object to be shared by multiple threads without a decrease in
 // safety.
-unsafe impl Send for MmapRegion {}
-unsafe impl Sync for MmapRegion {}
+unsafe impl<B: Send> Send for MmapRegion<B> {}
+unsafe impl<B: Sync> Sync for MmapRegion<B> {}
 
-impl MmapRegion {
+impl<B: NewBitmap> MmapRegion<B> {
     /// Creates a shared anonymous mapping of `size` bytes.
     ///
     /// # Arguments
@@ -169,6 +171,7 @@ impl MmapRegion {
         Ok(Self {
             addr: addr as *mut u8,
             size,
+            bitmap: B::with_len(size),
             file_offset,
             prot,
             flags,
@@ -211,6 +214,7 @@ impl MmapRegion {
         Ok(Self {
             addr,
             size,
+            bitmap: B::with_len(size),
             file_offset: None,
             prot,
             flags,
@@ -218,8 +222,12 @@ impl MmapRegion {
             hugetlbfs: None,
         })
     }
+}
 
-    /// Returns a pointer to the beginning of the memory region.
+impl<B: Bitmap> MmapRegion<B> {
+    /// Returns a pointer to the beginning of the memory region. Mutable accesses performed
+    /// using the resulting pointer are not automatically accounted for by the dirty bitmap
+    /// tracking functionality.
     ///
     /// Should only be used for passing this region to ioctls for setting guest memory.
     pub fn as_ptr(&self) -> *mut u8 {
@@ -256,7 +264,7 @@ impl MmapRegion {
     ///
     /// This is mostly a sanity check available for convenience, as different file descriptors
     /// can alias the same file.
-    pub fn fds_overlap(&self, other: &MmapRegion) -> bool {
+    pub fn fds_overlap<T: Bitmap>(&self, other: &MmapRegion<T>) -> bool {
         if let Some(f_off1) = self.file_offset() {
             if let Some(f_off2) = other.file_offset() {
                 if f_off1.file().as_raw_fd() == f_off2.file().as_raw_fd() {
@@ -285,9 +293,14 @@ impl MmapRegion {
     pub fn is_hugetlbfs(&self) -> Option<bool> {
         self.hugetlbfs
     }
+
+    /// Returns a reference to the inner bitmap object.
+    pub fn bitmap(&self) -> &B {
+        &self.bitmap
+    }
 }
 
-impl AsSlice for MmapRegion {
+impl<B> AsSlice for MmapRegion<B> {
     unsafe fn as_slice(&self) -> &[u8] {
         // This is safe because we mapped the area at addr ourselves, so this slice will not
         // overflow. However, it is possible to alias.
@@ -302,12 +315,18 @@ impl AsSlice for MmapRegion {
     }
 }
 
-impl VolatileMemory for MmapRegion {
+impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
+    type B = B;
+
     fn len(&self) -> usize {
         self.size
     }
 
-    fn get_slice(&self, offset: usize, count: usize) -> volatile_memory::Result<VolatileSlice> {
+    fn get_slice(
+        &self,
+        offset: usize,
+        count: usize,
+    ) -> volatile_memory::Result<VolatileSlice<BS<B>>> {
         let end = compute_offset(offset, count)?;
         if end > self.size {
             return Err(volatile_memory::Error::OutOfBounds { addr: end });
@@ -315,11 +334,17 @@ impl VolatileMemory for MmapRegion {
 
         // Safe because we checked that offset + count was within our range and we only ever hand
         // out volatile accessors.
-        Ok(unsafe { VolatileSlice::new((self.addr as usize + offset) as *mut _, count) })
+        Ok(unsafe {
+            VolatileSlice::with_bitmap(
+                (self.addr as usize + offset) as *mut _,
+                count,
+                self.bitmap.slice_at(offset),
+            )
+        })
     }
 }
 
-impl Drop for MmapRegion {
+impl<B> Drop for MmapRegion<B> {
     fn drop(&mut self) {
         // This is safe because we mmap the area at addr ourselves, and nobody
         // else is holding a reference to it.
@@ -339,6 +364,8 @@ mod tests {
     use std::slice;
     use std::sync::Arc;
     use vmm_sys_util::tempfile::TempFile;
+
+    type MmapRegion = super::MmapRegion<()>;
 
     // Adding a helper method to extract the errno within an Error::Mmap(e), or return a
     // distinctive value when the error is represented by another variant.

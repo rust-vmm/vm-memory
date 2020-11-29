@@ -31,6 +31,8 @@ pub use atomic::{GuestMemoryAtomic, GuestMemoryLoadGuard};
 mod atomic_integer;
 pub use atomic_integer::AtomicInteger;
 
+pub mod bitmap;
+
 pub mod bytes;
 pub use bytes::{AtomicAccess, ByteValued, Bytes};
 

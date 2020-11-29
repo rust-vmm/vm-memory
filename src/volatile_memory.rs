@@ -38,6 +38,7 @@ use std::sync::atomic::Ordering;
 use std::usize;
 
 use crate::atomic_integer::AtomicInteger;
+use crate::bitmap::{Bitmap, BitmapSlice, BS};
 use crate::{AtomicAccess, ByteValued, Bytes};
 
 use copy_slice_impl::copy_slice;
@@ -119,6 +120,9 @@ pub fn compute_offset(base: usize, offset: usize) -> Result<usize> {
 
 /// Types that support raw volatile access to their data.
 pub trait VolatileMemory {
+    /// Type used for dirty memory tracking.
+    type B: Bitmap;
+
     /// Gets the size of this slice.
     fn len(&self) -> usize;
 
@@ -129,26 +133,30 @@ pub trait VolatileMemory {
 
     /// Returns a [`VolatileSlice`](struct.VolatileSlice.html) of `count` bytes starting at
     /// `offset`.
-    fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice>;
+    fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice<BS<Self::B>>>;
 
     /// Gets a slice of memory for the entire region that supports volatile access.
-    fn as_volatile_slice(&self) -> VolatileSlice {
+    fn as_volatile_slice(&self) -> VolatileSlice<BS<Self::B>> {
         self.get_slice(0, self.len()).unwrap()
     }
 
     /// Gets a `VolatileRef` at `offset`.
-    fn get_ref<T: ByteValued>(&self, offset: usize) -> Result<VolatileRef<T>> {
+    fn get_ref<T: ByteValued>(&self, offset: usize) -> Result<VolatileRef<T, BS<Self::B>>> {
         let slice = self.get_slice(offset, size_of::<T>())?;
         unsafe {
             // This is safe because the pointer is range-checked by get_slice, and
             // the lifetime is the same as self.
-            Ok(VolatileRef::<T>::new(slice.addr))
+            Ok(VolatileRef::with_bitmap(slice.addr, slice.bitmap))
         }
     }
 
     /// Returns a [`VolatileArrayRef`](struct.VolatileArrayRef.html) of `n` elements starting at
     /// `offset`.
-    fn get_array_ref<T: ByteValued>(&self, offset: usize, n: usize) -> Result<VolatileArrayRef<T>> {
+    fn get_array_ref<T: ByteValued>(
+        &self,
+        offset: usize,
+        n: usize,
+    ) -> Result<VolatileArrayRef<T, BS<Self::B>>> {
         // Use isize to avoid problems with ptr::offset and ptr::add down the line.
         let nbytes = isize::try_from(n)
             .ok()
@@ -161,7 +169,7 @@ pub trait VolatileMemory {
         unsafe {
             // This is safe because the pointer is range-checked by get_slice, and
             // the lifetime is the same as self.
-            Ok(VolatileArrayRef::<T>::new(slice.addr, n))
+            Ok(VolatileArrayRef::with_bitmap(slice.addr, n, slice.bitmap))
         }
     }
 
@@ -181,7 +189,9 @@ pub trait VolatileMemory {
         Ok(&*(slice.addr as *const T))
     }
 
-    /// Returns a mutable reference to an instance of `T` at `offset`.
+    /// Returns a mutable reference to an instance of `T` at `offset`. Mutable accesses performed
+    /// using the resulting reference are not automatically accounted for by the dirty bitmap
+    /// tracking functionality.
     ///
     /// # Safety
     ///
@@ -195,10 +205,13 @@ pub trait VolatileMemory {
     unsafe fn aligned_as_mut<T: ByteValued>(&self, offset: usize) -> Result<&mut T> {
         let slice = self.get_slice(offset, size_of::<T>())?;
         slice.check_alignment(align_of::<T>())?;
+
         Ok(&mut *(slice.addr as *mut T))
     }
 
-    /// Returns a reference to an instance of `T` at `offset`.
+    /// Returns a reference to an instance of `T` at `offset`. Mutable accesses performed
+    /// using the resulting reference are not automatically accounted for by the dirty bitmap
+    /// tracking functionality.
     ///
     /// # Errors
     ///
@@ -226,11 +239,13 @@ pub trait VolatileMemory {
 }
 
 impl<'a> VolatileMemory for &'a mut [u8] {
+    type B = ();
+
     fn len(&self) -> usize {
         <[u8]>::len(self)
     }
 
-    fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice> {
+    fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice<()>> {
         let _ = self.compute_end_offset(offset, count)?;
         unsafe {
             // This is safe because the pointer is range-checked by compute_end_offset, and
@@ -247,14 +262,15 @@ impl<'a> VolatileMemory for &'a mut [u8] {
 struct Packed<T>(T);
 
 /// A slice of raw memory that supports volatile access.
-#[derive(Copy, Clone, Debug)]
-pub struct VolatileSlice<'a> {
+#[derive(Clone, Copy, Debug)]
+pub struct VolatileSlice<'a, B = ()> {
     addr: *mut u8,
     size: usize,
+    bitmap: B,
     phantom: PhantomData<&'a u8>,
 }
 
-impl<'a> VolatileSlice<'a> {
+impl<'a> VolatileSlice<'a, ()> {
     /// Creates a slice of raw memory that must support volatile access.
     ///
     /// # Safety
@@ -264,14 +280,32 @@ impl<'a> VolatileSlice<'a> {
     /// must also guarantee that all other users of the given chunk of memory are using volatile
     /// accesses.
     pub unsafe fn new(addr: *mut u8, size: usize) -> VolatileSlice<'a> {
+        Self::with_bitmap(addr, size, ())
+    }
+}
+
+impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
+    /// Creates a slice of raw memory that must support volatile access, and uses the provided
+    /// `bitmap` object for dirty page tracking.
+    ///
+    /// # Safety
+    ///
+    /// To use this safely, the caller must guarantee that the memory at `addr` is `size` bytes long
+    /// and is available for the duration of the lifetime of the new `VolatileSlice`. The caller
+    /// must also guarantee that all other users of the given chunk of memory are using volatile
+    /// accesses.
+    pub unsafe fn with_bitmap(addr: *mut u8, size: usize, bitmap: B) -> VolatileSlice<'a, B> {
         VolatileSlice {
             addr,
             size,
+            bitmap,
             phantom: PhantomData,
         }
     }
 
-    /// Returns a pointer to the beginning of the slice.
+    /// Returns a pointer to the beginning of the slice. Mutable accesses performed
+    /// using the resulting pointer are not automatically accounted for by the dirty bitmap
+    /// tracking functionality.
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr
     }
@@ -284,6 +318,11 @@ impl<'a> VolatileSlice<'a> {
     /// Checks if the slice is empty.
     pub fn is_empty(&self) -> bool {
         self.size == 0
+    }
+
+    /// Borrows the inner `BitmapSlice`.
+    pub fn bitmap(&self) -> &B {
+        &self.bitmap
     }
 
     /// Divides one slice into two at an index.
@@ -306,12 +345,13 @@ impl<'a> VolatileSlice<'a> {
     /// assert_eq!(8, start.len());
     /// assert_eq!(24, end.len());
     /// ```
-    pub fn split_at(self, mid: usize) -> Result<(VolatileSlice<'a>, VolatileSlice<'a>)> {
+    pub fn split_at(self, mid: usize) -> Result<(Self, Self)> {
         let end = self.offset(mid)?;
         let start = unsafe {
             // safe because self.offset() already checked the bounds
-            VolatileSlice::new(self.addr, mid)
+            VolatileSlice::with_bitmap(self.addr, mid, self.bitmap)
         };
+
         Ok((start, end))
     }
 
@@ -320,7 +360,7 @@ impl<'a> VolatileSlice<'a> {
     ///
     /// The returned subslice is a copy of this slice with the address increased by `offset` bytes
     /// and the size set to `count` bytes.
-    pub fn subslice(self, offset: usize, count: usize) -> Result<VolatileSlice<'a>> {
+    pub fn subslice(self, offset: usize, count: usize) -> Result<Self> {
         let mem_end = compute_offset(offset, count)?;
         if mem_end > self.len() {
             return Err(Error::OutOfBounds { addr: mem_end });
@@ -328,9 +368,10 @@ impl<'a> VolatileSlice<'a> {
         unsafe {
             // This is safe because the pointer is range-checked by compute_end_offset, and
             // the lifetime is the same as the original slice.
-            Ok(VolatileSlice::new(
+            Ok(VolatileSlice::with_bitmap(
                 (self.as_ptr() as usize + offset) as *mut u8,
                 count,
+                self.bitmap.slice_at(offset),
             ))
         }
     }
@@ -340,7 +381,7 @@ impl<'a> VolatileSlice<'a> {
     ///
     /// The returned subslice is a copy of this slice with the address increased by `count` bytes
     /// and the size reduced by `count` bytes.
-    pub fn offset(self, count: usize) -> Result<VolatileSlice<'a>> {
+    pub fn offset(self, count: usize) -> Result<VolatileSlice<'a, B>> {
         let new_addr = (self.addr as usize)
             .checked_add(count)
             .ok_or(Error::Overflow {
@@ -354,7 +395,11 @@ impl<'a> VolatileSlice<'a> {
         unsafe {
             // Safe because the memory has the same lifetime and points to a subset of the
             // memory of the original slice.
-            Ok(VolatileSlice::new(new_addr as *mut u8, new_size))
+            Ok(VolatileSlice::with_bitmap(
+                new_addr as *mut u8,
+                new_size,
+                self.bitmap.slice_at(count),
+            ))
         }
     }
 
@@ -424,13 +469,15 @@ impl<'a> VolatileSlice<'a> {
     ///         .expect("Could not get VolatileSlice"),
     /// );
     /// ```
-    pub fn copy_to_volatile_slice(&self, slice: VolatileSlice) {
+    pub fn copy_to_volatile_slice<S: BitmapSlice>(&self, slice: VolatileSlice<S>) {
         unsafe {
             // Safe because the pointers are range-checked when the slices
             // are created, and they never escape the VolatileSlices.
             // FIXME: ... however, is it really okay to mix non-volatile
             // operations such as copy with read_volatile and write_volatile?
-            copy(self.addr, slice.addr, min(self.size, slice.size));
+            let count = min(self.size, slice.size);
+            copy(self.addr, slice.addr, count);
+            slice.bitmap.mark_dirty(0, count);
         }
     }
 
@@ -471,12 +518,18 @@ impl<'a> VolatileSlice<'a> {
             let dst = unsafe { self.as_mut_slice() };
             // Safe because `T` is a one-byte data structure.
             let src = unsafe { from_raw_parts(buf.as_ptr() as *const u8, buf.len()) };
-            copy_slice(dst, src);
+            let count = copy_slice(dst, src);
+            self.bitmap.mark_dirty(0, count * size_of::<T>());
         } else {
             let count = self.size / size_of::<T>();
+            // It's ok to use unwrap here because `count` was computed based on the current
+            // length of `self`.
             let dest = self.get_array_ref::<T>(0, count).unwrap();
-            dest.copy_from(buf)
-        }
+
+            // No need to explicitly call `mark_dirty` after this call because
+            // `VolatileArrayRef::copy_from` already takes care of that.
+            dest.copy_from(buf);
+        };
     }
 
     /// Returns a slice corresponding to the data in the underlying memory.
@@ -489,12 +542,15 @@ impl<'a> VolatileSlice<'a> {
         from_raw_parts(self.addr, self.size)
     }
 
-    /// Returns a mutable slice corresponding to the data in the underlying memory.
+    /// Returns a mutable slice corresponding to the data in the underlying memory. Writes to the
+    /// slice have to be tracked manually using the handle returned by `VolatileSlice::bitmap`.
     ///
     /// # Safety
     ///
     /// This function is private and only used for the read/write functions. It is not valid in
-    /// general to take slices of volatile memory.
+    /// general to take slices of volatile memory. Mutable accesses performed through the returned
+    /// slice are not visible to the dirty bitmap tracking functionality, and must be manually
+    /// recorded using the associated bitmap object.
     #[allow(clippy::mut_from_ref)]
     unsafe fn as_mut_slice(&self) -> &mut [u8] {
         from_raw_parts_mut(self.addr, self.size)
@@ -514,7 +570,7 @@ impl<'a> VolatileSlice<'a> {
     }
 }
 
-impl Bytes<usize> for VolatileSlice<'_> {
+impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     type E = Error;
 
     /// # Examples
@@ -540,7 +596,10 @@ impl Bytes<usize> for VolatileSlice<'_> {
         // volatile.  Writing to it with what is essentially a fancy memcpy
         // won't hurt anything as long as we get the bounds checks right.
         let slice = unsafe { self.as_mut_slice() }.split_at_mut(addr).1;
-        Ok(copy_slice(slice, buf))
+
+        let count = copy_slice(slice, buf);
+        self.bitmap.mark_dirty(addr, count);
+        Ok(count)
     }
 
     /// # Examples
@@ -589,6 +648,7 @@ impl Bytes<usize> for VolatileSlice<'_> {
     /// assert_eq!(res.unwrap(), ());
     /// ```
     fn write_slice(&self, buf: &[u8], addr: usize) -> Result<()> {
+        // `mark_dirty` called within `self.write`.
         let len = self.write(buf, addr)?;
         if len != buf.len() {
             return Err(Error::PartialBuffer {
@@ -657,19 +717,22 @@ impl Bytes<usize> for VolatileSlice<'_> {
         F: Read,
     {
         let end = self.compute_end_offset(addr, count)?;
-        unsafe {
+        let bytes_read = unsafe {
             // It is safe to overwrite the volatile memory. Accessing the guest
             // memory as a mutable slice is OK because nothing assumes another
             // thread won't change what is loaded.
             let dst = &mut self.as_mut_slice()[addr..end];
             loop {
                 match src.read(dst) {
-                    Ok(n) => break Ok(n),
+                    Ok(n) => break n,
                     Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(e) => break Err(Error::IOError(e)),
+                    Err(e) => return Err(Error::IOError(e)),
                 }
             }
-        }
+        };
+
+        self.bitmap.mark_dirty(addr, bytes_read);
+        Ok(bytes_read)
     }
 
     /// # Examples
@@ -701,14 +764,15 @@ impl Bytes<usize> for VolatileSlice<'_> {
         F: Read,
     {
         let end = self.compute_end_offset(addr, count)?;
-        unsafe {
-            // It is safe to overwrite the volatile memory. Accessing the guest
-            // memory as a mutable slice is OK because nothing assumes another
-            // thread won't change what is loaded.
-            let dst = &mut self.as_mut_slice()[addr..end];
-            src.read_exact(dst).map_err(Error::IOError)?;
-        }
-        Ok(())
+
+        // It is safe to overwrite the volatile memory. Accessing the guest memory as a mutable
+        // slice is OK because nothing assumes another thread won't change what is loaded. We also
+        // manually update the dirty bitmap below.
+        let dst = unsafe { &mut self.as_mut_slice()[addr..end] };
+
+        let result = src.read_exact(dst).map_err(Error::IOError);
+        self.bitmap.mark_dirty(addr, count);
+        result
     }
 
     /// # Examples
@@ -743,7 +807,7 @@ impl Bytes<usize> for VolatileSlice<'_> {
             // It is safe to read from volatile memory. Accessing the guest
             // memory as a slice is OK because nothing assumes another thread
             // won't change what is loaded.
-            let src = &self.as_mut_slice()[addr..end];
+            let src = &self.as_slice()[addr..end];
             loop {
                 match dst.write(src) {
                     Ok(n) => break Ok(n),
@@ -786,15 +850,17 @@ impl Bytes<usize> for VolatileSlice<'_> {
             // It is safe to read from volatile memory. Accessing the guest
             // memory as a slice is OK because nothing assumes another thread
             // won't change what is loaded.
-            let src = &self.as_mut_slice()[addr..end];
+            let src = &self.as_slice()[addr..end];
             dst.write_all(src).map_err(Error::IOError)?;
         }
         Ok(())
     }
 
     fn store<T: AtomicAccess>(&self, val: T, addr: usize, order: Ordering) -> Result<()> {
-        self.get_atomic_ref::<T::A>(addr)
-            .map(|r| r.store(val.into(), order))
+        self.get_atomic_ref::<T::A>(addr).map(|r| {
+            r.store(val.into(), order);
+            self.bitmap.mark_dirty(addr, size_of::<T>())
+        })
     }
 
     fn load<T: AtomicAccess>(&self, addr: usize, order: Ordering) -> Result<T> {
@@ -803,17 +869,23 @@ impl Bytes<usize> for VolatileSlice<'_> {
     }
 }
 
-impl VolatileMemory for VolatileSlice<'_> {
+impl<B: BitmapSlice> VolatileMemory for VolatileSlice<'_, B> {
+    type B = B;
+
     fn len(&self) -> usize {
         self.size
     }
 
-    fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice> {
+    fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice<B>> {
         let _ = self.compute_end_offset(offset, count)?;
         Ok(unsafe {
             // This is safe because the pointer is range-checked by compute_end_offset, and
             // the lifetime is the same as self.
-            VolatileSlice::new((self.addr as usize + offset) as *mut u8, count)
+            VolatileSlice::with_bitmap(
+                (self.addr as usize + offset) as *mut u8,
+                count,
+                self.bitmap.slice_at(offset),
+            )
         })
     }
 }
@@ -826,7 +898,7 @@ impl VolatileMemory for VolatileSlice<'_> {
 /// # use vm_memory::VolatileRef;
 /// #
 /// let mut v = 5u32;
-/// let v_ref = unsafe { VolatileRef::<u32>::new(&mut v as *mut u32 as *mut u8) };
+/// let v_ref = unsafe { VolatileRef::new(&mut v as *mut u32 as *mut u8) };
 ///
 /// assert_eq!(v, 5);
 /// assert_eq!(v_ref.load(), 5);
@@ -834,16 +906,16 @@ impl VolatileMemory for VolatileSlice<'_> {
 /// assert_eq!(v, 500);
 /// ```
 #[derive(Clone, Copy, Debug)]
-pub struct VolatileRef<'a, T: ByteValued>
-where
-    T: 'a,
-{
+pub struct VolatileRef<'a, T, B = ()> {
     addr: *mut Packed<T>,
+    bitmap: B,
     phantom: PhantomData<&'a T>,
 }
 
-#[allow(clippy::len_without_is_empty)]
-impl<'a, T: ByteValued> VolatileRef<'a, T> {
+impl<'a, T> VolatileRef<'a, T, ()>
+where
+    T: ByteValued,
+{
     /// Creates a [`VolatileRef`](struct.VolatileRef.html) to an instance of `T`.
     ///
     /// # Safety
@@ -852,9 +924,30 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
     /// `T` and is available for the duration of the lifetime of the new `VolatileRef`. The caller
     /// must also guarantee that all other users of the given chunk of memory are using volatile
     /// accesses.
-    pub unsafe fn new(addr: *mut u8) -> VolatileRef<'a, T> {
+    pub unsafe fn new(addr: *mut u8) -> Self {
+        Self::with_bitmap(addr, ())
+    }
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl<'a, T, B> VolatileRef<'a, T, B>
+where
+    T: ByteValued,
+    B: BitmapSlice,
+{
+    /// Creates a [`VolatileRef`](struct.VolatileRef.html) to an instance of `T`, using the
+    /// provided `bitmap` object for dirty page tracking.
+    ///
+    /// # Safety
+    ///
+    /// To use this safely, the caller must guarantee that the memory at `addr` is big enough for a
+    /// `T` and is available for the duration of the lifetime of the new `VolatileRef`. The caller
+    /// must also guarantee that all other users of the given chunk of memory are using volatile
+    /// accesses.
+    pub unsafe fn with_bitmap(addr: *mut u8, bitmap: B) -> Self {
         VolatileRef {
             addr: addr as *mut Packed<T>,
+            bitmap,
             phantom: PhantomData,
         }
     }
@@ -879,10 +972,16 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
         size_of::<T>()
     }
 
+    /// Borrows the inner `BitmapSlice`.
+    pub fn bitmap(&self) -> &B {
+        &self.bitmap
+    }
+
     /// Does a volatile write of the value `v` to the address of this ref.
     #[inline(always)]
     pub fn store(self, v: T) {
         unsafe { write_volatile(self.addr, Packed::<T>(v)) };
+        self.bitmap.mark_dirty(0, size_of::<T>())
     }
 
     /// Does a volatile read of the value at the address of this ref.
@@ -896,8 +995,8 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
 
     /// Converts this to a [`VolatileSlice`](struct.VolatileSlice.html) with the same size and
     /// address.
-    pub fn to_slice(self) -> VolatileSlice<'a> {
-        unsafe { VolatileSlice::new(self.addr as *mut u8, size_of::<T>()) }
+    pub fn to_slice(self) -> VolatileSlice<'a, B> {
+        unsafe { VolatileSlice::with_bitmap(self.addr as *mut u8, size_of::<T>(), self.bitmap) }
     }
 }
 
@@ -909,7 +1008,7 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
 /// # use vm_memory::VolatileArrayRef;
 /// #
 /// let mut v = [5u32; 1];
-/// let v_ref = unsafe { VolatileArrayRef::<u32>::new(&mut v[0] as *mut u32 as *mut u8, v.len()) };
+/// let v_ref = unsafe { VolatileArrayRef::new(&mut v[0] as *mut u32 as *mut u8, v.len()) };
 ///
 /// assert_eq!(v[0], 5);
 /// assert_eq!(v_ref.load(0), 5);
@@ -917,16 +1016,17 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
 /// assert_eq!(v[0], 500);
 /// ```
 #[derive(Clone, Copy, Debug)]
-pub struct VolatileArrayRef<'a, T: ByteValued>
-where
-    T: 'a,
-{
+pub struct VolatileArrayRef<'a, T, B = ()> {
     addr: *mut u8,
     nelem: usize,
+    bitmap: B,
     phantom: PhantomData<&'a T>,
 }
 
-impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
+impl<'a, T> VolatileArrayRef<'a, T>
+where
+    T: ByteValued,
+{
     /// Creates a [`VolatileArrayRef`](struct.VolatileArrayRef.html) to an array of elements of
     /// type `T`.
     ///
@@ -936,10 +1036,30 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
     /// `nelem` values of type `T` and is available for the duration of the lifetime of the new
     /// `VolatileRef`. The caller must also guarantee that all other users of the given chunk of
     /// memory are using volatile accesses.
-    pub unsafe fn new(addr: *mut u8, nelem: usize) -> VolatileArrayRef<'a, T> {
+    pub unsafe fn new(addr: *mut u8, nelem: usize) -> Self {
+        Self::with_bitmap(addr, nelem, ())
+    }
+}
+
+impl<'a, T, B> VolatileArrayRef<'a, T, B>
+where
+    T: ByteValued,
+    B: BitmapSlice,
+{
+    /// Creates a [`VolatileArrayRef`](struct.VolatileArrayRef.html) to an array of elements of
+    /// type `T`, using the provided `bitmap` object for dirty page tracking.
+    ///
+    /// # Safety
+    ///
+    /// To use this safely, the caller must guarantee that the memory at `addr` is big enough for
+    /// `nelem` values of type `T` and is available for the duration of the lifetime of the new
+    /// `VolatileRef`. The caller must also guarantee that all other users of the given chunk of
+    /// memory are using volatile accesses.
+    pub unsafe fn with_bitmap(addr: *mut u8, nelem: usize, bitmap: B) -> Self {
         VolatileArrayRef {
             addr,
             nelem,
+            bitmap,
             phantom: PhantomData,
         }
     }
@@ -987,18 +1107,27 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
         size_of::<T>()
     }
 
-    /// Returns a pointer to the underlying memory.
+    /// Returns a pointer to the underlying memory. Mutable accesses performed
+    /// using the resulting pointer are not automatically accounted for by the dirty bitmap
+    /// tracking functionality.
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr
     }
 
+    /// Borrows the inner `BitmapSlice`.
+    pub fn bitmap(&self) -> &B {
+        &self.bitmap
+    }
+
     /// Converts this to a `VolatileSlice` with the same size and address.
-    pub fn to_slice(&self) -> VolatileSlice<'a> {
-        unsafe { VolatileSlice::new(self.addr, self.nelem * self.element_size()) }
+    pub fn to_slice(&self) -> VolatileSlice<'a, B> {
+        unsafe {
+            VolatileSlice::with_bitmap(self.addr, self.nelem * self.element_size(), self.bitmap)
+        }
     }
 
     /// Does a volatile read of the element at `index`.
-    pub fn ref_at(&self, index: usize) -> VolatileRef<'a, T> {
+    pub fn ref_at(&self, index: usize) -> VolatileRef<'a, T, B> {
         assert!(index < self.nelem);
         // Safe because the memory has the same lifetime and points to a subset of the
         // memory of the VolatileArrayRef.
@@ -1006,7 +1135,7 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
             // byteofs must fit in an isize as it was checked in get_array_ref.
             let byteofs = (self.element_size() * index) as isize;
             let ptr = self.as_ptr().offset(byteofs);
-            VolatileRef::new(ptr)
+            VolatileRef::with_bitmap(ptr, self.bitmap.slice_at(byteofs as usize))
         }
     }
 
@@ -1017,6 +1146,8 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
 
     /// Does a volatile write of the element at `index`.
     pub fn store(&self, index: usize, value: T) {
+        // The `VolatileRef::store` call below implements the required dirty bitmap tracking logic,
+        // so no need to do that in this method as well.
         self.ref_at(index).store(value)
     }
 
@@ -1032,7 +1163,7 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
     /// # use vm_memory::VolatileArrayRef;
     /// #
     /// let mut v = [0u8; 32];
-    /// let v_ref = unsafe { VolatileArrayRef::<u8>::new(&mut v[0] as *mut u8, v.len()) };
+    /// let v_ref = unsafe { VolatileArrayRef::new(&mut v[0] as *mut u8, v.len()) };
     ///
     /// let mut buf = [5u8; 16];
     /// v_ref.copy_to(&mut buf[..]);
@@ -1087,17 +1218,15 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
     ///     assert_eq!(v, 0);
     /// }
     /// ```
-    pub fn copy_to_volatile_slice(&self, slice: VolatileSlice) {
+    pub fn copy_to_volatile_slice<S: BitmapSlice>(&self, slice: VolatileSlice<S>) {
         unsafe {
             // Safe because the pointers are range-checked when the slices
             // are created, and they never escape the VolatileSlices.
             // FIXME: ... however, is it really okay to mix non-volatile
             // operations such as copy with read_volatile and write_volatile?
-            copy(
-                self.addr,
-                slice.addr,
-                min(self.len() * self.element_size(), slice.size),
-            );
+            let count = min(self.len() * self.element_size(), slice.size);
+            copy(self.addr, slice.addr, count);
+            slice.bitmap.mark_dirty(0, count);
         }
     }
 
@@ -1130,7 +1259,8 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
             let dst = unsafe { destination.as_mut_slice() };
             // Safe because `T` is a one-byte data structure.
             let src = unsafe { from_raw_parts(buf.as_ptr() as *const u8, buf.len()) };
-            copy_slice(dst, src);
+            let count = copy_slice(dst, src);
+            self.bitmap.mark_dirty(0, count);
         } else {
             let mut addr = self.addr;
             for &v in buf.iter().take(self.len()) {
@@ -1143,15 +1273,18 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
                     addr = addr.add(self.element_size());
                 }
             }
+
+            self.bitmap
+                .mark_dirty(0, addr as usize - self.addr as usize)
         }
     }
 }
 
-impl<'a> From<VolatileSlice<'a>> for VolatileArrayRef<'a, u8> {
-    fn from(slice: VolatileSlice<'a>) -> Self {
+impl<'a, B: BitmapSlice> From<VolatileSlice<'a, B>> for VolatileArrayRef<'a, u8, B> {
+    fn from(slice: VolatileSlice<'a, B>) -> Self {
         // Safe because the result has the same lifetime and points to the same
         // memory as the incoming VolatileSlice.
-        unsafe { VolatileArrayRef::new(slice.as_ptr(), slice.len()) }
+        unsafe { VolatileArrayRef::with_bitmap(slice.as_ptr(), slice.len(), slice.bitmap) }
     }
 }
 
@@ -1249,11 +1382,13 @@ mod tests {
     }
 
     impl VolatileMemory for VecMem {
+        type B = ();
+
         fn len(&self) -> usize {
             self.mem.len()
         }
 
-        fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice> {
+        fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice<()>> {
             let _ = self.compute_end_offset(offset, count)?;
             Ok(unsafe {
                 VolatileSlice::new((self.mem.as_ptr() as usize + offset) as *mut _, count)
@@ -1760,7 +1895,7 @@ mod tests {
         let a_vec = a.to_vec();
         let a_ref = &mut a[..];
         let a_slice = a_ref.get_slice(0, a_ref.len()).unwrap();
-        let a_array_ref: VolatileArrayRef<u8> = a_slice.into();
+        let a_array_ref: VolatileArrayRef<u8, ()> = a_slice.into();
         for (i, entry) in a_vec.iter().enumerate() {
             assert_eq!(&a_array_ref.load(i), entry);
         }
