@@ -290,6 +290,26 @@ impl<'a> VolatileSlice<'a> {
         self.size == 0
     }
 
+    /// Divides one slice into two at an index.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use vm_memory::VolatileMemory;
+    /// let mut mem = [0u8; 32];
+    /// let mem_ref = &mut mem[..];
+    /// let vslice = mem_ref.get_slice(0, 32).unwrap();
+    /// let (start, end) = vslice.split_at(8).unwrap();
+    /// ```
+    pub fn split_at(self, mid: usize) -> Result<(VolatileSlice<'a>, VolatileSlice<'a>)> {
+        let end = self.offset(mid)?;
+        let start = unsafe {
+            // safe because self.offset() already checked the bounds
+            VolatileSlice::new(self.addr, mid)
+        };
+        Ok((start, end))
+    }
+
     /// Returns a subslice of this [`VolatileSlice`](struct.VolatileSlice.html) starting at
     /// `offset`.
     ///
@@ -1701,5 +1721,26 @@ mod tests {
         let s = a.as_volatile_slice();
 
         crate::bytes::tests::check_atomic_accesses(s, 0, 0x1000);
+    }
+
+    #[test]
+    fn split_at() {
+        let mut mem = [0u8; 32];
+        let mem_ref = &mut mem[..];
+        let vslice = mem_ref.get_slice(0, 32).unwrap();
+        let (start, end) = vslice.split_at(8).unwrap();
+        assert_eq!(start.len(), 8);
+        assert_eq!(end.len(), 24);
+        let (start, end) = vslice.split_at(0).unwrap();
+        assert_eq!(start.len(), 0);
+        assert_eq!(end.len(), 32);
+        let (start, end) = vslice.split_at(31).unwrap();
+        assert_eq!(start.len(), 31);
+        assert_eq!(end.len(), 1);
+        let (start, end) = vslice.split_at(32).unwrap();
+        assert_eq!(start.len(), 32);
+        assert_eq!(end.len(), 0);
+        let err = vslice.split_at(33).unwrap_err();
+        assert_matches!(err, Error::OutOfBounds { addr: _ })
     }
 }
