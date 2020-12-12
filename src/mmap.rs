@@ -458,14 +458,19 @@ impl GuestMemoryMmap {
     ///
     /// Valid memory regions are specified as a sequence of (Address, Size, Option<FileOffset>)
     /// tuples sorted by Address.
-    pub fn from_ranges_with_files<A, T>(
-        ranges: &[(GuestAddress, usize, Option<FileOffset>)],
-    ) -> result::Result<Self, Error> {
-        Self::from_ranges_with_options(
-            ranges
-                .iter()
-                .map(|r| (r.0, r.1, PageSizePolicy::BasePages, r.2.clone())),
-        )
+    pub fn from_ranges_with_files<A, T>(ranges: T) -> result::Result<Self, Error>
+    where
+        A: Borrow<(GuestAddress, usize, Option<FileOffset>)>,
+        T: IntoIterator<Item = A>,
+    {
+        Self::from_ranges_with_options(ranges.into_iter().map(|r| {
+            (
+                r.borrow().0,
+                r.borrow().1,
+                PageSizePolicy::BasePages,
+                r.borrow().2.clone(),
+            )
+        }))
     }
 
     /// Creates a container and allocates anonymous memory for guest memory regions.
@@ -486,9 +491,9 @@ impl GuestMemoryMmap {
                     let policy = x.borrow().2;
 
                     if let Some(ref f_off) = x.borrow().3 {
-                        MmapRegion::from_file(f_off.clone(), size, policy)
+                        MmapRegion::from_file_with_policy(f_off.clone(), size, policy)
                     } else {
-                        MmapRegion::new(size, policy)
+                        MmapRegion::with_policy(size, policy)
                     }
                     .map_err(Error::MmapRegion)
                     .and_then(|r| GuestRegionMmap::new(r, guest_base))

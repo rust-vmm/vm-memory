@@ -88,8 +88,16 @@ impl MmapRegion {
     ///
     /// # Arguments
     /// * `size` - The size of the memory region in bytes.
+    pub fn new(size: usize) -> io::Result<Self> {
+        Self::with_policy(size, PageSizePolicy::BasePages)
+    }
+
+    /// Creates a shared anonymous mapping of `size` bytes.
+    ///
+    /// # Arguments
+    /// * `size` - The size of the memory region in bytes.
     /// * `policy` - Unimplemented on Windows platforms.
-    pub fn new(size: usize, _policy: PageSizePolicy) -> io::Result<Self> {
+    pub fn with_policy(size: usize, _policy: PageSizePolicy) -> io::Result<Self> {
         if (size == 0) || (size > MM_HIGHEST_VAD_ADDRESS as usize) {
             return Err(io::Error::from_raw_os_error(libc::EINVAL));
         }
@@ -112,8 +120,18 @@ impl MmapRegion {
     /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
     ///                   referred to by `file_offset.file`.
     /// * `size` - The size of the memory region in bytes.
+    pub fn from_file(file_offset: FileOffset, size: usize) -> io::Result<Self> {
+        Self::from_file_with_policy(file_offset, size, PageSizePolicy::BasePages)
+    }
+
+    /// Creates a shared file mapping of `size` bytes.
+    ///
+    /// # Arguments
+    /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
+    ///                   referred to by `file_offset.file`.
+    /// * `size` - The size of the memory region in bytes.
     /// * `policy` - Unimplemented on Windows platforms.
-    pub fn from_file(
+    pub fn from_file_with_policy(
         file_offset: FileOffset,
         size: usize,
         _policy: PageSizePolicy,

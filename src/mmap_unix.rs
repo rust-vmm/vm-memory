@@ -105,7 +105,16 @@ impl MmapRegion {
     ///
     /// # Arguments
     /// * `size` - The size of the memory region in bytes.
-    pub fn new(size: usize, policy: PageSizePolicy) -> Result<Self> {
+    pub fn new(size: usize) -> Result<Self> {
+        Self::with_policy(size, PageSizePolicy::BasePages)
+    }
+
+    /// Creates a shared anonymous mapping of `size` bytes.
+    ///
+    /// # Arguments
+    /// * `size` - The size of the memory region in bytes.
+    /// * `policy` - The page size policy of the memory region.
+    pub fn with_policy(size: usize, policy: PageSizePolicy) -> Result<Self> {
         Self::build(
             None,
             size,
@@ -121,7 +130,22 @@ impl MmapRegion {
     /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
     ///                   referred to by `file_offset.file`.
     /// * `size` - The size of the memory region in bytes.
-    pub fn from_file(file_offset: FileOffset, size: usize, policy: PageSizePolicy) -> Result<Self> {
+    pub fn from_file(file_offset: FileOffset, size: usize) -> Result<Self> {
+        Self::from_file_with_policy(file_offset, size, PageSizePolicy::BasePages)
+    }
+
+    /// Creates a shared file mapping of `size` bytes.
+    ///
+    /// # Arguments
+    /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
+    ///                   referred to by `file_offset.file`.
+    /// * `size` - The size of the memory region in bytes.
+    /// * `policy` - The page size policy of the memory region.
+    pub fn from_file_with_policy(
+        file_offset: FileOffset,
+        size: usize,
+        policy: PageSizePolicy,
+    ) -> Result<Self> {
         Self::build(
             Some(file_offset),
             size,
@@ -412,6 +436,7 @@ mod tests {
             size,
             prot,
             flags,
+            PageSizePolicy::BasePages,
         );
         assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidOffsetLength");
 
@@ -421,6 +446,7 @@ mod tests {
             size,
             prot,
             flags,
+            PageSizePolicy::BasePages,
         );
         assert_eq!(format!("{:?}", r.unwrap_err()), "MappingPastEof");
 
@@ -430,6 +456,7 @@ mod tests {
             size,
             prot,
             flags | libc::MAP_FIXED,
+            PageSizePolicy::BasePages,
         );
         assert_eq!(format!("{:?}", r.unwrap_err()), "MapFixed");
 
@@ -442,6 +469,7 @@ mod tests {
             size,
             prot,
             flags,
+            PageSizePolicy::BasePages,
         );
         assert_eq!(r.unwrap_err().raw_os_error(), libc::EINVAL);
 
@@ -451,6 +479,7 @@ mod tests {
             size,
             prot,
             flags,
+            PageSizePolicy::BasePages,
         )
         .unwrap();
 
