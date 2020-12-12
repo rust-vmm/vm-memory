@@ -122,6 +122,22 @@ let buf = &mut [0u8; 5];
 let result = guest_memory_mmap.write(buf, addr);
 ```
 
+#### Page Size Policy
+
+For regions backed by a call to `mmap`, the user may specify the desired page size
+and behavior expected by the operating system. The current options include:
+
+- `BasePages`: The standard page size provided by the operating system.
+- `TransparentHugepages`: (Implemented only for Unix-like systems) Hints to the operating
+  system that base pages can be combined transparently into larger page sizes. Concretely,
+  mappings with this policy will invoke `madvise` with the `MADV_HUGEPAGE` flag.
+- `ExplicitHugepages`: Requests that the entire mapping be explicitly mapped to a pre-reserved
+  pool of hugepages. Concretely, mappings with this policy will include the `MAP_HUGETLB` flag
+  in the call to `mmap`. **NOTE:** If the operating system has no available hugepages (e.g. on Linux,
+  if `cat /proc/sys/vm/nr_hugepages` reads 0), then the mapping, or attempts to dereference addresses
+  within the region, may fail. It is the responsibility of the VMM to ensure that hugepages are
+  available for use before constructing a mapping with this policy.
+
 ### Utilities and Helpers
 
 The following utilities and helper traits/macros are imported from the
