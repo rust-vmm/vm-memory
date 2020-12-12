@@ -70,6 +70,17 @@ pub enum Error {
     UnsortedMemoryRegions,
 }
 
+/// Page configuration types for controlling allocation size and behavior
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum PageSizePolicy {
+    /// Base pages are the smallest page-size unit available on the system.
+    BasePages,
+    /// Transparent hugepages, if available, are managed by the host operating system.
+    TransparentHugepages,
+    /// Explicit hugepages swear a lot. Especially if the addresses aren't aligned.
+    ExplicitHugepages,
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -426,16 +437,44 @@ impl GuestMemoryMmap {
     ///
     /// Valid memory regions are specified as a slice of (Address, Size) tuples sorted by Address.
     pub fn from_ranges(ranges: &[(GuestAddress, usize)]) -> result::Result<Self, Error> {
-        Self::from_ranges_with_files(ranges.iter().map(|r| (r.0, r.1, None)))
+        Self::from_ranges_with_options(
+            ranges
+                .iter()
+                .map(|r| (r.0, r.1, PageSizePolicy::BasePages, None)),
+        )
+    }
+
+    /// Creates a container and allocates anonymous memory for guest memory regions.
+    ///
+    /// Valid memory regions are specified as asequence of (Address, Size, PageSizePolicy)
+    /// tuples sorted by Address.
+    pub fn from_ranges_with_policy(
+        ranges: &[(GuestAddress, usize, PageSizePolicy)],
+    ) -> result::Result<Self, Error> {
+        Self::from_ranges_with_options(ranges.iter().map(|r| (r.0, r.1, r.2, None)))
     }
 
     /// Creates a container and allocates anonymous memory for guest memory regions.
     ///
     /// Valid memory regions are specified as a sequence of (Address, Size, Option<FileOffset>)
     /// tuples sorted by Address.
-    pub fn from_ranges_with_files<A, T>(ranges: T) -> result::Result<Self, Error>
+    pub fn from_ranges_with_files<A, T>(
+        ranges: &[(GuestAddress, usize, Option<FileOffset>)],
+    ) -> result::Result<Self, Error> {
+        Self::from_ranges_with_options(
+            ranges
+                .iter()
+                .map(|r| (r.0, r.1, PageSizePolicy::BasePages, r.2.clone())),
+        )
+    }
+
+    /// Creates a container and allocates anonymous memory for guest memory regions.
+    ///
+    /// Valid memory regions are specified as a sequence of (Address, Size, Option<FileOffset>)
+    /// tuples sorted by Address.
+    pub fn from_ranges_with_options<A, T>(ranges: T) -> result::Result<Self, Error>
     where
-        A: Borrow<(GuestAddress, usize, Option<FileOffset>)>,
+        A: Borrow<(GuestAddress, usize, PageSizePolicy, Option<FileOffset>)>,
         T: IntoIterator<Item = A>,
     {
         Self::from_regions(
@@ -444,11 +483,12 @@ impl GuestMemoryMmap {
                 .map(|x| {
                     let guest_base = x.borrow().0;
                     let size = x.borrow().1;
+                    let policy = x.borrow().2;
 
-                    if let Some(ref f_off) = x.borrow().2 {
-                        MmapRegion::from_file(f_off.clone(), size)
+                    if let Some(ref f_off) = x.borrow().3 {
+                        MmapRegion::from_file(f_off.clone(), size, policy)
                     } else {
-                        MmapRegion::new(size)
+                        MmapRegion::new(size, policy)
                     }
                     .map_err(Error::MmapRegion)
                     .and_then(|r| GuestRegionMmap::new(r, guest_base))

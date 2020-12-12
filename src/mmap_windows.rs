@@ -13,7 +13,7 @@ use libc::{c_void, size_t};
 use winapi::um::errhandlingapi::GetLastError;
 
 use crate::guest_memory::FileOffset;
-use crate::mmap::AsSlice;
+use crate::mmap::{AsSlice, PageSizePolicy};
 use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
 
 #[allow(non_snake_case)]
@@ -88,7 +88,8 @@ impl MmapRegion {
     ///
     /// # Arguments
     /// * `size` - The size of the memory region in bytes.
-    pub fn new(size: usize) -> io::Result<Self> {
+    /// * `policy` - Unimplemented on Windows platforms.
+    pub fn new(size: usize, _policy: PageSizePolicy) -> io::Result<Self> {
         if (size == 0) || (size > MM_HIGHEST_VAD_ADDRESS as usize) {
             return Err(io::Error::from_raw_os_error(libc::EINVAL));
         }
@@ -111,7 +112,12 @@ impl MmapRegion {
     /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
     ///                   referred to by `file_offset.file`.
     /// * `size` - The size of the memory region in bytes.
-    pub fn from_file(file_offset: FileOffset, size: usize) -> io::Result<Self> {
+    /// * `policy` - Unimplemented on Windows platforms.
+    pub fn from_file(
+        file_offset: FileOffset,
+        size: usize,
+        _policy: PageSizePolicy,
+    ) -> io::Result<Self> {
         let handle = file_offset.file().as_raw_handle();
         if handle == INVALID_HANDLE_VALUE {
             return Err(io::Error::from_raw_os_error(libc::EBADF));
