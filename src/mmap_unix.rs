@@ -18,7 +18,7 @@ use std::ptr::null_mut;
 use std::result;
 
 use crate::guest_memory::FileOffset;
-use crate::mmap::{check_file_offset, AsSlice};
+use crate::mmap::{check_file_offset, AsSlice, PageSizePolicy};
 use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
@@ -90,6 +90,7 @@ pub struct MmapRegion {
     prot: i32,
     flags: i32,
     owned: bool,
+    policy: PageSizePolicy,
 }
 
 // Send and Sync aren't automatically inherited for the raw address pointer.
@@ -105,11 +106,21 @@ impl MmapRegion {
     /// # Arguments
     /// * `size` - The size of the memory region in bytes.
     pub fn new(size: usize) -> Result<Self> {
+        Self::with_policy(size, PageSizePolicy::BasePages)
+    }
+
+    /// Creates a shared anonymous mapping of `size` bytes.
+    ///
+    /// # Arguments
+    /// * `size` - The size of the memory region in bytes.
+    /// * `policy` - The page size policy of the memory region.
+    pub fn with_policy(size: usize, policy: PageSizePolicy) -> Result<Self> {
         Self::build(
             None,
             size,
             libc::PROT_READ | libc::PROT_WRITE,
             libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE,
+            policy,
         )
     }
 
@@ -120,11 +131,27 @@ impl MmapRegion {
     ///                   referred to by `file_offset.file`.
     /// * `size` - The size of the memory region in bytes.
     pub fn from_file(file_offset: FileOffset, size: usize) -> Result<Self> {
+        Self::from_file_with_policy(file_offset, size, PageSizePolicy::BasePages)
+    }
+
+    /// Creates a shared file mapping of `size` bytes.
+    ///
+    /// # Arguments
+    /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
+    ///                   referred to by `file_offset.file`.
+    /// * `size` - The size of the memory region in bytes.
+    /// * `policy` - The page size policy of the memory region.
+    pub fn from_file_with_policy(
+        file_offset: FileOffset,
+        size: usize,
+        policy: PageSizePolicy,
+    ) -> Result<Self> {
         Self::build(
             Some(file_offset),
             size,
             libc::PROT_READ | libc::PROT_WRITE,
             libc::MAP_NORESERVE | libc::MAP_SHARED,
+            policy,
         )
     }
 
@@ -143,6 +170,7 @@ impl MmapRegion {
         size: usize,
         prot: i32,
         flags: i32,
+        policy: PageSizePolicy,
     ) -> Result<Self> {
         // Forbid MAP_FIXED, as it doesn't make sense in this context, and is pretty dangerous
         // in general.
@@ -157,12 +185,26 @@ impl MmapRegion {
             (-1, 0)
         };
 
+        // Support explicit (pre-reserved) hugepages if requested
+        let flags = if policy == PageSizePolicy::ExplicitHugepages {
+            flags | libc::MAP_HUGETLB
+        } else {
+            flags
+        };
+
         // This is safe because we're not allowing MAP_FIXED, and invalid parameters cannot break
         // Rust safety guarantees (things may change if we're mapping /dev/mem or some wacky file).
         let addr = unsafe { libc::mmap(null_mut(), size, prot, flags, fd, offset as libc::off_t) };
 
         if addr == libc::MAP_FAILED {
             return Err(Error::Mmap(io::Error::last_os_error()));
+        }
+
+        // Support transparent hugepages if requested
+        if policy == PageSizePolicy::TransparentHugepages {
+            unsafe {
+                libc::madvise(addr, size, libc::MADV_HUGEPAGE);
+            };
         }
 
         Ok(Self {
@@ -172,6 +214,7 @@ impl MmapRegion {
             prot,
             flags,
             owned: true,
+            policy,
         })
     }
 
@@ -213,6 +256,7 @@ impl MmapRegion {
             prot,
             flags,
             owned: false,
+            policy: PageSizePolicy::BasePages,
         })
     }
 
@@ -246,6 +290,11 @@ impl MmapRegion {
     /// Returns `true` if the mapping is owned by this `MmapRegion` instance.
     pub fn owned(&self) -> bool {
         self.owned
+    }
+
+    /// Returns information regarding the page size policy backing this region.
+    pub fn policy(&self) -> PageSizePolicy {
+        self.policy
     }
 
     /// Checks whether this region and `other` are backed by overlapping
@@ -387,6 +436,7 @@ mod tests {
             size,
             prot,
             flags,
+            PageSizePolicy::BasePages,
         );
         assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidOffsetLength");
 
@@ -396,6 +446,7 @@ mod tests {
             size,
             prot,
             flags,
+            PageSizePolicy::BasePages,
         );
         assert_eq!(format!("{:?}", r.unwrap_err()), "MappingPastEof");
 
@@ -405,6 +456,7 @@ mod tests {
             size,
             prot,
             flags | libc::MAP_FIXED,
+            PageSizePolicy::BasePages,
         );
         assert_eq!(format!("{:?}", r.unwrap_err()), "MapFixed");
 
@@ -417,6 +469,7 @@ mod tests {
             size,
             prot,
             flags,
+            PageSizePolicy::BasePages,
         );
         assert_eq!(r.unwrap_err().raw_os_error(), libc::EINVAL);
 
@@ -426,6 +479,7 @@ mod tests {
             size,
             prot,
             flags,
+            PageSizePolicy::BasePages,
         )
         .unwrap();
 
