@@ -394,6 +394,25 @@ impl<M: GuestMemory> GuestAddressSpace for Arc<M> {
     }
 }
 
+/// Lifetime generic associated iterators. The actual iterator type is defined through associated
+/// item `Iter`, for example:
+///
+/// ```ignore
+/// impl<'a> GuestMemoryIterator<'a, MyGuestRegion> for MyGuestMemory {
+///     type Iter = MyGuestMemoryIter<'a>;
+/// }
+///
+/// pub struct MyGuestMemoryIter<`a>( /* ... */ );
+/// impl<'a> Iterator for MyGuestMemoryIter<'a> {
+///     type Item = &'a MyGuestRegion;
+///     /* ... */
+/// }
+/// ```
+pub trait GuestMemoryIterator<'a, R: 'a> {
+    /// Type of the `iter` method's return value.
+    type Iter: Iterator<Item = &'a R>;
+}
+
 /// `GuestMemory` represents a container for an *immutable* collection of
 /// `GuestMemoryRegion` objects.  `GuestMemory` provides the `Bytes<GuestAddress>`
 /// trait to hide the details of accessing guest memory by physical address.
@@ -407,6 +426,9 @@ pub trait GuestMemory {
     /// Type of objects hosted by the address space.
     type R: GuestMemoryRegion;
 
+    /// Lifetime generic associated iterators. Usually this is just `Self`.
+    type I: for<'a> GuestMemoryIterator<'a, Self::R>;
+
     /// Returns the number of regions in the collection.
     fn num_regions(&self) -> usize;
 
@@ -418,14 +440,55 @@ pub trait GuestMemory {
     /// It only walks children of current region and does not step into sub regions.
     fn with_regions<F, E>(&self, cb: F) -> std::result::Result<(), E>
     where
-        F: Fn(usize, &Self::R) -> std::result::Result<(), E>;
+        F: Fn(usize, &Self::R) -> std::result::Result<(), E>,
+    {
+        for (index, region) in self.iter().enumerate() {
+            cb(index, region)?;
+        }
+        Ok(())
+    }
 
     /// Perform the specified action on each region mutably.
     ///
     /// It only walks children of current region and does not step into sub regions.
-    fn with_regions_mut<F, E>(&self, cb: F) -> std::result::Result<(), E>
+    fn with_regions_mut<F, E>(&self, mut cb: F) -> std::result::Result<(), E>
     where
-        F: FnMut(usize, &Self::R) -> std::result::Result<(), E>;
+        F: FnMut(usize, &Self::R) -> std::result::Result<(), E>,
+    {
+        for (index, region) in self.iter().enumerate() {
+            cb(index, region)?;
+        }
+        Ok(())
+    }
+
+    /// Gets an iterator over the entries in the collection.
+    ///
+    /// # Examples
+    ///
+    /// * Compute the total size of all memory mappings in KB by iterating over the memory regions
+    ///   and dividing their sizes to 1024, then summing up the values in an accumulator.
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryRegion, GuestMemoryMmap};
+    ///
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # fn test_map_fold() -> Result<(), ()> {
+    ///     let start_addr1 = GuestAddress(0x0);
+    ///     let start_addr2 = GuestAddress(0x400);
+    ///     let mem = GuestMemoryMmap::from_ranges(&vec![(start_addr1, 1024), (start_addr2, 2048)])
+    ///         .unwrap();
+    ///     let total_size = mem.iter()
+    ///         .map(|region| region.len() / 1024)
+    ///         .fold(0, |acc, size| acc + size);
+    ///     println!("Total memory size = {} KB", total_size);
+    ///     Ok(())
+    /// # }
+    ///
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # test_map_fold();
+    /// ```
+    fn iter(&self) -> <Self::I as GuestMemoryIterator<Self::R>>::Iter;
 
     /// Applies two functions, specified as callbacks, on the inner memory regions.
     ///
@@ -468,7 +531,10 @@ pub trait GuestMemory {
     fn map_and_fold<F, G, T>(&self, init: T, mapf: F, foldf: G) -> T
     where
         F: Fn((usize, &Self::R)) -> T,
-        G: Fn(T, T) -> T;
+        G: Fn(T, T) -> T,
+    {
+        self.iter().enumerate().map(mapf).fold(init, foldf)
+    }
 
     /// Returns the maximum (inclusive) address managed by the
     /// [`GuestMemory`](trait.GuestMemory.html).
@@ -491,11 +557,9 @@ pub trait GuestMemory {
     /// # test_last_addr();
     /// ```
     fn last_addr(&self) -> GuestAddress {
-        self.map_and_fold(
-            GuestAddress(0),
-            |(_, region)| region.last_addr(),
-            std::cmp::max,
-        )
+        self.iter()
+            .map(GuestMemoryRegion::last_addr)
+            .fold(GuestAddress(0), std::cmp::max)
     }
 
     /// Tries to convert an absolute address to a relative address within the corresponding region.

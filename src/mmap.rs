@@ -23,7 +23,8 @@ use std::sync::Arc;
 
 use crate::address::Address;
 use crate::guest_memory::{
-    self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
+    self, FileOffset, GuestAddress, GuestMemory, GuestMemoryIterator, GuestMemoryRegion,
+    GuestUsize, MemoryRegionAddress,
 };
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
 use crate::{AtomicAccess, Bytes};
@@ -539,8 +540,26 @@ impl GuestMemoryMmap {
     }
 }
 
+/// An iterator over the elements of `GuestMemoryMmap`.
+///
+/// This struct is created by `GuestMemory::iter()`. See its documentation for more.
+pub struct Iter<'a>(std::slice::Iter<'a, Arc<GuestRegionMmap>>);
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = &'a GuestRegionMmap;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(AsRef::as_ref)
+    }
+}
+
+impl<'a> GuestMemoryIterator<'a, GuestRegionMmap> for GuestMemoryMmap {
+    type Iter = Iter<'a>;
+}
+
 impl GuestMemory for GuestMemoryMmap {
     type R = GuestRegionMmap;
+
+    type I = Self;
 
     fn num_regions(&self) -> usize {
         self.regions.len()
@@ -556,36 +575,8 @@ impl GuestMemory for GuestMemoryMmap {
         index.map(|x| self.regions[x].as_ref())
     }
 
-    fn with_regions<F, E>(&self, cb: F) -> result::Result<(), E>
-    where
-        F: Fn(usize, &Self::R) -> result::Result<(), E>,
-    {
-        for (index, region) in self.regions.iter().enumerate() {
-            cb(index, region)?;
-        }
-        Ok(())
-    }
-
-    fn with_regions_mut<F, E>(&self, mut cb: F) -> result::Result<(), E>
-    where
-        F: FnMut(usize, &Self::R) -> result::Result<(), E>,
-    {
-        for (index, region) in self.regions.iter().enumerate() {
-            cb(index, region)?;
-        }
-        Ok(())
-    }
-
-    fn map_and_fold<F, G, T>(&self, init: T, mapf: F, foldf: G) -> T
-    where
-        F: Fn((usize, &Self::R)) -> T,
-        G: Fn(T, T) -> T,
-    {
-        self.regions
-            .iter()
-            .enumerate()
-            .map(|(idx, region)| mapf((idx, region.as_ref())))
-            .fold(init, foldf)
+    fn iter(&self) -> Iter {
+        Iter(self.regions.iter())
     }
 }
 

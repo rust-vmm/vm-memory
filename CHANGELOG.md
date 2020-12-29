@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- [[#8]](https://github.com/rust-vmm/vm-memory/issues/8): Add GuestMemory method to return an Iterator
+
 ## [v0.4.0]
 
 ### Fixed
