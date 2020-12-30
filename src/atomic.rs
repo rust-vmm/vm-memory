@@ -19,15 +19,15 @@ use crate::{GuestAddressSpace, GuestMemory};
 
 /// A fast implementation of a mutable collection of memory regions.
 ///
-/// This implementation uses ArcSwap to provide RCU-like snapshotting of the memory map:
-/// every update of the memory map creates a completely new GuestMemory object, and
+/// This implementation uses `ArcSwap` to provide RCU-like snapshotting of the memory map:
+/// every update of the memory map creates a completely new `GuestMemory` object, and
 /// readers will not be blocked because the copies they retrieved will be collected once
 /// no one can access them anymore.  Under the assumption that updates to the memory map
 /// are rare, this allows a very efficient implementation of the `memory()` method.
 #[derive(Clone, Debug)]
 pub struct GuestMemoryAtomic<M: GuestMemory> {
     // GuestAddressSpace<M>, which we want to implement, is basically a drop-in
-    // replacement for &M.  Therefore, we need to pass to devices the GuestMemoryAtomic
+    // replacement for &M.  Therefore, we need to pass to devices the `GuestMemoryAtomic`
     // rather than a reference to it.  To obtain this effect we wrap the actual fields
     // of GuestMemoryAtomic with an Arc, and derive the Clone trait.  See the
     // documentation for GuestAddressSpace for an example.
@@ -35,8 +35,8 @@ pub struct GuestMemoryAtomic<M: GuestMemory> {
 }
 
 impl<M: GuestMemory> From<Arc<M>> for GuestMemoryAtomic<M> {
-    /// create a new GuestMemoryAtomic object whose initial contents come from
-    /// the `map` reference counted GuestMemory.
+    /// create a new `GuestMemoryAtomic` object whose initial contents come from
+    /// the `map` reference counted `GuestMemory`.
     fn from(map: Arc<M>) -> Self {
         let inner = (ArcSwap::new(map), Mutex::new(()));
         GuestMemoryAtomic {
@@ -46,8 +46,8 @@ impl<M: GuestMemory> From<Arc<M>> for GuestMemoryAtomic<M> {
 }
 
 impl<M: GuestMemory> GuestMemoryAtomic<M> {
-    /// create a new GuestMemoryAtomic object whose initial contents come from
-    /// the `map` GuestMemory.
+    /// create a new `GuestMemoryAtomic` object whose initial contents come from
+    /// the `map` `GuestMemory`.
     pub fn new(map: M) -> Self {
         Arc::new(map).into()
     }
@@ -56,11 +56,11 @@ impl<M: GuestMemory> GuestMemoryAtomic<M> {
         self.inner.0.load()
     }
 
-    /// Acquires the update mutex for the GuestMemoryAtomic, blocking the current
+    /// Acquires the update mutex for the `GuestMemoryAtomic`, blocking the current
     /// thread until it is able to do so.  The returned RAII guard allows for
     /// scoped unlock of the mutex (that is, the mutex will be unlocked when
     /// the guard goes out of scope), and optionally also for replacing the
-    /// contents of the GuestMemoryAtomic when the lock is dropped.
+    /// contents of the `GuestMemoryAtomic` when the lock is dropped.
     pub fn lock(&self) -> LockResult<GuestMemoryExclusiveGuard<M>> {
         match self.inner.1.lock() {
             Ok(guard) => Ok(GuestMemoryExclusiveGuard {
@@ -84,9 +84,9 @@ impl<M: GuestMemory> GuestAddressSpace for GuestMemoryAtomic<M> {
     }
 }
 
-/// A guard that provides temporary access to a GuestMemoryAtomic.  This
+/// A guard that provides temporary access to a `GuestMemoryAtomic`.  This
 /// object is returned from the `memory()` method.  It dereference to
-/// a snapshot of the GuestMemory, so it can be used transparently to
+/// a snapshot of the `GuestMemory`, so it can be used transparently to
 /// access memory.
 #[derive(Debug)]
 pub struct GuestMemoryLoadGuard<M: GuestMemory> {
@@ -120,17 +120,17 @@ impl<M: GuestMemory> Deref for GuestMemoryLoadGuard<M> {
     }
 }
 
-/// An RAII implementation of a "scoped lock" for GuestMemoryAtomic.  When
+/// An RAII implementation of a "scoped lock" for `GuestMemoryAtomic`.  When
 /// this structure is dropped (falls out of scope) the lock will be unlocked,
 /// possibly after updating the memory map represented by the
-/// GuestMemoryAtomic that created the guard.
+/// `GuestMemoryAtomic` that created the guard.
 pub struct GuestMemoryExclusiveGuard<'a, M: GuestMemory> {
     parent: &'a GuestMemoryAtomic<M>,
     _guard: MutexGuard<'a, ()>,
 }
 
 impl<M: GuestMemory> GuestMemoryExclusiveGuard<'_, M> {
-    /// Replace the memory map in the GuestMemoryAtomic that created the guard
+    /// Replace the memory map in the `GuestMemoryAtomic` that created the guard
     /// with the new memory map, `map`.  The lock is then dropped since this
     /// method consumes the guard.
     pub fn replace(self, map: M) {
@@ -179,7 +179,7 @@ mod tests {
         assert!(regions
             .iter()
             .map(|x| (x.0, x.1))
-            .eq(iterated_regions.iter().map(|x| *x)));
+            .eq(iterated_regions.iter().copied()));
 
         let mem2 = mem.into_inner();
         let res: GuestMemoryResult<()> = mem2.with_regions(|_, region| {
@@ -196,7 +196,7 @@ mod tests {
         assert!(regions
             .iter()
             .map(|x| (x.0, x.1))
-            .eq(iterated_regions.iter().map(|x| *x)));
+            .eq(iterated_regions.iter().copied()));
 
         let mem3 = mem2.memory();
         let res: GuestMemoryResult<()> = mem3.with_regions(|_, region| {

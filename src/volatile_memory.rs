@@ -1179,14 +1179,14 @@ mod tests {
 
     #[derive(Clone)]
     struct VecMem {
-        mem: Arc<Vec<u8>>,
+        mem: Arc<[u8]>,
     }
 
     impl VecMem {
         fn new(size: usize) -> VecMem {
-            let mut mem = Vec::new();
-            mem.resize(size, 0);
-            VecMem { mem: Arc::new(mem) }
+            VecMem {
+                mem: vec![0; size].into(),
+            }
         }
     }
 
