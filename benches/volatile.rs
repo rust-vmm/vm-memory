@@ -15,19 +15,19 @@ pub fn benchmark_for_volatile(c: &mut Criterion) {
 
     // Check performance for read operations.
     c.bench_function("VolatileSlice::copy_to_u8", |b| {
-        b.iter(|| black_box(v_ref8.copy_to(&mut d8[..])))
+        b.iter(|| v_ref8.copy_to(black_box(&mut d8[..])))
     });
     c.bench_function("VolatileSlice::copy_to_u16", |b| {
-        b.iter(|| black_box(v_ref16.copy_to(&mut d16[..])))
+        b.iter(|| v_ref16.copy_to(black_box(&mut d16[..])))
     });
     benchmark_volatile_copy_to_volatile_slice(c);
 
     // Check performance for write operations.
     c.bench_function("VolatileSlice::copy_from_u8", |b| {
-        b.iter(|| black_box(v_ref8.copy_from(&d8[..])))
+        b.iter(|| v_ref8.copy_from(black_box(&d8[..])))
     });
     c.bench_function("VolatileSlice::copy_from_u16", |b| {
-        b.iter(|| black_box(v_ref16.copy_from(&d16[..])))
+        b.iter(|| v_ref16.copy_from(black_box(&d16[..])))
     });
 }
 
@@ -40,6 +40,6 @@ fn benchmark_volatile_copy_to_volatile_slice(c: &mut Criterion) {
     let d_slice = d_ref.get_slice(0, d_ref.len()).unwrap();
 
     c.bench_function("VolatileSlice::copy_to_volatile_slice", |b| {
-        b.iter(|| black_box(a_slice.copy_to_volatile_slice(d_slice)))
+        b.iter(|| black_box(a_slice).copy_to_volatile_slice(d_slice))
     });
 }
