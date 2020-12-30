@@ -175,7 +175,7 @@ impl MmapRegion {
         })
     }
 
-    /// Creates a MmapRegion instance for an externally managed mapping.
+    /// Creates a `MmapRegion` instance for an externally managed mapping.
     ///
     /// This method is intended to be used exclusively in situations in which the mapping backing
     /// the region is provided by an entity outside the control of the caller (e.g. the dynamic
@@ -421,13 +421,8 @@ mod tests {
         assert_eq!(r.unwrap_err().raw_os_error(), libc::EINVAL);
 
         // The build should be successful now.
-        let r = MmapRegion::build(
-            Some(FileOffset::from_arc(a.clone(), offset)),
-            size,
-            prot,
-            flags,
-        )
-        .unwrap();
+        let r =
+            MmapRegion::build(Some(FileOffset::from_arc(a, offset)), size, prot, flags).unwrap();
 
         assert_eq!(r.size(), size);
         assert_eq!(r.file_offset().unwrap().start(), offset as u64);
@@ -444,10 +439,10 @@ mod tests {
         let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
 
         let r = unsafe { MmapRegion::build_raw((addr + 1) as *mut u8, size, prot, flags) };
-        assert_eq!(format!("{:?}", r.unwrap_err()), format!("InvalidPointer"));
+        assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidPointer");
 
         let r = unsafe { MmapRegion::build_raw(addr as *mut u8, size + 1, prot, flags) };
-        assert_eq!(format!("{:?}", r.unwrap_err()), format!("InvalidSize"));
+        assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidSize");
 
         let r = unsafe { MmapRegion::build_raw(addr as *mut u8, size, prot, flags).unwrap() };
 
@@ -469,7 +464,7 @@ mod tests {
         let r1 = MmapRegion::from_file(FileOffset::from_arc(a.clone(), 0), 5000).unwrap();
         assert!(r1.fds_overlap(&r2));
 
-        let r2 = MmapRegion::from_file(FileOffset::from_arc(a.clone(), 0), 1000).unwrap();
+        let r2 = MmapRegion::from_file(FileOffset::from_arc(a, 0), 1000).unwrap();
         assert!(r1.fds_overlap(&r2));
 
         // Different files, so there's not overlap.

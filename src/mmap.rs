@@ -470,14 +470,14 @@ impl GuestMemoryMmap {
 
     /// Creates a new `GuestMemoryMmap` from a vector of Arc regions.
     ///
-    /// Similar to the constructor from_regions() as it returns a
-    /// GuestMemoryMmap. The need for this constructor is to provide a way for
-    /// consumer of this API to create a new GuestMemoryMmap based on existing
-    /// regions coming from an existing GuestMemoryMmap instance.
+    /// Similar to the constructor `from_regions()` as it returns a
+    /// `GuestMemoryMmap`. The need for this constructor is to provide a way for
+    /// consumer of this API to create a new `GuestMemoryMmap` based on existing
+    /// regions coming from an existing `GuestMemoryMmap` instance.
     ///
     /// # Arguments
     ///
-    /// * `regions` - The vector of Arc regions.
+    /// * `regions` - The vector of `Arc` regions.
     ///               The regions shouldn't overlap and they should be sorted
     ///               by the starting address.
     pub fn from_arc_regions(regions: Vec<Arc<GuestRegionMmap>>) -> result::Result<Self, Error> {
@@ -600,8 +600,6 @@ mod tests {
     use std::mem;
     use std::path::Path;
     use vmm_sys_util::tempfile::TempFile;
-
-    use Bytes;
 
     #[test]
     fn basic_map() {
@@ -1165,10 +1163,10 @@ mod tests {
         assert!(regions
             .iter()
             .map(|x| (x.0, x.1))
-            .eq(iterated_regions.iter().map(|x| *x)));
+            .eq(iterated_regions.iter().copied()));
 
-        assert_eq!(gm.clone().regions[0].guest_base, regions[0].0);
-        assert_eq!(gm.clone().regions[1].guest_base, regions[1].0);
+        assert_eq!(gm.regions[0].guest_base, regions[0].0);
+        assert_eq!(gm.regions[1].guest_base, regions[1].0);
     }
 
     #[test]
@@ -1197,10 +1195,10 @@ mod tests {
         assert!(regions
             .iter()
             .map(|x| (x.0, x.1))
-            .eq(iterated_regions.iter().map(|x| *x)));
+            .eq(iterated_regions.iter().copied()));
 
-        assert_eq!(gm.clone().regions[0].guest_base, regions[0].0);
-        assert_eq!(gm.clone().regions[1].guest_base, regions[1].0);
+        assert_eq!(gm.regions[0].guest_base, regions[0].0);
+        assert_eq!(gm.regions[1].guest_base, regions[1].0);
     }
 
     #[test]

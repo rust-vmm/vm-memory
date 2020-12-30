@@ -519,7 +519,7 @@ pub trait GuestMemory {
     /// Check whether the range [base, base + len) is valid.
     fn check_range(&self, base: GuestAddress, len: usize) -> bool {
         match self.try_access(len, base, |_, count, _, _| -> Result<usize> { Ok(count) }) {
-            Ok(count) if count == len => true,
+            Ok(count) => count == len,
             _ => false,
         }
     }
@@ -610,7 +610,7 @@ pub trait GuestMemory {
     /// ```
     fn get_host_address(&self, addr: GuestAddress) -> Result<*mut u8> {
         self.to_region_addr(addr)
-            .ok_or_else(|| Error::InvalidGuestAddress(addr))
+            .ok_or(Error::InvalidGuestAddress(addr))
             .and_then(|(r, addr)| r.get_host_address(addr))
     }
 
@@ -622,7 +622,7 @@ pub trait GuestMemory {
         count: usize,
     ) -> Result<volatile_memory::VolatileSlice> {
         self.to_region_addr(addr)
-            .ok_or_else(|| Error::InvalidGuestAddress(addr))
+            .ok_or(Error::InvalidGuestAddress(addr))
             .and_then(|(r, addr)| r.get_slice(addr, count))
     }
 }
@@ -940,7 +940,7 @@ mod tests {
     #[cfg(feature = "backend-mmap")]
     fn loop_timed<F>(duration: Duration, mut f: F)
     where
-        F: FnMut() -> (),
+        F: FnMut(),
     {
         // We check the time every `CHECK_PERIOD` iterations.
         const CHECK_PERIOD: u64 = 1_000_000;
