@@ -15,7 +15,9 @@ pub fn benchmark_for_guest_memory(c: &mut Criterion) {
 
 fn find_region(mem: &GuestMemoryMmap) {
     for i in 0..REGIONS_COUNT {
-        let _ = mem.find_region(GuestAddress(i * REGION_SIZE)).unwrap();
+        let _ = mem
+            .find_region(black_box(GuestAddress(i * REGION_SIZE)))
+            .unwrap();
     }
 }
 
@@ -23,6 +25,6 @@ fn benchmark_find_region(c: &mut Criterion) {
     let memory = super::create_guest_memory_mmap(REGION_SIZE, REGIONS_COUNT);
 
     c.bench_function("find_region", |b| {
-        b.iter(|| black_box(find_region(&memory)))
+        b.iter(|| find_region(black_box(&memory)))
     });
 }
