@@ -149,11 +149,13 @@ byte_valued_type!(u8);
 byte_valued_type!(u16);
 byte_valued_type!(u32);
 byte_valued_type!(u64);
+byte_valued_type!(u128);
 byte_valued_type!(usize);
 byte_valued_type!(i8);
 byte_valued_type!(i16);
 byte_valued_type!(i32);
 byte_valued_type!(i64);
+byte_valued_type!(i128);
 byte_valued_type!(isize);
 
 /// A trait used to identify types which can be accessed atomically by proxy.
@@ -192,6 +194,10 @@ impl_atomic_access!(isize, std::sync::atomic::AtomicIsize);
 impl_atomic_access!(usize, std::sync::atomic::AtomicUsize);
 
 /// A container to host a range of bytes and access its content.
+///
+/// This is a byte stream oriented trait. Most data accessors work in byte stream mode logically
+/// and do not guarantee atomicity for data access bigger than a byte. The only exceptions are
+/// `load()` and `store()`, which accesses naturally aligned data in atomic mode.
 ///
 /// Candidates which may implement this trait include:
 /// - anonymous memory areas

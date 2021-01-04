@@ -22,6 +22,36 @@
 //! violate pointer aliasing. The second is because unvolatile accesses are inherently undefined if
 //! done concurrently without synchronization. With volatile access we know that the compiler has
 //! not reordered or elided the access.
+//!
+//! Unlike almost everything else in the language, volatile defers to hardware semantics.
+//! `volatile_load` means "emit exactly one load instruction which cannot be removed or reordered,
+//! and don't make assumptions about the loaded value", but the meaning of a "load instruction"
+//! is implementation-defined (and in practice architecture-dependent).
+//!
+//! Accordingly, any properties involving atomicity, memory ordering, or handling of uninitialized
+//! data are guaranteed iff the underlying architecture guarantees them. Rust does not require its
+//! supported architectures to make any such guarantees; an architecture could, e.g., make racing
+//! volatile accesses undefined behavior, although no current Rust architectures do so. On the
+//! other hand, when compiling for an architecture that does provide guarantees, the compiler will
+//! not perform optimizations that break code that relies on those guarantees.
+//!
+//! So volatile loads and stores are not guaranteed to be atomic (and synchronize in any particular
+//! way), using them to concurrently read/write to some memory could introduce a data-race.
+//! Now when we use volatile loads/stores to access IO registers, we are exploiting the
+//! platform-specific knowledge that the volatile load/store is atomic for that particular register
+//! or memory access size on that particular architecture.
+//!
+//! For more information, please refer to
+//! [`What about: volatile, concurrency, and interaction with untrusted threads`](https://github.com/rust-lang/unsafe-code-guidelines/issues/152).
+//!
+//! Now there are three possible types of memory access methods:
+//! 1) atomic access: `VolatileSlice::load/store` for integer atomic data types
+//! 2) volatile access: `{VolatileRef|VolatileArrayRef}::{load|store|copy_from<T>|copy_from<T>}`
+//!    when `size_of::<T>() > 1`
+//! 3) normal access: all other byte stream oriented memory accesses
+//!
+//! Callers need to be care to choose the access method, in preference for both safety and high
+//! performance.
 
 use std::cmp::min;
 use std::convert::TryFrom;
@@ -30,8 +60,7 @@ use std::fmt;
 use std::io::{self, Read, Write};
 use std::marker::PhantomData;
 use std::mem::{align_of, size_of};
-use std::ptr::copy;
-use std::ptr::{read_volatile, write_volatile};
+use std::ptr::{copy, read_volatile, write_volatile};
 use std::result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::sync::atomic::Ordering;
@@ -39,8 +68,6 @@ use std::usize;
 
 use crate::atomic_integer::AtomicInteger;
 use crate::{AtomicAccess, ByteValued, Bytes};
-
-use copy_slice_impl::copy_slice;
 
 /// `VolatileMemory` related errors.
 #[allow(missing_docs)]
@@ -381,14 +408,15 @@ impl<'a> VolatileSlice<'a> {
     where
         T: ByteValued,
     {
-        // A fast path for u8/i8
+        // A fast path for u8/i8 byte stream access
         if size_of::<T>() == 1 {
-            // It is safe because the pointers are range-checked when the slices are created,
-            // and they never escape the VolatileSlices.
-            let source = unsafe { self.as_slice() };
-            // Safe because `T` is a one-byte data structure.
-            let dst = unsafe { from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, buf.len()) };
-            copy_slice(dst, source)
+            let len = min(self.len(), buf.len());
+            // Safe because the pointers are range-checked when the slices
+            // are created, and they never escape the VolatileSlices.
+            // FIXME: ... however, is it really okay to mix non-volatile
+            // operations such as copy with read_volatile and write_volatile?
+            unsafe { copy(self.addr, buf.as_mut_ptr() as *mut u8, len) };
+            len
         } else {
             let count = self.size / size_of::<T>();
             let source = self.get_array_ref::<T>(0, count).unwrap();
@@ -448,14 +476,14 @@ impl<'a> VolatileSlice<'a> {
     where
         T: ByteValued,
     {
-        // A fast path for u8/i8
+        // A fast path for u8/i8 byte stream access
         if size_of::<T>() == 1 {
-            // It is safe because the pointers are range-checked when the slices are created,
-            // and they never escape the VolatileSlices.
-            let dst = unsafe { self.as_mut_slice() };
-            // Safe because `T` is a one-byte data structure.
-            let src = unsafe { from_raw_parts(buf.as_ptr() as *const u8, buf.len()) };
-            copy_slice(dst, src);
+            let len = min(self.len(), buf.len());
+            // Safe because the pointers are range-checked when the slices
+            // are created, and they never escape the VolatileSlices.
+            // FIXME: ... however, is it really okay to mix non-volatile
+            // operations such as copy with read_volatile and write_volatile?
+            unsafe { copy(buf.as_ptr() as *const u8, self.addr, len) };
         } else {
             let count = self.size / size_of::<T>();
             let dest = self.get_array_ref::<T>(0, count).unwrap();
@@ -518,11 +546,13 @@ impl Bytes<usize> for VolatileSlice<'_> {
             return Err(Error::OutOfBounds { addr });
         }
 
-        // Guest memory can't strictly be modeled as a slice because it is
-        // volatile.  Writing to it with what is essentially a fancy memcpy
-        // won't hurt anything as long as we get the bounds checks right.
-        let slice = unsafe { self.as_mut_slice() }.split_at_mut(addr).1;
-        Ok(copy_slice(slice, buf))
+        unsafe {
+            // Guest memory can't strictly be modeled as a slice because it is
+            // volatile.  Writing to it with what is essentially a fancy memcpy
+            // won't hurt anything as long as we get the bounds checks right.
+            let mut slice = self.as_mut_slice().split_at_mut(addr).1;
+            slice.write(buf).map_err(Error::IOError)
+        }
     }
 
     /// # Examples
@@ -538,16 +568,18 @@ impl Bytes<usize> for VolatileSlice<'_> {
     ///     assert!(res.is_ok());
     ///     assert_eq!(res.unwrap(), 14);
     /// ```
-    fn read(&self, buf: &mut [u8], addr: usize) -> Result<usize> {
+    fn read(&self, mut buf: &mut [u8], addr: usize) -> Result<usize> {
         if addr >= self.size {
             return Err(Error::OutOfBounds { addr });
         }
 
-        // Guest memory can't strictly be modeled as a slice because it is
-        // volatile.  Writing to it with what is essentially a fancy memcpy
-        // won't hurt anything as long as we get the bounds checks right.
-        let slice = unsafe { self.as_slice() }.split_at(addr).1;
-        Ok(copy_slice(buf, slice))
+        unsafe {
+            // Guest memory can't strictly be modeled as a slice because it is
+            // volatile.  Writing to it with what is essentially a fancy memcpy
+            // won't hurt anything as long as we get the bounds checks right.
+            let slice = self.as_slice().split_at(addr).1;
+            buf.write(slice).map_err(Error::IOError)
+        }
     }
 
     /// # Examples
@@ -984,13 +1016,13 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
     pub fn copy_to(&self, buf: &mut [T]) -> usize {
         // A fast path for u8/i8
         if size_of::<T>() == 1 {
-            let source = self.to_slice();
-            // It is safe because the pointers are range-checked when the slices are created,
-            // and they never escape the VolatileSlices.
-            let src = unsafe { source.as_slice() };
-            // Safe because `T` is a one-byte data structure.
-            let dst = unsafe { from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, buf.len()) };
-            return copy_slice(dst, src);
+            // Safe because the pointers are range-checked when the slices
+            // are created, and they never escape the VolatileSlices.
+            // FIXME: ... however, is it really okay to mix non-volatile
+            // operations such as copy with read_volatile and write_volatile?
+            let len = min(self.len(), buf.len());
+            unsafe { copy(self.addr, buf.as_mut_ptr() as *mut u8, len) };
+            return len;
         }
 
         let mut addr = self.addr;
@@ -1066,13 +1098,12 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
     pub fn copy_from(&self, buf: &[T]) {
         // A fast path for u8/i8
         if size_of::<T>() == 1 {
-            // It is safe because the pointers are range-checked when the slices are created,
-            // and they never escape the VolatileSlices.
-            let destination = self.to_slice();
-            let dst = unsafe { destination.as_mut_slice() };
-            // Safe because `T` is a one-byte data structure.
-            let src = unsafe { from_raw_parts(buf.as_ptr() as *const u8, buf.len()) };
-            copy_slice(dst, src);
+            // Safe because the pointers are range-checked when the slices
+            // are created, and they never escape the VolatileSlices.
+            // FIXME: ... however, is it really okay to mix non-volatile
+            // operations such as copy with read_volatile and write_volatile?
+            let len = min(self.len(), buf.len());
+            unsafe { copy(buf.as_ptr() as *const u8, self.addr, len) };
         } else {
             let mut addr = self.addr;
             for &v in buf.iter().take(self.len()) {
@@ -1097,72 +1128,6 @@ impl<'a> From<VolatileSlice<'a>> for VolatileArrayRef<'a, u8> {
     }
 }
 
-// Return the largest value that `addr` is aligned to. Forcing this function to return 1 will
-// cause test_non_atomic_access to fail.
-fn alignment(addr: usize) -> usize {
-    // Rust is silly and does not let me write addr & -addr.
-    addr & (!addr + 1)
-}
-
-mod copy_slice_impl {
-    use super::*;
-
-    // Has the same safety requirements as `read_volatile` + `write_volatile`, namely:
-    // - `src_addr` and `dst_addr` must be valid for reads/writes.
-    // - `src_addr` and `dst_addr` must be properly aligned with respect to `align`.
-    // - `src_addr` must point to a properly initialized value, which is true here because
-    //   we're only using integer primitives.
-    unsafe fn copy_single(align: usize, src_addr: usize, dst_addr: usize) {
-        match align {
-            8 => write_volatile(dst_addr as *mut u64, read_volatile(src_addr as *const u64)),
-            4 => write_volatile(dst_addr as *mut u32, read_volatile(src_addr as *const u32)),
-            2 => write_volatile(dst_addr as *mut u16, read_volatile(src_addr as *const u16)),
-            1 => write_volatile(dst_addr as *mut u8, read_volatile(src_addr as *const u8)),
-            _ => unreachable!(),
-        }
-    }
-
-    fn copy_slice_volatile(dst: &mut [u8], src: &[u8]) -> usize {
-        let total = min(src.len(), dst.len());
-        let mut left = total;
-
-        let mut src_addr = src.as_ptr() as usize;
-        let mut dst_addr = dst.as_ptr() as usize;
-        let align = min(alignment(src_addr), alignment(dst_addr));
-
-        let mut copy_aligned_slice = |min_align| {
-            while align >= min_align && left >= min_align {
-                // Safe because we check alignment beforehand, the memory areas are valid for
-                // reads/writes, and the source always contains a valid value.
-                unsafe { copy_single(min_align, src_addr, dst_addr) };
-                src_addr += min_align;
-                dst_addr += min_align;
-                left -= min_align;
-            }
-        };
-
-        if size_of::<usize>() > 4 {
-            copy_aligned_slice(8);
-        }
-        copy_aligned_slice(4);
-        copy_aligned_slice(2);
-        copy_aligned_slice(1);
-
-        total
-    }
-
-    pub(super) fn copy_slice(dst: &mut [u8], src: &[u8]) -> usize {
-        let total = min(src.len(), dst.len());
-        if total <= size_of::<usize>() {
-            copy_slice_volatile(dst, src);
-        } else {
-            dst[..total].copy_from_slice(&src[..total]);
-        }
-
-        total
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1176,6 +1141,13 @@ mod tests {
 
     use matches::assert_matches;
     use vmm_sys_util::tempfile::TempFile;
+
+    // Return the largest value that `addr` is aligned to. Forcing this function to return 1 will
+    // cause test_non_atomic_access to fail.
+    fn alignment(addr: usize) -> usize {
+        // Rust is silly and does not let me write addr & -addr.
+        addr & (!addr + 1)
+    }
 
     #[derive(Clone)]
     struct VecMem {
@@ -1757,14 +1729,14 @@ mod tests {
     }
 
     #[test]
-    fn alignment() {
+    fn test_alignment() {
         let a = [0u8; 64];
         let a = &a[a.as_ptr().align_offset(32)] as *const u8 as usize;
-        assert!(super::alignment(a) >= 32);
-        assert_eq!(super::alignment(a + 9), 1);
-        assert_eq!(super::alignment(a + 30), 2);
-        assert_eq!(super::alignment(a + 12), 4);
-        assert_eq!(super::alignment(a + 8), 8);
+        assert!(alignment(a) >= 32);
+        assert_eq!(alignment(a + 9), 1);
+        assert_eq!(alignment(a + 30), 2);
+        assert_eq!(alignment(a + 12), 4);
+        assert_eq!(alignment(a + 8), 8);
     }
 
     #[test]
