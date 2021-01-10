@@ -12,24 +12,25 @@
 //! # Examples
 //!
 //! ```
-//! # use  vm_memory::*;
-//!   let b: Be32 = From::from(3);
-//!   let l: Le32 = From::from(3);
+//! # use vm_memory::{Be32, Le32};
+//! #
+//! let b: Be32 = From::from(3);
+//! let l: Le32 = From::from(3);
 //!
-//!   assert_eq!(b.to_native(), 3);
-//!   assert_eq!(l.to_native(), 3);
-//!   assert!(b == 3);
-//!   assert!(l == 3);
+//! assert_eq!(b.to_native(), 3);
+//! assert_eq!(l.to_native(), 3);
+//! assert!(b == 3);
+//! assert!(l == 3);
 //!
-//!   let b_trans: u32 = unsafe { std::mem::transmute(b) };
-//!   let l_trans: u32 = unsafe { std::mem::transmute(l) };
+//! let b_trans: u32 = unsafe { std::mem::transmute(b) };
+//! let l_trans: u32 = unsafe { std::mem::transmute(l) };
 //!
-//!   #[cfg(target_endian = "little")]
-//!   assert_eq!(l_trans, 3);
-//!   #[cfg(target_endian = "big")]
-//!   assert_eq!(b_trans, 3);
+//! #[cfg(target_endian = "little")]
+//! assert_eq!(l_trans, 3);
+//! #[cfg(target_endian = "big")]
+//! assert_eq!(b_trans, 3);
 //!
-//!   assert_ne!(b_trans, l_trans);
+//! assert_ne!(b_trans, l_trans);
 //! ```
 
 use std::mem::{align_of, size_of};

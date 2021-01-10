@@ -105,14 +105,10 @@ pub type Result<T> = result::Result<T, Error>;
 /// # Examples
 ///
 /// ```
-/// # use vm_memory::volatile_memory::*;
-/// # fn get_slice(offset: usize, count: usize) -> Result<()> {
-///   let mem_end = compute_offset(offset, count)?;
-///   if mem_end > 100 {
-///       return Err(Error::OutOfBounds{addr: mem_end});
-///   }
-/// # Ok(())
-/// # }
+/// # use vm_memory::volatile_memory::compute_offset;
+/// #
+/// assert_eq!(108, compute_offset(100, 8).unwrap());
+/// assert!(compute_offset(std::usize::MAX, 6).is_err());
 /// ```
 pub fn compute_offset(base: usize, offset: usize) -> Result<usize> {
     match base.checked_add(offset) {
@@ -296,10 +292,19 @@ impl<'a> VolatileSlice<'a> {
     ///
     /// ```
     /// # use vm_memory::VolatileMemory;
-    /// let mut mem = [0u8; 32];
-    /// let mem_ref = &mut mem[..];
-    /// let vslice = mem_ref.get_slice(0, 32).unwrap();
-    /// let (start, end) = vslice.split_at(8).unwrap();
+    /// #
+    /// # // Create a buffer
+    /// # let mut mem = [0u8; 32];
+    /// # let mem_ref = &mut mem[..];
+    /// #
+    /// # // Get a `VolatileSlice` from the buffer
+    /// let vslice = mem_ref
+    ///     .get_slice(0, 32)
+    ///     .expect("Could not get VolatileSlice");
+    ///
+    /// let (start, end) = vslice.split_at(8).expect("Could not split VolatileSlice");
+    /// assert_eq!(8, start.len());
+    /// assert_eq!(24, end.len());
     /// ```
     pub fn split_at(self, mid: usize) -> Result<(VolatileSlice<'a>, VolatileSlice<'a>)> {
         let end = self.offset(mid)?;
@@ -362,20 +367,20 @@ impl<'a> VolatileSlice<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use std::fs::File;
-    /// # use std::path::Path;
     /// # use vm_memory::VolatileMemory;
-    /// # fn test_write_null() -> Result<(), ()> {
+    /// #
     /// let mut mem = [0u8; 32];
     /// let mem_ref = &mut mem[..];
-    /// let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
+    /// let vslice = mem_ref
+    ///     .get_slice(0, 32)
+    ///     .expect("Could not get VolatileSlice");
     /// let mut buf = [5u8; 16];
-    /// vslice.copy_to(&mut buf[..]);
-    /// for v in &buf[..] {
-    ///     assert_eq!(buf[0], 0);
+    /// let res = vslice.copy_to(&mut buf[..]);
+    ///
+    /// assert_eq!(16, res);
+    /// for &v in &buf[..] {
+    ///     assert_eq!(v, 0);
     /// }
-    /// # Ok(())
-    /// # }
     /// ```
     pub fn copy_to<T>(&self, buf: &mut [T]) -> usize
     where
@@ -404,13 +409,20 @@ impl<'a> VolatileSlice<'a> {
     ///
     /// ```
     /// # use vm_memory::VolatileMemory;
-    /// # fn test_write_null() -> Result<(), ()> {
-    /// let mut mem = [0u8; 32];
-    /// let mem_ref = &mut mem[..];
-    /// let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
-    /// vslice.copy_to_volatile_slice(vslice.get_slice(16, 16).map_err(|_| ())?);
-    /// # Ok(())
-    /// # }
+    /// #
+    /// # // Create a buffer
+    /// # let mut mem = [0u8; 32];
+    /// # let mem_ref = &mut mem[..];
+    /// #
+    /// # // Get a `VolatileSlice` from the buffer
+    /// # let vslice = mem_ref.get_slice(0, 32)
+    /// #    .expect("Could not get VolatileSlice");
+    /// #
+    /// vslice.copy_to_volatile_slice(
+    ///     vslice
+    ///         .get_slice(16, 16)
+    ///         .expect("Could not get VolatileSlice"),
+    /// );
     /// ```
     pub fn copy_to_volatile_slice(&self, slice: VolatileSlice) {
         unsafe {
@@ -429,20 +441,24 @@ impl<'a> VolatileSlice<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use std::fs::File;
-    /// # use std::path::Path;
     /// # use vm_memory::VolatileMemory;
-    /// # fn test_write_null() -> Result<(), ()> {
+    /// #
     /// let mut mem = [0u8; 32];
     /// let mem_ref = &mut mem[..];
-    /// let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
+    /// let vslice = mem_ref
+    ///     .get_slice(0, 32)
+    ///     .expect("Could not get VolatileSlice");
+    ///
     /// let buf = [5u8; 64];
     /// vslice.copy_from(&buf[..]);
+    ///
     /// for i in 0..4 {
-    ///     assert_eq!(vslice.get_ref::<u32>(i * 4).map_err(|_| ())?.load(), 0x05050505);
+    ///     let val = vslice
+    ///         .get_ref::<u32>(i * 4)
+    ///         .expect("Could not get value")
+    ///         .load();
+    ///     assert_eq!(val, 0x05050505);
     /// }
-    /// # Ok(())
-    /// # }
     /// ```
     pub fn copy_from<T>(&self, buf: &[T])
     where
@@ -505,13 +521,15 @@ impl Bytes<usize> for VolatileSlice<'_> {
     /// * Write a slice of size 5 at offset 1020 of a 1024-byte `VolatileSlice`.
     ///
     /// ```
-    /// #   use vm_memory::{Bytes, VolatileMemory};
-    /// #   let mut mem = [0u8; 1024];
-    /// #   let mut mem_ref = &mut mem[..];
-    /// #   let vslice = mem_ref.as_volatile_slice();
-    ///     let res = vslice.write(&[1,2,3,4,5], 1020);
-    ///     assert!(res.is_ok());
-    ///     assert_eq!(res.unwrap(), 4);
+    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// #
+    /// let mut mem = [0u8; 1024];
+    /// let mut mem_ref = &mut mem[..];
+    /// let vslice = mem_ref.as_volatile_slice();
+    /// let res = vslice.write(&[1, 2, 3, 4, 5], 1020);
+    ///
+    /// assert!(res.is_ok());
+    /// assert_eq!(res.unwrap(), 4);
     /// ```
     fn write(&self, buf: &[u8], addr: usize) -> Result<usize> {
         if addr >= self.size {
@@ -529,14 +547,16 @@ impl Bytes<usize> for VolatileSlice<'_> {
     /// * Read a slice of size 16 at offset 1010 of a 1024-byte `VolatileSlice`.
     ///
     /// ```
-    /// #   use vm_memory::{Bytes, VolatileMemory};
-    /// #   let mut mem = [0u8; 1024];
-    /// #   let mut mem_ref = &mut mem[..];
-    /// #   let vslice = mem_ref.as_volatile_slice();
-    ///     let buf = &mut [0u8; 16];
-    ///     let res = vslice.read(buf, 1010);
-    ///     assert!(res.is_ok());
-    ///     assert_eq!(res.unwrap(), 14);
+    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// #
+    /// let mut mem = [0u8; 1024];
+    /// let mut mem_ref = &mut mem[..];
+    /// let vslice = mem_ref.as_volatile_slice();
+    /// let buf = &mut [0u8; 16];
+    /// let res = vslice.read(buf, 1010);
+    ///
+    /// assert!(res.is_ok());
+    /// assert_eq!(res.unwrap(), 14);
     /// ```
     fn read(&self, buf: &mut [u8], addr: usize) -> Result<usize> {
         if addr >= self.size {
@@ -554,13 +574,19 @@ impl Bytes<usize> for VolatileSlice<'_> {
     /// * Write a slice at offset 256.
     ///
     /// ```
-    /// #   use vm_memory::{Bytes, VolatileMemory};
-    /// #   let mut mem = [0u8; 1024];
-    /// #   let mut mem_ref = &mut mem[..];
-    /// #   let vslice = mem_ref.as_volatile_slice();
-    ///     let res = vslice.write_slice(&[1,2,3,4,5], 256);
-    /// #   assert!(res.is_ok());
-    /// #   assert_eq!(res.unwrap(), ());
+    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// #
+    /// # // Create a buffer
+    /// # let mut mem = [0u8; 1024];
+    /// # let mut mem_ref = &mut mem[..];
+    /// #
+    /// # // Get a `VolatileSlice` from the buffer
+    /// # let vslice = mem_ref.as_volatile_slice();
+    /// #
+    /// let res = vslice.write_slice(&[1, 2, 3, 4, 5], 256);
+    ///
+    /// assert!(res.is_ok());
+    /// assert_eq!(res.unwrap(), ());
     /// ```
     fn write_slice(&self, buf: &[u8], addr: usize) -> Result<()> {
         let len = self.write(buf, addr)?;
@@ -577,14 +603,19 @@ impl Bytes<usize> for VolatileSlice<'_> {
     /// * Read a slice of size 16 at offset 256.
     ///
     /// ```
-    /// #   use vm_memory::{Bytes, VolatileMemory};
-    /// #   let mut mem = [0u8; 1024];
-    /// #   let mut mem_ref = &mut mem[..];
-    /// #   let vslice = mem_ref.as_volatile_slice();
-    ///     let buf = &mut [0u8; 16];
-    ///     let res = vslice.read_slice(buf, 256);
-    /// #   assert!(res.is_ok());
-    /// #   assert_eq!(res.unwrap(), ());
+    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// #
+    /// # // Create a buffer
+    /// # let mut mem = [0u8; 1024];
+    /// # let mut mem_ref = &mut mem[..];
+    /// #
+    /// # // Get a `VolatileSlice` from the buffer
+    /// # let vslice = mem_ref.as_volatile_slice();
+    /// #
+    /// let buf = &mut [0u8; 16];
+    /// let res = vslice.read_slice(buf, 256);
+    ///
+    /// assert!(res.is_ok());
     /// ```
     fn read_slice(&self, buf: &mut [u8], addr: usize) -> Result<()> {
         let len = self.read(buf, addr)?;
@@ -605,14 +636,20 @@ impl Bytes<usize> for VolatileSlice<'_> {
     /// # use vm_memory::{Bytes, VolatileMemory};
     /// # use std::fs::File;
     /// # use std::path::Path;
-    /// # fn test_read_random() -> Result<u32, ()> {
-    /// #     let mut mem = [0u8; 1024];
-    /// #     let mut mem_ref = &mut mem[..];
-    /// #     let vslice = mem_ref.as_volatile_slice();
-    ///       let mut file = File::open(Path::new("/dev/urandom")).map_err(|_| ())?;
-    ///       vslice.read_from(32, &mut file, 128).map_err(|_| ())?;
-    ///       let rand_val: u32 = vslice.read_obj(40).map_err(|_| ())?;
-    /// #     Ok(rand_val)
+    /// #
+    /// # if cfg!(unix) {
+    /// # let mut mem = [0u8; 1024];
+    /// # let mut mem_ref = &mut mem[..];
+    /// # let vslice = mem_ref.as_volatile_slice();
+    /// let mut file = File::open(Path::new("/dev/urandom")).expect("Could not open /dev/urandom");
+    ///
+    /// vslice
+    ///     .read_from(32, &mut file, 128)
+    ///     .expect("Could not read bytes from file into VolatileSlice");
+    ///
+    /// let rand_val: u32 = vslice
+    ///     .read_obj(40)
+    ///     .expect("Could not read value from VolatileSlice");
     /// # }
     /// ```
     fn read_from<F>(&self, addr: usize, src: &mut F, count: usize) -> Result<usize>
@@ -643,14 +680,20 @@ impl Bytes<usize> for VolatileSlice<'_> {
     /// # use vm_memory::{Bytes, VolatileMemory};
     /// # use std::fs::File;
     /// # use std::path::Path;
-    /// # fn test_read_random() -> Result<u32, ()> {
-    /// #     let mut mem = [0u8; 1024];
-    /// #     let mut mem_ref = &mut mem[..];
-    /// #     let vslice = mem_ref.as_volatile_slice();
-    ///       let mut file = File::open(Path::new("/dev/urandom")).map_err(|_| ())?;
-    ///       vslice.read_exact_from(32, &mut file, 128).map_err(|_| ())?;
-    ///       let rand_val: u32 = vslice.read_obj(40).map_err(|_| ())?;
-    /// #     Ok(rand_val)
+    /// #
+    /// # if cfg!(unix) {
+    /// # let mut mem = [0u8; 1024];
+    /// # let mut mem_ref = &mut mem[..];
+    /// # let vslice = mem_ref.as_volatile_slice();
+    /// let mut file = File::open(Path::new("/dev/urandom")).expect("Could not open /dev/urandom");
+    ///
+    /// vslice
+    ///     .read_exact_from(32, &mut file, 128)
+    ///     .expect("Could not read bytes from file into VolatileSlice");
+    ///
+    /// let rand_val: u32 = vslice
+    ///     .read_obj(40)
+    ///     .expect("Could not read value from VolatileSlice");
     /// # }
     /// ```
     fn read_exact_from<F>(&self, addr: usize, src: &mut F, count: usize) -> Result<()>
@@ -674,15 +717,21 @@ impl Bytes<usize> for VolatileSlice<'_> {
     ///
     /// ```
     /// # use vm_memory::{Bytes, VolatileMemory};
-    /// # use std::fs::File;
+    /// # use std::fs::OpenOptions;
     /// # use std::path::Path;
-    /// # fn test_write_null() -> Result<(), ()> {
-    /// #     let mut mem = [0u8; 1024];
-    /// #     let mut mem_ref = &mut mem[..];
-    /// #     let vslice = mem_ref.as_volatile_slice();
-    ///       let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
-    ///       vslice.write_to(32, &mut file, 128).map_err(|_| ())?;
-    /// #     Ok(())
+    /// #
+    /// # if cfg!(unix) {
+    /// # let mut mem = [0u8; 1024];
+    /// # let mut mem_ref = &mut mem[..];
+    /// # let vslice = mem_ref.as_volatile_slice();
+    /// let mut file = OpenOptions::new()
+    ///     .write(true)
+    ///     .open("/dev/null")
+    ///     .expect("Could not open /dev/null");
+    ///
+    /// vslice
+    ///     .write_to(32, &mut file, 128)
+    ///     .expect("Could not write value from VolatileSlice to /dev/null");
     /// # }
     /// ```
     fn write_to<F>(&self, addr: usize, dst: &mut F, count: usize) -> Result<usize>
@@ -711,15 +760,21 @@ impl Bytes<usize> for VolatileSlice<'_> {
     ///
     /// ```
     /// # use vm_memory::{Bytes, VolatileMemory};
-    /// # use std::fs::File;
+    /// # use std::fs::OpenOptions;
     /// # use std::path::Path;
-    /// # fn test_write_null() -> Result<(), ()> {
-    /// #     let mut mem = [0u8; 1024];
-    /// #     let mut mem_ref = &mut mem[..];
-    /// #     let vslice = mem_ref.as_volatile_slice();
-    ///       let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
-    ///       vslice.write_all_to(32, &mut file, 128).map_err(|_| ())?;
-    /// #     Ok(())
+    /// #
+    /// # if cfg!(unix) {
+    /// # let mut mem = [0u8; 1024];
+    /// # let mut mem_ref = &mut mem[..];
+    /// # let vslice = mem_ref.as_volatile_slice();
+    /// let mut file = OpenOptions::new()
+    ///     .write(true)
+    ///     .open("/dev/null")
+    ///     .expect("Could not open /dev/null");
+    ///
+    /// vslice
+    ///     .write_all_to(32, &mut file, 128)
+    ///     .expect("Could not write value from VolatileSlice to /dev/null");
     /// # }
     /// ```
     fn write_all_to<F>(&self, addr: usize, dst: &mut F, count: usize) -> Result<()>
@@ -769,12 +824,14 @@ impl VolatileMemory for VolatileSlice<'_> {
 ///
 /// ```
 /// # use vm_memory::VolatileRef;
-///   let mut v = 5u32;
-///   assert_eq!(v, 5);
-///   let v_ref = unsafe { VolatileRef::<u32>::new(&mut v as *mut u32 as *mut u8) };
-///   assert_eq!(v_ref.load(), 5);
-///   v_ref.store(500);
-///   assert_eq!(v, 500);
+/// #
+/// let mut v = 5u32;
+/// let v_ref = unsafe { VolatileRef::<u32>::new(&mut v as *mut u32 as *mut u8) };
+///
+/// assert_eq!(v, 5);
+/// assert_eq!(v_ref.load(), 5);
+/// v_ref.store(500);
+/// assert_eq!(v, 500);
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct VolatileRef<'a, T: ByteValued>
@@ -814,8 +871,9 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
     /// ```
     /// # use std::mem::size_of;
     /// # use vm_memory::VolatileRef;
-    ///   let v_ref = unsafe { VolatileRef::<u32>::new(0 as *mut _) };
-    ///   assert_eq!(v_ref.len(), size_of::<u32>() as usize);
+    /// #
+    /// let v_ref = unsafe { VolatileRef::<u32>::new(0 as *mut _) };
+    /// assert_eq!(v_ref.len(), size_of::<u32>() as usize);
     /// ```
     pub fn len(self) -> usize {
         size_of::<T>()
@@ -848,13 +906,15 @@ impl<'a, T: ByteValued> VolatileRef<'a, T> {
 /// # Examples
 ///
 /// ```
-/// # use vm_memory::VolatileRef;
-///   let mut v = 5u32;
-///   assert_eq!(v, 5);
-///   let v_ref = unsafe { VolatileRef::<u32>::new(&mut v as *mut u32 as *mut u8) };
-///   assert_eq!(v_ref.load(), 5);
-///   v_ref.store(500);
-///   assert_eq!(v, 500);
+/// # use vm_memory::VolatileArrayRef;
+/// #
+/// let mut v = [5u32; 1];
+/// let v_ref = unsafe { VolatileArrayRef::<u32>::new(&mut v[0] as *mut u32 as *mut u8, v.len()) };
+///
+/// assert_eq!(v[0], 5);
+/// assert_eq!(v_ref.load(0), 5);
+/// v_ref.store(0, 500);
+/// assert_eq!(v[0], 500);
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct VolatileArrayRef<'a, T: ByteValued>
@@ -889,9 +949,10 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
     /// # Examples
     ///
     /// ```
-    /// # use vm_memory::{VolatileRef, VolatileArrayRef};
-    ///   let v_array = unsafe { VolatileArrayRef::<u32>::new(0 as *mut _, 0) };
-    ///   assert!(v_array.is_empty());
+    /// # use vm_memory::VolatileArrayRef;
+    /// #
+    /// let v_array = unsafe { VolatileArrayRef::<u32>::new(0 as *mut _, 0) };
+    /// assert!(v_array.is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
         self.nelem == 0
@@ -902,9 +963,10 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
     /// # Examples
     ///
     /// ```
-    /// # use vm_memory::{VolatileRef, VolatileArrayRef};
-    ///   let v_array = unsafe { VolatileArrayRef::<u32>::new(0 as *mut _, 1) };
-    ///   assert_eq!(v_array.len(), 1);
+    /// # use vm_memory::VolatileArrayRef;
+    /// #
+    /// # let v_array = unsafe { VolatileArrayRef::<u32>::new(0 as *mut _, 1) };
+    /// assert_eq!(v_array.len(), 1);
     /// ```
     pub fn len(&self) -> usize {
         self.nelem
@@ -916,9 +978,10 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
     ///
     /// ```
     /// # use std::mem::size_of;
-    /// # use vm_memory::VolatileRef;
-    ///   let v_ref = unsafe { VolatileRef::<u32>::new(0 as *mut _) };
-    ///   assert_eq!(v_ref.len(), size_of::<u32>() as usize);
+    /// # use vm_memory::VolatileArrayRef;
+    /// #
+    /// let v_ref = unsafe { VolatileArrayRef::<u32>::new(0 as *mut _, 0) };
+    /// assert_eq!(v_ref.element_size(), size_of::<u32>() as usize);
     /// ```
     pub fn element_size(&self) -> usize {
         size_of::<T>()
@@ -966,20 +1029,16 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
     /// # Examples
     ///
     /// ```
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// # use vm_memory::VolatileMemory;
-    /// # fn test_write_null() -> Result<(), ()> {
-    /// let mut mem = [0u8; 32];
-    /// let mem_ref = &mut mem[..];
-    /// let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
+    /// # use vm_memory::VolatileArrayRef;
+    /// #
+    /// let mut v = [0u8; 32];
+    /// let v_ref = unsafe { VolatileArrayRef::<u8>::new(&mut v[0] as *mut u8, v.len()) };
+    ///
     /// let mut buf = [5u8; 16];
-    /// vslice.copy_to(&mut buf[..]);
-    /// for v in &buf[..] {
-    ///     assert_eq!(buf[0], 0);
+    /// v_ref.copy_to(&mut buf[..]);
+    /// for &v in &buf[..] {
+    ///     assert_eq!(v, 0);
     /// }
-    /// # Ok(())
-    /// # }
     /// ```
     pub fn copy_to(&self, buf: &mut [T]) -> usize {
         // A fast path for u8/i8
@@ -1016,14 +1075,17 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
     /// # Examples
     ///
     /// ```
-    /// # use vm_memory::VolatileMemory;
-    /// # fn test_write_null() -> Result<(), ()> {
-    /// let mut mem = [0u8; 32];
-    /// let mem_ref = &mut mem[..];
-    /// let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
-    /// vslice.copy_to_volatile_slice(vslice.get_slice(16, 16).map_err(|_| ())?);
-    /// # Ok(())
-    /// # }
+    /// # use vm_memory::VolatileArrayRef;
+    /// #
+    /// let mut v = [0u8; 32];
+    /// let v_ref = unsafe { VolatileArrayRef::<u8>::new(&mut v[0] as *mut u8, v.len()) };
+    /// let mut buf = [5u8; 16];
+    /// let v_ref2 = unsafe { VolatileArrayRef::<u8>::new(&mut buf[0] as *mut u8, buf.len()) };
+    ///
+    /// v_ref.copy_to_volatile_slice(v_ref2.to_slice());
+    /// for &v in &buf[..] {
+    ///     assert_eq!(v, 0);
+    /// }
     /// ```
     pub fn copy_to_volatile_slice(&self, slice: VolatileSlice) {
         unsafe {
@@ -1048,20 +1110,16 @@ impl<'a, T: ByteValued> VolatileArrayRef<'a, T> {
     /// # Examples
     ///
     /// ```
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// # use vm_memory::VolatileMemory;
-    /// # fn test_write_null() -> Result<(), ()> {
-    /// let mut mem = [0u8; 32];
-    /// let mem_ref = &mut mem[..];
-    /// let vslice = mem_ref.get_slice(0, 32).map_err(|_| ())?;
+    /// # use vm_memory::VolatileArrayRef;
+    /// #
+    /// let mut v = [0u8; 32];
+    /// let v_ref = unsafe { VolatileArrayRef::<u8>::new(&mut v[0] as *mut u8, v.len()) };
+    ///
     /// let buf = [5u8; 64];
-    /// vslice.copy_from(&buf[..]);
-    /// for i in 0..4 {
-    ///     assert_eq!(vslice.get_ref::<u32>(i * 4).map_err(|_| ())?.load(), 0x05050505);
+    /// v_ref.copy_from(&buf[..]);
+    /// for &val in &v[..] {
+    ///     assert_eq!(5u8, val);
     /// }
-    /// # Ok(())
-    /// # }
     /// ```
     pub fn copy_from(&self, buf: &[T]) {
         // A fast path for u8/i8

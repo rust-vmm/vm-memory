@@ -159,10 +159,15 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     ///
     /// ```
     /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    /// #
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).unwrap();
-    ///   let res = gm.write(&[1,2,3,4,5], GuestAddress(0x1200)).unwrap();
-    ///   assert_eq!(5, res);
+    /// # let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
+    /// #    .expect("Could not create guest memory");
+    /// #
+    /// let res = gm
+    ///     .write(&[1, 2, 3, 4, 5], GuestAddress(0x1200))
+    ///     .expect("Could not write to guest memory");
+    /// assert_eq!(5, res);
     /// ```
     fn write(&self, buf: &[u8], addr: MemoryRegionAddress) -> guest_memory::Result<usize> {
         let maddr = addr.raw_value() as usize;
@@ -177,11 +182,16 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     ///
     /// ```
     /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    /// #
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).unwrap();
-    ///   let buf = &mut [0u8; 16];
-    ///   let res = gm.read(buf, GuestAddress(0x1200)).unwrap();
-    ///   assert_eq!(16, res);
+    /// # let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
+    /// #    .expect("Could not create guest memory");
+    /// #
+    /// let buf = &mut [0u8; 16];
+    /// let res = gm
+    ///     .read(buf, GuestAddress(0x1200))
+    ///     .expect("Could not read from guest memory");
+    /// assert_eq!(16, res);
     /// ```
     fn read(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> guest_memory::Result<usize> {
         let maddr = addr.raw_value() as usize;
@@ -215,17 +225,26 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::File;
     /// # use std::path::Path;
+    /// #
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).unwrap();
-    ///   let mut file = if cfg!(unix) {
-    ///       File::open(Path::new("/dev/urandom")).unwrap()
-    ///   } else {
-    ///       File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
-    ///   };
-    ///   let addr = GuestAddress(0x1010);
-    ///   gm.read_from(addr, &mut file, 128).unwrap();
-    ///   let read_addr = addr.checked_add(8).unwrap();
-    ///   let _: u32 = gm.read_obj(read_addr).unwrap();
+    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
+    /// #    .expect("Could not create guest memory");
+    /// # let addr = GuestAddress(0x1010);
+    /// # let mut file = if cfg!(unix) {
+    /// let mut file = File::open(Path::new("/dev/urandom")).expect("Could not open /dev/urandom");
+    /// #   file
+    /// # } else {
+    /// #   File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe"))
+    /// #       .expect("Could not open c:\\Windows\\system32\\ntoskrnl.exe")
+    /// # };
+    ///
+    /// gm.read_from(addr, &mut file, 128)
+    ///     .expect("Could not read from /dev/urandom into guest memory");
+    ///
+    /// let read_addr = addr.checked_add(8).expect("Could not compute read address");
+    /// let rand_val: u32 = gm
+    ///     .read_obj(read_addr)
+    ///     .expect("Could not read u32 val from /dev/urandom");
     /// ```
     fn read_from<F>(
         &self,
@@ -251,17 +270,26 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::File;
     /// # use std::path::Path;
+    /// #
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).unwrap();
-    ///   let mut file = if cfg!(unix) {
-    ///       File::open(Path::new("/dev/urandom")).unwrap()
-    ///   } else {
-    ///       File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
-    ///   };
-    ///   let addr = GuestAddress(0x1010);
-    ///   gm.read_exact_from(addr, &mut file, 128).unwrap();
-    ///   let read_addr = addr.checked_add(8).unwrap();
-    ///   let _: u32 = gm.read_obj(read_addr).unwrap();
+    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
+    /// #    .expect("Could not create guest memory");
+    /// # let addr = GuestAddress(0x1010);
+    /// # let mut file = if cfg!(unix) {
+    /// let mut file = File::open(Path::new("/dev/urandom")).expect("Could not open /dev/urandom");
+    /// #   file
+    /// # } else {
+    /// #   File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe"))
+    /// #       .expect("Could not open c:\\Windows\\system32\\ntoskrnl.exe")
+    /// # };
+    ///
+    /// gm.read_exact_from(addr, &mut file, 128)
+    ///     .expect("Could not read from /dev/urandom into guest memory");
+    ///
+    /// let read_addr = addr.checked_add(8).expect("Could not compute read address");
+    /// let rand_val: u32 = gm
+    ///     .read_obj(read_addr)
+    ///     .expect("Could not read u32 val from /dev/urandom");
     /// ```
     fn read_exact_from<F>(
         &self,
@@ -283,18 +311,30 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     ///
     /// # Examples
     ///
-    /// * Write 128 bytes to a temp file
+    /// * Write 128 bytes to a /dev/null file
     ///
     /// ```
+    /// # #[cfg(not(unix))]
     /// # extern crate vmm_sys_util;
-    /// # use vmm_sys_util::tempfile::TempFile;
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
-    /// # use std::fs::OpenOptions;
+    /// #
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).unwrap();
-    ///   let mut file = TempFile::new().unwrap().into_file();
-    ///   let mut mem = [0u8; 1024];
-    ///   gm.write_to(start_addr, &mut file, 128).unwrap();
+    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
+    /// #    .expect("Could not create guest memory");
+    /// # let mut file = if cfg!(unix) {
+    /// # use std::fs::OpenOptions;
+    /// let mut file = OpenOptions::new()
+    ///     .write(true)
+    ///     .open("/dev/null")
+    ///     .expect("Could not open /dev/null");
+    /// #   file
+    /// # } else {
+    /// #   use vmm_sys_util::tempfile::TempFile;
+    /// #   TempFile::new().unwrap().into_file()
+    /// # };
+    ///
+    /// gm.write_to(start_addr, &mut file, 128)
+    ///     .expect("Could not write to file from guest memory");
     /// ```
     fn write_to<F>(
         &self,
@@ -316,18 +356,30 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     ///
     /// # Examples
     ///
-    /// * Write 128 bytes to a temp file
+    /// * Write 128 bytes to a /dev/null file
     ///
     /// ```
+    /// # #[cfg(not(unix))]
     /// # extern crate vmm_sys_util;
-    /// # use vmm_sys_util::tempfile::TempFile;
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
-    /// # use std::fs::OpenOptions;
+    /// #
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).unwrap();
-    ///   let mut file = TempFile::new().unwrap().into_file();
-    ///   let mut mem = [0u8; 1024];
-    ///   gm.write_all_to(start_addr, &mut file, 128).unwrap();
+    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
+    /// #    .expect("Could not create guest memory");
+    /// # let mut file = if cfg!(unix) {
+    /// # use std::fs::OpenOptions;
+    /// let mut file = OpenOptions::new()
+    ///     .write(true)
+    ///     .open("/dev/null")
+    ///     .expect("Could not open /dev/null");
+    /// #   file
+    /// # } else {
+    /// #   use vmm_sys_util::tempfile::TempFile;
+    /// #   TempFile::new().unwrap().into_file()
+    /// # };
+    ///
+    /// gm.write_all_to(start_addr, &mut file, 128)
+    ///     .expect("Could not write to file from guest memory");
     /// ```
     fn write_all_to<F>(
         &self,

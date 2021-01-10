@@ -95,9 +95,10 @@ pub trait Address:
     ///
     /// ```
     /// # use vm_memory::{Address, GuestAddress};
-    ///   let base = GuestAddress(0x100);
-    ///   let addr = GuestAddress(0x150);
-    ///   assert_eq!(addr.unchecked_offset_from(base), 0x50);
+    /// #
+    /// let base = GuestAddress(0x100);
+    /// let addr = GuestAddress(0x150);
+    /// assert_eq!(addr.unchecked_offset_from(base), 0x50);
     /// ```
     fn unchecked_offset_from(&self, base: Self) -> Self::V {
         self.raw_value() - base.raw_value()
