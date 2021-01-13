@@ -8,7 +8,7 @@ steps:
       platform: x86_64
       os: windows
     plugins:
-      - petrutlucian94/docker#v3.1.1:
+      - docker#v3.7.0:
           image: "lpetrut/rust_win_buildtools"
           always-pull: true
 
@@ -21,7 +21,7 @@ steps:
       platform: x86_64
       os: windows
     plugins:
-      - petrutlucian94/docker#v3.1.1:
+      - docker#v3.7.0:
           image: "lpetrut/rust_win_buildtools"
           always-pull: true
 
@@ -33,7 +33,7 @@ steps:
       platform: x86_64
       os: windows
     plugins:
-      - petrutlucian94/docker#v3.1.1:
+      - docker#v3.7.0:
           image: "lpetrut/rust_win_buildtools"
           always-pull: true
 
@@ -46,7 +46,7 @@ steps:
       platform: x86_64
       os: windows
     plugins:
-      - petrutlucian94/docker#v3.1.1:
+      - docker#v3.7.0:
           image: "lpetrut/rust_win_buildtools"
           always-pull: true
 
@@ -59,7 +59,7 @@ steps:
       platform: x86_64
       os: windows
     plugins:
-      - petrutlucian94/docker#v3.1.1:
+      - docker#v3.7.0:
           image: "lpetrut/rust_win_buildtools"
           always-pull: true
 
@@ -72,7 +72,7 @@ steps:
       platform: x86_64
       os: windows
     plugins:
-      - petrutlucian94/docker#v3.1.1:
+      - docker#v3.7.0:
           image: "lpetrut/rust_win_buildtools"
           always-pull: true
           environment:
