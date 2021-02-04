@@ -175,11 +175,6 @@ impl MmapRegion {
     pub fn file_offset(&self) -> Option<&FileOffset> {
         self.file_offset.as_ref()
     }
-
-    /// This information is not available on Windows platforms.
-    pub fn is_hugetlbfs(&self) -> Option<bool> {
-        None
-    }
 }
 
 impl AsSlice for MmapRegion {

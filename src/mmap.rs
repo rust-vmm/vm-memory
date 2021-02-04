@@ -457,6 +457,7 @@ impl GuestMemoryRegion for GuestRegionMmap {
         Ok(slice)
     }
 
+    #[cfg(target_os = "linux")]
     fn is_hugetlbfs(&self) -> Option<bool> {
         self.mapping.is_hugetlbfs()
     }
