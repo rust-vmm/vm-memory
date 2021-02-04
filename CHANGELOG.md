@@ -1,10 +1,13 @@
 # Changelog
 
-## [Unreleased]
+## [v0.5.0]
 
 ### Added
 
 - [[#8]](https://github.com/rust-vmm/vm-memory/issues/8): Add GuestMemory method to return an Iterator
+- [[#120]](https://github.com/rust-vmm/vm-memory/pull/120): Add is_hugetlbfs() to GuestMemoryRegion
+- [[#126]](https://github.com/rust-vmm/vm-memory/pull/126): Add VolatileSlice::split_at()
+- [[#128]](https://github.com/rust-vmm/vm-memory/pull/128): Add VolatileSlice::subslice()
 
 ## [v0.4.0]
 
