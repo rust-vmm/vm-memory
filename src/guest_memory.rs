@@ -300,10 +300,10 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// # #[cfg(feature = "backend-mmap")]
     /// # {
     /// #   use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestRegionMmap};
-    ///     let addr = GuestAddress(0x1000);
-    ///     let mem = GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
-    ///     let r = mem.find_region(addr).unwrap();
-    ///     assert_eq!(r.is_hugetlbfs(), None);
+    /// let addr = GuestAddress(0x1000);
+    /// let mem = GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
+    /// let r = mem.find_region(addr).unwrap();
+    /// assert_eq!(r.is_hugetlbfs(), None);
     /// # }
     /// ```
     fn is_hugetlbfs(&self) -> Option<bool> {
