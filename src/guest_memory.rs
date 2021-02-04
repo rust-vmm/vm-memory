@@ -306,6 +306,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// assert_eq!(r.is_hugetlbfs(), None);
     /// # }
     /// ```
+    #[cfg(target_os = "linux")]
     fn is_hugetlbfs(&self) -> Option<bool> {
         None
     }
@@ -1221,6 +1222,7 @@ mod tests {
     }
 
     #[cfg(feature = "backend-mmap")]
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_guest_memory_mmap_is_hugetlbfs() {
         let addr = GuestAddress(0x1000);
