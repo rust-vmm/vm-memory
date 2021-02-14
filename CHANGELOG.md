@@ -1,6 +1,8 @@
 # Changelog
 ## [Unreleased]
 
+## [v0.6.0]
+
 ### Added
 
   - [[#160]](https://github.com/rust-vmm/vm-memory/pull/160): Add `ArcRef` and `AtomicBitmapArc` bitmap
