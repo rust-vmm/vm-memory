@@ -1,6 +1,8 @@
 # Changelog
 ## [Unreleased]
 
+## [v0.6.0]
+
 ### Added
 
   - [[#140]](https://github.com/rust-vmm/vm-memory/issues/140): Add dirty bitmap tracking abstractions. 
