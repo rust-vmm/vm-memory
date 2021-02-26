@@ -457,6 +457,12 @@ pub trait GuestMemoryIterator<'a, R: 'a> {
 /// The task of the `GuestMemory` trait are:
 /// - map a request address to a `GuestMemoryRegion` object and relay the request to it.
 /// - handle cases where an access request spanning two or more `GuestMemoryRegion` objects.
+///
+/// The `GuestMemory` is a byte stream oriented trait. Most data accessors work in byte stream mode
+/// logically and do not guarantee atomicity for data access bigger than a byte. The only
+/// exceptions are `load()` and `store()`, which accesses naturally aligned data in atomic mode.
+/// Please use `{VolatileRef|VolatileArrayRef}::{load|store()|copy_from<T>|copy_from<T>}` for
+/// volatile accesses.
 pub trait GuestMemory {
     /// Type of objects hosted by the address space.
     type R: GuestMemoryRegion;
@@ -1008,8 +1014,6 @@ mod tests {
     use crate::{GuestAddress, GuestMemoryMmap};
     #[cfg(feature = "backend-mmap")]
     use std::io::Cursor;
-    #[cfg(feature = "backend-mmap")]
-    use std::time::{Duration, Instant};
 
     use vmm_sys_util::tempfile::TempFile;
 
@@ -1050,6 +1054,10 @@ mod tests {
         );
     }
 
+    /*
+    #[cfg(feature = "backend-mmap")]
+    use std::time::{Duration, Instant};
+
     // Runs the provided closure in a loop, until at least `duration` time units have elapsed.
     #[cfg(feature = "backend-mmap")]
     fn loop_timed<F>(duration: Duration, mut f: F)
@@ -1069,6 +1077,7 @@ mod tests {
             }
         }
     }
+     */
 
     // Helper method for the following test. It spawns a writer and a reader thread, which
     // simultaneously try to access an object that is placed at the junction of two memory regions.
@@ -1087,7 +1096,6 @@ mod tests {
             + PartialEq,
     {
         use std::mem;
-        use std::thread;
 
         // A dummy type that's always going to have the same alignment as the first member,
         // and then adds some bytes at the end.
@@ -1116,12 +1124,10 @@ mod tests {
         ])
         .unwrap();
 
-        // Need to clone this and move it into the new thread we create.
-        let mem2 = mem.clone();
         // Just some bytes.
         let some_bytes = [1u8, 2, 4, 16, 32, 64, 128];
 
-        let mut data = Data {
+        let data = Data {
             val: T::from(0u8),
             some_bytes,
         };
@@ -1131,6 +1137,12 @@ mod tests {
         let read_data = mem.read_obj::<Data<T>>(data_start).unwrap();
         assert_eq!(read_data, data);
 
+        // The GuestMemory/Bytes doesn't guarantee atomicity any, unless load()/store() are used.
+        /*
+        use std::thread;
+
+        // Need to clone this and move it into the new thread we create.
+        let mem2 = mem.clone();
         let t = thread::spawn(move || {
             let mut count: u64 = 0;
 
@@ -1162,6 +1174,7 @@ mod tests {
         });
 
         t.join().unwrap()
+         */
     }
 
     #[cfg(feature = "backend-mmap")]
