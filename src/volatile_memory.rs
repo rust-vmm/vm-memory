@@ -1359,6 +1359,7 @@ mod tests {
     use super::*;
 
     use std::fs::File;
+    use std::mem::size_of_val;
     use std::path::Path;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -1367,6 +1368,11 @@ mod tests {
 
     use matches::assert_matches;
     use vmm_sys_util::tempfile::TempFile;
+
+    use crate::bitmap::tests::{
+        check_range, range_is_clean, range_is_dirty, test_bytes, test_volatile_memory,
+    };
+    use crate::bitmap::{AtomicBitmap, RefSlice};
 
     #[derive(Clone)]
     struct VecMem {
@@ -1987,5 +1993,184 @@ mod tests {
         assert_eq!(end.len(), 0);
         let err = vslice.split_at(33).unwrap_err();
         assert_matches!(err, Error::OutOfBounds { addr: _ })
+    }
+
+    #[test]
+    fn test_volatile_slice_dirty_tracking() {
+        let val = 123u64;
+        let dirty_offset = 0x1000;
+        let dirty_len = size_of_val(&val);
+        let page_size = 0x1000;
+
+        let mut buf = vec![0u8; 0x10000];
+
+        // Invoke the `Bytes` test helper function.
+        {
+            let bitmap = AtomicBitmap::new(buf.len(), page_size);
+            let slice = unsafe {
+                VolatileSlice::with_bitmap(buf.as_mut_ptr(), buf.len(), bitmap.slice_at(0))
+            };
+
+            test_bytes(
+                &slice,
+                |s: &VolatileSlice<RefSlice<AtomicBitmap>>,
+                 start: usize,
+                 len: usize,
+                 clean: bool| { check_range(s.bitmap(), start, len, clean) },
+                |offset| offset,
+                0x1000,
+            );
+        }
+
+        // Invoke the `VolatileMemory` test helper function.
+        {
+            let bitmap = AtomicBitmap::new(buf.len(), page_size);
+            let slice = unsafe {
+                VolatileSlice::with_bitmap(buf.as_mut_ptr(), buf.len(), bitmap.slice_at(0))
+            };
+            test_volatile_memory(&slice);
+        }
+
+        let bitmap = AtomicBitmap::new(buf.len(), page_size);
+        let slice =
+            unsafe { VolatileSlice::with_bitmap(buf.as_mut_ptr(), buf.len(), bitmap.slice_at(0)) };
+
+        let bitmap2 = AtomicBitmap::new(buf.len(), page_size);
+        let slice2 =
+            unsafe { VolatileSlice::with_bitmap(buf.as_mut_ptr(), buf.len(), bitmap2.slice_at(0)) };
+
+        let bitmap3 = AtomicBitmap::new(buf.len(), page_size);
+        let slice3 =
+            unsafe { VolatileSlice::with_bitmap(buf.as_mut_ptr(), buf.len(), bitmap3.slice_at(0)) };
+
+        assert!(range_is_clean(slice.bitmap(), 0, slice.len()));
+        assert!(range_is_clean(slice2.bitmap(), 0, slice2.len()));
+
+        slice.write_obj(val, dirty_offset).unwrap();
+        assert!(range_is_dirty(slice.bitmap(), dirty_offset, dirty_len));
+
+        slice.copy_to_volatile_slice(slice2);
+        assert!(range_is_dirty(slice2.bitmap(), 0, slice2.len()));
+
+        {
+            let (s1, s2) = slice.split_at(dirty_offset).unwrap();
+            assert!(range_is_clean(s1.bitmap(), 0, s1.len()));
+            assert!(range_is_dirty(s2.bitmap(), 0, dirty_len));
+        }
+
+        {
+            let s = slice.subslice(dirty_offset, dirty_len).unwrap();
+            assert!(range_is_dirty(s.bitmap(), 0, s.len()));
+        }
+
+        {
+            let s = slice.offset(dirty_offset).unwrap();
+            assert!(range_is_dirty(s.bitmap(), 0, dirty_len));
+        }
+
+        // Test `copy_from` for size_of::<T> == 1.
+        {
+            let buf = vec![1u8; dirty_offset];
+
+            assert!(range_is_clean(slice.bitmap(), 0, dirty_offset));
+            slice.copy_from(&buf);
+            assert!(range_is_dirty(slice.bitmap(), 0, dirty_offset));
+        }
+
+        // Test `copy_from` for size_of::<T> > 1.
+        {
+            let val = 1u32;
+            let buf = vec![val; dirty_offset / size_of_val(&val)];
+
+            assert!(range_is_clean(slice3.bitmap(), 0, dirty_offset));
+            slice3.copy_from(&buf);
+            assert!(range_is_dirty(slice3.bitmap(), 0, dirty_offset));
+        }
+    }
+
+    #[test]
+    fn test_volatile_ref_dirty_tracking() {
+        let val = 123u64;
+        let mut buf = vec![val];
+        let page_size = 0x1000;
+
+        let bitmap = AtomicBitmap::new(size_of_val(&val), page_size);
+        let vref =
+            unsafe { VolatileRef::with_bitmap(buf.as_mut_ptr() as *mut u8, bitmap.slice_at(0)) };
+
+        assert!(range_is_clean(vref.bitmap(), 0, vref.len()));
+        vref.store(val);
+        assert!(range_is_dirty(vref.bitmap(), 0, vref.len()));
+    }
+
+    fn test_volatile_array_ref_copy_from_tracking<T>(buf: &mut [T], index: usize, page_size: usize)
+    where
+        T: ByteValued + From<u8>,
+    {
+        let bitmap = AtomicBitmap::new(buf.len() * size_of::<T>(), page_size);
+        let arr = unsafe {
+            VolatileArrayRef::with_bitmap(
+                buf.as_mut_ptr() as *mut u8,
+                index + 1,
+                bitmap.slice_at(0),
+            )
+        };
+
+        let val = T::from(123);
+        let copy_buf = vec![val; index + 1];
+
+        assert!(range_is_clean(arr.bitmap(), 0, arr.len() * size_of::<T>()));
+        arr.copy_from(copy_buf.as_slice());
+        assert!(range_is_dirty(arr.bitmap(), 0, buf.len() * size_of::<T>()));
+    }
+
+    #[test]
+    fn test_volatile_array_ref_dirty_tracking() {
+        let val = 123u64;
+        let dirty_len = size_of_val(&val);
+        let index = 0x1000;
+        let dirty_offset = dirty_len * index;
+        let page_size = 0x1000;
+
+        let mut buf = vec![0u64; index + 1];
+        let mut byte_buf = vec![0u8; index + 1];
+
+        // Test `ref_at`.
+        {
+            let bitmap = AtomicBitmap::new(buf.len() * size_of_val(&val), page_size);
+            let arr = unsafe {
+                VolatileArrayRef::with_bitmap(
+                    buf.as_mut_ptr() as *mut u8,
+                    index + 1,
+                    bitmap.slice_at(0),
+                )
+            };
+
+            assert!(range_is_clean(arr.bitmap(), 0, arr.len() * dirty_len));
+            arr.ref_at(index).store(val);
+            assert!(range_is_dirty(arr.bitmap(), dirty_offset, dirty_len));
+        }
+
+        // Test `store`.
+        {
+            let bitmap = AtomicBitmap::new(buf.len() * size_of_val(&val), page_size);
+            let arr = unsafe {
+                VolatileArrayRef::with_bitmap(
+                    buf.as_mut_ptr() as *mut u8,
+                    index + 1,
+                    bitmap.slice_at(0),
+                )
+            };
+
+            let slice = arr.to_slice();
+            assert!(range_is_clean(slice.bitmap(), 0, slice.len()));
+            arr.store(index, val);
+            assert!(range_is_dirty(slice.bitmap(), dirty_offset, dirty_len));
+        }
+
+        // Test `copy_from` when size_of::<T>() == 1.
+        test_volatile_array_ref_copy_from_tracking(&mut byte_buf, index, page_size);
+        // Test `copy_from` when size_of::<T>() > 1.
+        test_volatile_array_ref_copy_from_tracking(&mut buf, index, page_size);
     }
 }

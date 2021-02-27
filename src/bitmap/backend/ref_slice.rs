@@ -72,3 +72,38 @@ impl<'a, B> Debug for RefSlice<'a, B> {
         write!(f, "(bitmap slice)")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::bitmap::tests::{range_is_clean, range_is_dirty, test_bitmap};
+    use crate::bitmap::AtomicBitmap;
+
+    #[test]
+    fn test_ref_slice() {
+        let bitmap_size = 0x1_0000;
+        let dirty_offset = 0x1000;
+        let dirty_len = 0x100;
+
+        {
+            let bitmap = AtomicBitmap::new(bitmap_size, 1);
+            let slice1 = bitmap.slice_at(0);
+            let slice2 = bitmap.slice_at(dirty_offset);
+
+            assert!(range_is_clean(&slice1, 0, bitmap_size));
+            assert!(range_is_clean(&slice2, 0, dirty_len));
+
+            bitmap.mark_dirty(dirty_offset, dirty_len);
+
+            assert!(range_is_dirty(&slice1, dirty_offset, dirty_len));
+            assert!(range_is_dirty(&slice2, 0, dirty_len));
+        }
+
+        {
+            let bitmap = AtomicBitmap::new(bitmap_size, 1);
+            let slice = bitmap.slice_at(0);
+            test_bitmap(&slice);
+        }
+    }
+}

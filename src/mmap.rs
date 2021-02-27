@@ -669,6 +669,8 @@ mod tests {
 
     use super::*;
 
+    use crate::bitmap::tests::test_guest_memory_and_region;
+    use crate::bitmap::AtomicBitmap;
     use crate::GuestAddressSpace;
 
     use std::fs::File;
@@ -1557,5 +1559,13 @@ mod tests {
             MemoryRegionAddress(0),
             MemoryRegionAddress(0x1000),
         );
+    }
+
+    #[test]
+    fn test_dirty_tracking() {
+        test_guest_memory_and_region(|| {
+            crate::GuestMemoryMmap::<AtomicBitmap>::from_ranges(&[(GuestAddress(0), 0x1_0000)])
+                .unwrap()
+        });
     }
 }

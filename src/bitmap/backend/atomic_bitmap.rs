@@ -147,10 +147,12 @@ impl NewBitmap for AtomicBitmap {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    use crate::bitmap::tests::test_bitmap;
+
     #[test]
     fn test_bitmap_basic() {
-        use super::AtomicBitmap;
-
         // Test that bitmap size is properly rounded up.
         let a = AtomicBitmap::new(1025, 128);
         assert_eq!(a.len(), 9);
@@ -175,7 +177,6 @@ mod tests {
 
     #[test]
     fn test_bitmap_out_of_range() {
-        use super::AtomicBitmap;
         let b = AtomicBitmap::new(1024, 1);
         // Set a partial range that goes beyond the end of the bitmap
         b.set_addr_range(768, 512);
@@ -183,5 +184,11 @@ mod tests {
         // The bitmap is never set beyond its end.
         assert!(!b.is_addr_set(1024));
         assert!(!b.is_addr_set(1152));
+    }
+
+    #[test]
+    fn test_bitmap_impl() {
+        let b = AtomicBitmap::new(0x2000, 128);
+        test_bitmap(&b);
     }
 }
