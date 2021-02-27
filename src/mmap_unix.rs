@@ -365,6 +365,8 @@ mod tests {
     use std::sync::Arc;
     use vmm_sys_util::tempfile::TempFile;
 
+    use crate::bitmap::AtomicBitmap;
+
     type MmapRegion = super::MmapRegion<()>;
 
     // Adding a helper method to extract the errno within an Error::Mmap(e), or return a
@@ -559,5 +561,13 @@ mod tests {
         // R2 is not file backed, so no overlap.
         let r2 = MmapRegion::new(5000).unwrap();
         assert!(!r1.fds_overlap(&r2));
+    }
+
+    #[test]
+    fn test_dirty_tracking() {
+        // Using the `crate` prefix because we aliased `MmapRegion` to `MmapRegion<()>` for
+        // the rest of the unit tests above.
+        let m = crate::MmapRegion::<AtomicBitmap>::new(0x1_0000).unwrap();
+        crate::bitmap::tests::test_volatile_memory(&m);
     }
 }
