@@ -143,8 +143,8 @@ impl<M: GuestMemory> GuestMemoryExclusiveGuard<'_, M> {
 mod tests {
     use super::*;
     use crate::{
-        GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestMemoryResult,
-        GuestRegionMmap, GuestUsize, MmapRegion,
+        GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap, GuestUsize,
+        MmapRegion,
     };
 
     type GuestMemoryMmapAtomic = GuestMemoryAtomic<GuestMemoryMmap>;
@@ -161,16 +161,13 @@ mod tests {
         let gm = GuestMemoryMmapAtomic::new(gmm);
         let mem = gm.memory();
 
-        let res: GuestMemoryResult<()> = mem.with_regions(|_, region| {
+        for region in mem.iter() {
             assert_eq!(region.len(), region_size as GuestUsize);
-            Ok(())
-        });
-        assert!(res.is_ok());
-        let res: GuestMemoryResult<()> = mem.with_regions_mut(|_, region| {
+        }
+
+        for region in mem.iter() {
             iterated_regions.push((region.start_addr(), region.len() as usize));
-            Ok(())
-        });
-        assert!(res.is_ok());
+        }
         assert_eq!(regions, iterated_regions);
         assert_eq!(mem.num_regions(), 2);
         assert!(mem.find_region(GuestAddress(0x1000)).is_some());
@@ -182,13 +179,9 @@ mod tests {
             .eq(iterated_regions.iter().copied()));
 
         let mem2 = mem.into_inner();
-        let res: GuestMemoryResult<()> = mem2.with_regions(|_, region| {
+        for region in mem2.iter() {
             assert_eq!(region.len(), region_size as GuestUsize);
-            Ok(())
-        });
-        assert!(res.is_ok());
-        let res: GuestMemoryResult<()> = mem2.with_regions_mut(|_, _| Ok(()));
-        assert!(res.is_ok());
+        }
         assert_eq!(mem2.num_regions(), 2);
         assert!(mem2.find_region(GuestAddress(0x1000)).is_some());
         assert!(mem2.find_region(GuestAddress(0x10000)).is_none());
@@ -199,13 +192,9 @@ mod tests {
             .eq(iterated_regions.iter().copied()));
 
         let mem3 = mem2.memory();
-        let res: GuestMemoryResult<()> = mem3.with_regions(|_, region| {
+        for region in mem3.iter() {
             assert_eq!(region.len(), region_size as GuestUsize);
-            Ok(())
-        });
-        assert!(res.is_ok());
-        let res: GuestMemoryResult<()> = mem3.with_regions_mut(|_, _| Ok(()));
-        assert!(res.is_ok());
+        }
         assert_eq!(mem3.num_regions(), 2);
         assert!(mem3.find_region(GuestAddress(0x1000)).is_some());
         assert!(mem3.find_region(GuestAddress(0x10000)).is_none());

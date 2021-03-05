@@ -1196,16 +1196,14 @@ mod tests {
         ];
         let mut iterated_regions = Vec::new();
         let gm = GuestMemoryMmap::from_ranges(&regions).unwrap();
-        let res: guest_memory::Result<()> = gm.with_regions(|_, region| {
+
+        for region in gm.iter() {
             assert_eq!(region.len(), region_size as GuestUsize);
-            Ok(())
-        });
-        assert!(res.is_ok());
-        let res: guest_memory::Result<()> = gm.with_regions_mut(|_, region| {
+        }
+
+        for region in gm.iter() {
             iterated_regions.push((region.start_addr(), region.len() as usize));
-            Ok(())
-        });
-        assert!(res.is_ok());
+        }
         assert_eq!(regions, iterated_regions);
 
         assert!(regions
@@ -1228,16 +1226,13 @@ mod tests {
         let gm = Arc::new(GuestMemoryMmap::from_ranges(&regions).unwrap());
         let mem = gm.memory();
 
-        let res: guest_memory::Result<()> = mem.with_regions(|_, region| {
+        for region in mem.iter() {
             assert_eq!(region.len(), region_size as GuestUsize);
-            Ok(())
-        });
-        assert!(res.is_ok());
-        let res: guest_memory::Result<()> = mem.with_regions_mut(|_, region| {
+        }
+
+        for region in mem.iter() {
             iterated_regions.push((region.start_addr(), region.len() as usize));
-            Ok(())
-        });
-        assert!(res.is_ok());
+        }
         assert_eq!(regions, iterated_regions);
 
         assert!(regions
