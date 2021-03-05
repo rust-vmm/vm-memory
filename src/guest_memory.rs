@@ -473,6 +473,7 @@ pub trait GuestMemory {
     /// Perform the specified action on each region.
     ///
     /// It only walks children of current region and does not step into sub regions.
+    #[deprecated(since = "0.6.0", note = "Use `.iter()` instead")]
     fn with_regions<F, E>(&self, cb: F) -> std::result::Result<(), E>
     where
         F: Fn(usize, &Self::R) -> std::result::Result<(), E>,
@@ -486,6 +487,7 @@ pub trait GuestMemory {
     /// Perform the specified action on each region mutably.
     ///
     /// It only walks children of current region and does not step into sub regions.
+    #[deprecated(since = "0.6.0", note = "Use `.iter()` instead")]
     fn with_regions_mut<F, E>(&self, mut cb: F) -> std::result::Result<(), E>
     where
         F: FnMut(usize, &Self::R) -> std::result::Result<(), E>,
@@ -554,6 +556,7 @@ pub trait GuestMemory {
     /// assert_eq!(3, total_size)
     /// # }
     /// ```
+    #[deprecated(since = "0.6.0", note = "Use `.iter()` instead")]
     fn map_and_fold<F, G, T>(&self, init: T, mapf: F, foldf: G) -> T
     where
         F: Fn((usize, &Self::R)) -> T,
