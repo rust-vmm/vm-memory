@@ -6,7 +6,7 @@
 pub use criterion::{black_box, Criterion};
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 
-const REGION_SIZE: u64 = 0x10_0000;
+const REGION_SIZE: usize = 0x10_0000;
 const REGIONS_COUNT: u64 = 256;
 
 pub fn benchmark_for_guest_memory(c: &mut Criterion) {
@@ -16,7 +16,7 @@ pub fn benchmark_for_guest_memory(c: &mut Criterion) {
 fn find_region(mem: &GuestMemoryMmap) {
     for i in 0..REGIONS_COUNT {
         let _ = mem
-            .find_region(black_box(GuestAddress(i * REGION_SIZE)))
+            .find_region(black_box(GuestAddress(i * REGION_SIZE as u64)))
             .unwrap();
     }
 }
