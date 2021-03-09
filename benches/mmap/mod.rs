@@ -15,7 +15,7 @@ use criterion::{black_box, Criterion};
 
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory};
 
-const REGION_SIZE: u64 = 0x8000_0000;
+const REGION_SIZE: usize = 0x8000_0000;
 const REGIONS_COUNT: u64 = 8;
 const ACCESS_SIZE: usize = 0x200;
 
@@ -55,8 +55,10 @@ enum AccessKind {
 impl AccessKind {
     fn make_offset(&self, access_size: usize) -> u64 {
         match *self {
-            AccessKind::InRegion(idx) => REGION_SIZE * idx,
-            AccessKind::CrossRegion(idx) => REGION_SIZE * (idx + 1) - (access_size / 2) as u64,
+            AccessKind::InRegion(idx) => REGION_SIZE as u64 * idx,
+            AccessKind::CrossRegion(idx) => {
+                REGION_SIZE as u64 * (idx + 1) - (access_size as u64 / 2)
+            }
         }
     }
 }
@@ -67,7 +69,7 @@ pub fn benchmark_for_mmap(c: &mut Criterion) {
     // Just a sanity check.
     assert_eq!(
         memory.last_addr(),
-        GuestAddress(REGION_SIZE * REGIONS_COUNT - 0x01)
+        GuestAddress(REGION_SIZE as u64 * REGIONS_COUNT - 0x01)
     );
 
     let some_small_dummy = SmallDummy {
