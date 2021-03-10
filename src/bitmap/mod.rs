@@ -6,9 +6,15 @@
 //! `GuestMemoryRegion` object, and the resulting bitmaps can then be aggregated to build the
 //! global view for an entire `GuestMemory` object.
 
+#[cfg(any(test, feature = "backend-bitmap"))]
+mod backend;
+
 use std::fmt::Debug;
 
 use crate::{GuestMemory, GuestMemoryRegion};
+
+#[cfg(any(test, feature = "backend-bitmap"))]
+pub use backend::RefSlice;
 
 /// Trait implemented by types that support creating `BitmapSlice` objects.
 pub trait WithBitmapSlice<'a> {
