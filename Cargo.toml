@@ -12,6 +12,7 @@ autobenches = false
 
 [features]
 default = []
+backend-bitmap = []
 backend-mmap = []
 backend-atomic = ["arc-swap"]
 
