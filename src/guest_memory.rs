@@ -288,7 +288,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// # use vm_memory::{GuestAddress, MmapRegion, GuestRegionMmap, GuestMemoryRegion};
     /// # use vm_memory::volatile_memory::{VolatileMemory, VolatileSlice, VolatileRef};
     /// #
-    /// let region = MmapRegion::new(0x400).expect("Could not create mmap region");
+    /// let region = MmapRegion::<()>::new(0x400).expect("Could not create mmap region");
     /// let region =
     ///     GuestRegionMmap::new(region, GuestAddress(0x0)).expect("Could not create guest memory");
     /// let slice = region
@@ -318,7 +318,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// # {
     /// #   use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestRegionMmap};
     /// let addr = GuestAddress(0x1000);
-    /// let mem = GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
+    /// let mem = GuestMemoryMmap::<()>::from_ranges(&[(addr, 0x1000)]).unwrap();
     /// let r = mem.find_region(addr).unwrap();
     /// assert_eq!(r.is_hugetlbfs(), None);
     /// # }
@@ -362,27 +362,27 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
 ///     }
 /// }
 ///
-/// fn get_mmap() -> GuestMemoryMmap {
+/// fn get_mmap() -> GuestMemoryMmap<()> {
 ///     let start_addr = GuestAddress(0x1000);
 ///     GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
 ///         .expect("Could not create guest memory")
 /// }
 ///
 /// // Using `VirtioDevice` with an immutable GuestMemoryMmap:
-/// let mut for_immutable_mmap = VirtioDevice::<&GuestMemoryMmap>::new();
+/// let mut for_immutable_mmap = VirtioDevice::<&GuestMemoryMmap<()>>::new();
 /// let mmap = get_mmap();
 /// for_immutable_mmap.activate(&mmap);
-/// let mut another = VirtioDevice::<&GuestMemoryMmap>::new();
+/// let mut another = VirtioDevice::<&GuestMemoryMmap<()>>::new();
 /// another.activate(&mmap);
 ///
 /// # #[cfg(feature = "backend-atomic")]
 /// # {
 /// # use vm_memory::GuestMemoryAtomic;
 /// // Using `VirtioDevice` with a mutable GuestMemoryMmap:
-/// let mut for_mutable_mmap = VirtioDevice::<GuestMemoryAtomic<GuestMemoryMmap>>::new();
+/// let mut for_mutable_mmap = VirtioDevice::<GuestMemoryAtomic<GuestMemoryMmap<()>>>::new();
 /// let atomic = GuestMemoryAtomic::new(get_mmap());
 /// for_mutable_mmap.activate(atomic.clone());
-/// let mut another = VirtioDevice::<GuestMemoryAtomic<GuestMemoryMmap>>::new();
+/// let mut another = VirtioDevice::<GuestMemoryAtomic<GuestMemoryMmap<()>>>::new();
 /// another.activate(atomic.clone());
 ///
 /// // atomic can be modified here...
@@ -530,7 +530,7 @@ pub trait GuestMemory {
     /// #
     /// let start_addr1 = GuestAddress(0x0);
     /// let start_addr2 = GuestAddress(0x400);
-    /// let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr1, 1024), (start_addr2, 2048)])
+    /// let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr1, 1024), (start_addr2, 2048)])
     ///     .expect("Could not create guest memory");
     ///
     /// let total_size = gm
@@ -566,7 +566,7 @@ pub trait GuestMemory {
     /// #
     /// let start_addr1 = GuestAddress(0x0);
     /// let start_addr2 = GuestAddress(0x400);
-    /// let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr1, 1024), (start_addr2, 2048)])
+    /// let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr1, 1024), (start_addr2, 2048)])
     ///     .expect("Could not create guest memory");
     ///
     /// let total_size = gm.map_and_fold(0, |(_, region)| region.len() / 1024, |acc, size| acc + size);
@@ -593,7 +593,7 @@ pub trait GuestMemory {
     /// # use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
     /// #
     /// let start_addr = GuestAddress(0x1000);
-    /// let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
+    /// let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
     ///     .expect("Could not create guest memory");
     ///
     /// assert_eq!(start_addr.checked_add(0x3ff), Some(gm.last_addr()));
@@ -705,7 +705,7 @@ pub trait GuestMemory {
     /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
     /// #
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x500)])
+    /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x500)])
     /// #    .expect("Could not create guest memory");
     /// #
     /// let addr = gm
@@ -762,7 +762,7 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     /// # use vm_memory::{Bytes, GuestAddress, mmap::GuestMemoryMmap};
     /// #
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
+    /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
     /// #    .expect("Could not create guest memory");
     /// #
     /// gm.write_slice(&[1, 2, 3, 4, 5], start_addr)
@@ -790,7 +790,7 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     /// # use vm_memory::{Bytes, GuestAddress, mmap::GuestMemoryMmap};
     /// #
     /// let start_addr = GuestAddress(0x1000);
-    /// let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
+    /// let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
     ///     .expect("Could not create guest memory");
     /// let buf = &mut [0u8; 16];
     ///
@@ -821,7 +821,7 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     /// # use std::path::Path;
     /// #
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)])
+    /// # let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
     /// #    .expect("Could not create guest memory");
     /// # let addr = GuestAddress(0x1010);
     /// # let mut file = if cfg!(unix) {
@@ -910,7 +910,7 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// #
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 1024)])
+    /// # let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 1024)])
     /// #    .expect("Could not create guest memory");
     /// # let mut file = if cfg!(unix) {
     /// # use std::fs::OpenOptions;
@@ -975,7 +975,7 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
     /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// #
     /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 1024)])
+    /// # let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 1024)])
     /// #    .expect("Could not create guest memory");
     /// # let mut file = if cfg!(unix) {
     /// # use std::fs::OpenOptions;
