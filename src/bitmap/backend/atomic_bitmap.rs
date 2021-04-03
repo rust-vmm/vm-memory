@@ -137,8 +137,28 @@ impl NewBitmap for AtomicBitmap {
     fn with_len(len: usize) -> Self {
         use std::convert::TryFrom;
 
-        // There's no unsafe potential in calling this function.
-        let page_size = unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) };
+        let page_size;
+
+        #[cfg(unix)]
+        {
+            // There's no unsafe potential in calling this function.
+            page_size = unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) };
+        }
+
+        #[cfg(windows)]
+        {
+            use winapi::um::sysinfoapi::{GetSystemInfo, LPSYSTEM_INFO, SYSTEM_INFO};
+
+            // It's safe to initialize this object from a zeroed memory region.
+            let mut sysinfo: SYSTEM_INFO = unsafe { std::mem::zeroed() };
+
+            // It's safe to call this method as the pointer is based on the address
+            // of the previously initialized `sysinfo` object.
+            unsafe { GetSystemInfo(&mut sysinfo as LPSYSTEM_INFO) };
+
+            page_size = sysinfo.dwPageSize;
+        }
+
         // The `unwrap` is safe to use because the above call should always succeed on the
         // supported platforms, and the size of a page will always fit within a `usize`.
         AtomicBitmap::new(len, usize::try_from(page_size).unwrap())
