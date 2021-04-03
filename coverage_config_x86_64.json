@@ -1,5 +1,5 @@
 {
-  "coverage_score": 85.4,
+  "coverage_score": 87.5,
   "exclude_path": "mmap_windows.rs",
-  "crate_features": "backend-mmap,backend-atomic"
+  "crate_features": "backend-mmap,backend-atomic,backend-bitmap"
 }
