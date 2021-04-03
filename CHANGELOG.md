@@ -1,10 +1,14 @@
 # Changelog
 ## [Unreleased]
 
+### Added
+
+  - [[#140]](https://github.com/rust-vmm/vm-memory/issues/140): Add dirty bitmap tracking abstractions. 
+
 ### Deprecated 
 
   - [[#133]](https://github.com/rust-vmm/vm-memory/issues/8): Deprecate `GuestMemory::with_regions()`,
-   `GuestMemory::with_regions_mut()`, `GuestMemory::map_and_fold()`
+   `GuestMemory::with_regions_mut()`, `GuestMemory::map_and_fold()`.
 
 ## [v0.5.0]
 
