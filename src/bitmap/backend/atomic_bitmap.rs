@@ -84,6 +84,14 @@ impl AtomicBitmap {
         self.size
     }
 
+    /// Atomically get and reset the dirty page bitmap.
+    pub fn get_and_reset(&self) -> Vec<u64> {
+        self.map
+            .iter()
+            .map(|u| u.fetch_and(0, Ordering::SeqCst))
+            .collect()
+    }
+
     /// Reset all bitmap bits to 0.
     pub fn reset(&self) {
         for it in self.map.iter() {
@@ -193,6 +201,16 @@ mod tests {
         assert!(!b.is_addr_set(128));
         assert!(!b.is_addr_set(256));
         assert!(!b.is_addr_set(384));
+
+        b.set_addr_range(128, 129);
+        let v = b.get_and_reset();
+
+        assert!(!b.is_addr_set(128));
+        assert!(!b.is_addr_set(256));
+        assert!(!b.is_addr_set(384));
+
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0], 0b110);
     }
 
     #[test]
