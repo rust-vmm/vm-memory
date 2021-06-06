@@ -74,6 +74,152 @@ impl error::Error for Error {}
 
 pub type Result<T> = result::Result<T, Error>;
 
+/// A factory struct to build `MmapRegion` objects.
+pub struct MmapRegionBuilder<B = ()> {
+    size: usize,
+    prot: i32,
+    flags: i32,
+    file_offset: Option<FileOffset>,
+    raw_ptr: Option<*mut u8>,
+    hugetlbfs: Option<bool>,
+    bitmap: Option<B>,
+}
+
+impl<B: NewBitmap> MmapRegionBuilder<B> {
+    /// Create a new `MmapRegionBuilder`.
+    pub fn new(size: usize) -> Self {
+        MmapRegionBuilder {
+            size,
+            prot: 0,
+            flags: 0,
+            file_offset: None,
+            raw_ptr: None,
+            hugetlbfs: None,
+            bitmap: None,
+        }
+    }
+
+    /// Create the `MmapRegion` object with the specified mmap memory protection flag `prot`.
+    pub fn with_mmap_prot(mut self, prot: i32) -> Self {
+        self.prot = prot;
+        self
+    }
+
+    /// Create the `MmapRegion` object with the specified mmap `flags`.
+    pub fn with_mmap_flags(mut self, flags: i32) -> Self {
+        self.flags = flags;
+        self
+    }
+
+    /// Create the `MmapRegion` object with the specified `file_offset`.
+    pub fn with_file_offset(mut self, file_offset: FileOffset) -> Self {
+        self.file_offset = Some(file_offset);
+        self
+    }
+
+    /// Create the `MmapRegion` object with the specified `hugetlbfs` flag.
+    pub fn with_hugetlbfs(mut self, hugetlbfs: bool) -> Self {
+        self.hugetlbfs = Some(hugetlbfs);
+        self
+    }
+
+    /// Create the `MmapRegion` object with the specified `bitmap`.
+    pub fn with_bitmap(mut self, bitmap: B) -> Self {
+        self.bitmap = Some(bitmap);
+        self
+    }
+
+    /// Create the `MmapRegion` object with pre-mmapped raw pointer.
+    ///
+    /// # Safety
+    ///
+    /// To use this safely, the caller must guarantee that `raw_addr` and `self.size` define a
+    /// region within a valid mapping that is already present in the process.
+    pub unsafe fn with_raw_mmap_pointer(mut self, raw_ptr: *mut u8) -> Self {
+        self.raw_ptr = Some(raw_ptr);
+        self
+    }
+
+    /// Build the `MmapRegion` object.
+    pub fn build(mut self) -> Result<MmapRegion<B>> {
+        if self.raw_ptr.is_some() {
+            return self.build_raw();
+        }
+
+        // Forbid MAP_FIXED, as it doesn't make sense in this context, and is pretty dangerous
+        // in general.
+        if self.flags & libc::MAP_FIXED != 0 {
+            return Err(Error::MapFixed);
+        }
+
+        let (fd, offset) = if let Some(ref f_off) = self.file_offset {
+            check_file_offset(f_off, self.size)?;
+            (f_off.file().as_raw_fd(), f_off.start())
+        } else {
+            (-1, 0)
+        };
+
+        // This is safe because we're not allowing MAP_FIXED, and invalid parameters cannot break
+        // Rust safety guarantees (things may change if we're mapping /dev/mem or some wacky file).
+        let addr = unsafe {
+            libc::mmap(
+                null_mut(),
+                self.size,
+                self.prot,
+                self.flags,
+                fd,
+                offset as libc::off_t,
+            )
+        };
+
+        if addr == libc::MAP_FAILED {
+            return Err(Error::Mmap(io::Error::last_os_error()));
+        }
+
+        let bitmap = self.bitmap.take().unwrap_or_else(|| B::with_len(self.size));
+
+        Ok(MmapRegion {
+            addr: addr as *mut u8,
+            size: self.size,
+            bitmap,
+            file_offset: self.file_offset,
+            prot: self.prot,
+            flags: self.flags,
+            owned: true,
+            hugetlbfs: self.hugetlbfs,
+        })
+    }
+
+    fn build_raw(mut self) -> Result<MmapRegion<B>> {
+        // Safe because this call just returns the page size and doesn't have any side effects.
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+        let addr = self.raw_ptr.clone().unwrap();
+
+        // Check that the pointer to the mapping is page-aligned.
+        if (addr as usize) & (page_size - 1) != 0 {
+            return Err(Error::InvalidPointer);
+        }
+
+        // Check that the size is a multiple of the page size.
+        if self.size & (page_size - 1) != 0 {
+            return Err(Error::InvalidSize);
+        }
+
+        let bitmap = self.bitmap.take().unwrap_or_else(|| B::with_len(self.size));
+
+        Ok(MmapRegion {
+            addr,
+            size: self.size,
+            bitmap,
+            file_offset: self.file_offset,
+            prot: self.prot,
+            flags: self.flags,
+            owned: false,
+            hugetlbfs: self.hugetlbfs,
+        })
+    }
+}
+
 /// Helper structure for working with mmaped memory regions in Unix.
 ///
 /// The structure is used for accessing the guest's physical memory by mmapping it into
@@ -108,12 +254,10 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// # Arguments
     /// * `size` - The size of the memory region in bytes.
     pub fn new(size: usize) -> Result<Self> {
-        Self::build(
-            None,
-            size,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE,
-        )
+        MmapRegionBuilder::new(size)
+            .with_mmap_prot(libc::PROT_READ | libc::PROT_WRITE)
+            .with_mmap_flags(libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE)
+            .build()
     }
 
     /// Creates a shared file mapping of `size` bytes.
@@ -123,12 +267,11 @@ impl<B: NewBitmap> MmapRegion<B> {
     ///                   referred to by `file_offset.file`.
     /// * `size` - The size of the memory region in bytes.
     pub fn from_file(file_offset: FileOffset, size: usize) -> Result<Self> {
-        Self::build(
-            Some(file_offset),
-            size,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_NORESERVE | libc::MAP_SHARED,
-        )
+        MmapRegionBuilder::new(size)
+            .with_file_offset(file_offset)
+            .with_mmap_prot(libc::PROT_READ | libc::PROT_WRITE)
+            .with_mmap_flags(libc::MAP_NORESERVE | libc::MAP_SHARED)
+            .build()
     }
 
     /// Creates a mapping based on the provided arguments.
@@ -147,37 +290,13 @@ impl<B: NewBitmap> MmapRegion<B> {
         prot: i32,
         flags: i32,
     ) -> Result<Self> {
-        // Forbid MAP_FIXED, as it doesn't make sense in this context, and is pretty dangerous
-        // in general.
-        if flags & libc::MAP_FIXED != 0 {
-            return Err(Error::MapFixed);
+        let mut builder = MmapRegionBuilder::new(size)
+            .with_mmap_prot(prot)
+            .with_mmap_flags(flags);
+        if let Some(v) = file_offset {
+            builder = builder.with_file_offset(v);
         }
-
-        let (fd, offset) = if let Some(ref f_off) = file_offset {
-            check_file_offset(f_off, size)?;
-            (f_off.file().as_raw_fd(), f_off.start())
-        } else {
-            (-1, 0)
-        };
-
-        // This is safe because we're not allowing MAP_FIXED, and invalid parameters cannot break
-        // Rust safety guarantees (things may change if we're mapping /dev/mem or some wacky file).
-        let addr = unsafe { libc::mmap(null_mut(), size, prot, flags, fd, offset as libc::off_t) };
-
-        if addr == libc::MAP_FAILED {
-            return Err(Error::Mmap(io::Error::last_os_error()));
-        }
-
-        Ok(Self {
-            addr: addr as *mut u8,
-            size,
-            bitmap: B::with_len(size),
-            file_offset,
-            prot,
-            flags,
-            owned: true,
-            hugetlbfs: None,
-        })
+        builder.build()
     }
 
     /// Creates a `MmapRegion` instance for an externally managed mapping.
@@ -198,29 +317,11 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// To use this safely, the caller must guarantee that `addr` and `size` define a region within
     /// a valid mapping that is already present in the process.
     pub unsafe fn build_raw(addr: *mut u8, size: usize, prot: i32, flags: i32) -> Result<Self> {
-        // Safe because this call just returns the page size and doesn't have any side effects.
-        let page_size = libc::sysconf(libc::_SC_PAGESIZE) as usize;
-
-        // Check that the pointer to the mapping is page-aligned.
-        if (addr as usize) & (page_size - 1) != 0 {
-            return Err(Error::InvalidPointer);
-        }
-
-        // Check that the size is a multiple of the page size.
-        if size & (page_size - 1) != 0 {
-            return Err(Error::InvalidSize);
-        }
-
-        Ok(Self {
-            addr,
-            size,
-            bitmap: B::with_len(size),
-            file_offset: None,
-            prot,
-            flags,
-            owned: false,
-            hugetlbfs: None,
-        })
+        MmapRegionBuilder::new(size)
+            .with_raw_mmap_pointer(addr)
+            .with_mmap_prot(prot)
+            .with_mmap_flags(flags)
+            .build()
     }
 }
 
@@ -510,6 +611,13 @@ mod tests {
         assert_eq!(r.prot(), libc::PROT_READ | libc::PROT_WRITE);
         assert_eq!(r.flags(), libc::MAP_NORESERVE | libc::MAP_PRIVATE);
         assert!(r.owned());
+
+        let builder = MmapRegionBuilder::<()>::new(0x1_0000)
+            .with_hugetlbfs(true)
+            .with_mmap_prot(libc::PROT_READ);
+        assert_eq!(builder.size, 0x1_0000);
+        assert_eq!(builder.hugetlbfs, Some(true));
+        assert_eq!(builder.prot, libc::PROT_READ);
     }
 
     #[test]

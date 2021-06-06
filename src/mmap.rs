@@ -31,7 +31,7 @@ use crate::volatile_memory::{VolatileMemory, VolatileSlice};
 use crate::{AtomicAccess, Bytes};
 
 #[cfg(unix)]
-pub use crate::mmap_unix::{Error as MmapRegionError, MmapRegion};
+pub use crate::mmap_unix::{Error as MmapRegionError, MmapRegion, MmapRegionBuilder};
 
 #[cfg(windows)]
 pub use crate::mmap_windows::MmapRegion;
