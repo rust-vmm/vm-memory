@@ -853,16 +853,16 @@ impl<T: GuestMemory> Bytes<GuestAddress> for T {
                 // record the dirty status of the written range below.
                 let start = caddr.raw_value() as usize;
                 let end = start + len;
-                let result = loop {
+                let bytes_read = loop {
                     match src.read(&mut dst[start..end]) {
-                        Ok(n) => break Ok(n),
+                        Ok(n) => break n,
                         Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                        Err(e) => break Err(Error::IOError(e)),
+                        Err(e) => return Err(Error::IOError(e)),
                     }
                 };
 
-                region.bitmap().mark_dirty(start, len);
-                result
+                region.bitmap().mark_dirty(start, bytes_read);
+                Ok(bytes_read)
             } else {
                 let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
                 let mut buf = vec![0u8; len].into_boxed_slice();
