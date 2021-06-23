@@ -813,8 +813,8 @@ mod tests {
     #[test]
     fn test_overlapping_memory_regions() {
         let regions_summary = [
-            (GuestAddress(0), 100 as usize),
-            (GuestAddress(99), 100 as usize),
+            (GuestAddress(0), 100_usize),
+            (GuestAddress(99), 100_usize),
         ];
 
         assert_eq!(
@@ -859,8 +859,8 @@ mod tests {
     #[test]
     fn test_unsorted_memory_regions() {
         let regions_summary = [
-            (GuestAddress(100), 100 as usize),
-            (GuestAddress(0), 100 as usize),
+            (GuestAddress(100), 100_usize),
+            (GuestAddress(0), 100_usize),
         ];
 
         assert_eq!(
@@ -905,8 +905,8 @@ mod tests {
     #[test]
     fn test_valid_memory_regions() {
         let regions_summary = [
-            (GuestAddress(0), 100 as usize),
-            (GuestAddress(100), 100 as usize),
+            (GuestAddress(0), 100_usize),
+            (GuestAddress(100), 100_usize),
         ];
 
         let guest_mem = GuestMemoryMmap::new();
