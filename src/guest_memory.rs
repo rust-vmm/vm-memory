@@ -1070,7 +1070,7 @@ mod tests {
         let offset = GuestAddress(0x30);
         let count: usize = 0x20;
         assert_eq!(
-            0x20 as usize,
+            0x20_usize,
             mem.read_from(offset, &mut Cursor::new(&image), count)
                 .unwrap()
         );
