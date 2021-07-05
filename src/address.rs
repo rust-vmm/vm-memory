@@ -90,7 +90,11 @@ pub trait Address:
 
     /// Computes the offset from this address to the given base address.
     ///
-    /// Results in undefined behavior when an underflow occurs.
+    /// In the event of overflow, follows standard Rust behavior, i.e. panic in debug builds,
+    /// silently wrap in release builds.
+    ///
+    /// Note that, unlike the `unchecked_*` methods in std, this method never invokes undefined
+    /// behavior.
     /// # Examples
     ///
     /// ```
@@ -131,7 +135,11 @@ pub trait Address:
 
     /// Computes `self + offset`.
     ///
-    /// Results in undefined behavior when an overflow occurs.
+    /// In the event of overflow, follows standard Rust behavior, i.e. panic in debug builds,
+    /// silently wrap in release builds.
+    ///
+    /// Note that, unlike the `unchecked_*` methods in std, this method never invokes undefined
+    /// behavior..
     fn unchecked_add(&self, offset: Self::V) -> Self;
 
     /// Subtracts two addresses, checking for underflow. If underflow happens, `None` is returned.
@@ -146,7 +154,11 @@ pub trait Address:
 
     /// Computes `self - other`.
     ///
-    /// Results in undefined behavior when an underflow occurs.
+    /// In the event of underflow, follows standard Rust behavior, i.e. panic in debug builds,
+    /// silently wrap in release builds.
+    ///
+    /// Note that, unlike the `unchecked_*` methods in std, this method never invokes undefined
+    /// behavior.
     fn unchecked_sub(&self, other: Self::V) -> Self;
 }
 
