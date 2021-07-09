@@ -25,7 +25,7 @@ pub trait WithBitmapSlice<'a> {
 /// Trait used to represent that a `BitmapSlice` is a `Bitmap` itself, but also satisfies the
 /// restriction that slices created from it have the same type as `Self`.
 pub trait BitmapSlice:
-    Bitmap + Clone + Copy + Debug + for<'a> WithBitmapSlice<'a, S = Self>
+    Bitmap + Clone + Copy + Debug + Default + for<'a> WithBitmapSlice<'a, S = Self>
 {
 }
 

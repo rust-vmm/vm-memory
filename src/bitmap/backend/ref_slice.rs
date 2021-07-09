@@ -29,6 +29,12 @@ impl<'a, B: Bitmap> WithBitmapSlice<'a> for RefSlice<'_, B> {
 
 impl<B: Bitmap> BitmapSlice for RefSlice<'_, B> {}
 
+impl<B: Bitmap> Default for RefSlice<'_, B> {
+    fn default() -> Self {
+        panic!("default() method is not supported for RefSlice");
+    }
+}
+
 impl<'a, B: Bitmap> Bitmap for RefSlice<'a, B> {
     /// Mark the memory range specified by the given `offset` (relative to the base offset of
     /// the slice) and `len` as dirtied.
