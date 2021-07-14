@@ -1,6 +1,8 @@
 # Changelog
 ## [Unreleased]
 
+## [v0.6.0]
+
 ### Added
 
   - [[#149]](https://github.com/rust-vmm/vm-memory/issues/149): Implement builder for MmapRegion.
