@@ -37,9 +37,9 @@ fn benchmark_volatile_copy_to_volatile_slice(c: &mut Criterion) {
     let a_slice = a_ref.get_slice(0, a_ref.len()).unwrap();
     let mut d = [0u8; 10240];
     let d_ref = &mut d[..];
-    let d_slice = d_ref.get_slice(0, d_ref.len()).unwrap();
+    let mut d_slice = d_ref.get_slice(0, d_ref.len()).unwrap();
 
     c.bench_function("VolatileSlice::copy_to_volatile_slice", |b| {
-        b.iter(|| black_box(a_slice).copy_to_volatile_slice(d_slice))
+        b.iter(|| black_box(a_slice).copy_to_volatile_slice(&mut d_slice))
     });
 }

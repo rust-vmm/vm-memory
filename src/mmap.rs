@@ -22,7 +22,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::address::Address;
-use crate::bitmap::{Bitmap, BS};
+use crate::bitmap::Bitmap;
 use crate::guest_memory::{
     self, FileOffset, GuestAddress, GuestMemory, GuestMemoryIterator, GuestMemoryRegion,
     GuestUsize, MemoryRegionAddress,
@@ -476,7 +476,7 @@ impl<B: Bitmap> GuestMemoryRegion for GuestRegionMmap<B> {
         &self,
         offset: MemoryRegionAddress,
         count: usize,
-    ) -> guest_memory::Result<VolatileSlice<BS<B>>> {
+    ) -> guest_memory::Result<VolatileSlice<Self::B>> {
         let slice = self.mapping.get_slice(offset.raw_value() as usize, count)?;
         Ok(slice)
     }

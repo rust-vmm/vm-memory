@@ -12,7 +12,7 @@ use libc::{c_void, size_t};
 
 use winapi::um::errhandlingapi::GetLastError;
 
-use crate::bitmap::{Bitmap, BS};
+use crate::bitmap::Bitmap;
 use crate::guest_memory::FileOffset;
 use crate::mmap::{AsSlice, NewBitmap};
 use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
@@ -216,7 +216,7 @@ impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
         &self,
         offset: usize,
         count: usize,
-    ) -> volatile_memory::Result<VolatileSlice<BS<Self::B>>> {
+    ) -> volatile_memory::Result<VolatileSlice<Self::B>> {
         let end = compute_offset(offset, count)?;
         if end > self.size {
             return Err(volatile_memory::Error::OutOfBounds { addr: end });

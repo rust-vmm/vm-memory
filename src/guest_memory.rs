@@ -51,7 +51,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::address::{Address, AddressValue};
-use crate::bitmap::{Bitmap, BS, MS};
+use crate::bitmap::{Bitmap, MS};
 use crate::bytes::{AtomicAccess, Bytes};
 use crate::volatile_memory::{self, VolatileSlice};
 
@@ -274,7 +274,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
         &self,
         offset: MemoryRegionAddress,
         count: usize,
-    ) -> Result<VolatileSlice<BS<Self::B>>> {
+    ) -> Result<VolatileSlice<Self::B>> {
         Err(Error::HostAddressNotAvailable)
     }
 
@@ -303,7 +303,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// assert_eq!(r.load(), v);
     /// # }
     /// ```
-    fn as_volatile_slice(&self) -> Result<VolatileSlice<BS<Self::B>>> {
+    fn as_volatile_slice(&self) -> Result<VolatileSlice<Self::B>> {
         self.get_slice(MemoryRegionAddress(0), self.len() as usize)
     }
 
