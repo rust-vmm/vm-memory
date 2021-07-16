@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
 mod atomic_bitmap;
-mod ref_slice;
+mod slice;
 
 pub use atomic_bitmap::AtomicBitmap;
-pub use ref_slice::RefSlice;
+pub use slice::RefSlice;
