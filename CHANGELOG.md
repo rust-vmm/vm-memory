@@ -3,6 +3,8 @@
 
 ### Added
 
+  - [[#160]](https://github.com/rust-vmm/vm-memory/pull/160): Add `ArcRef` and `AtomicBitmapArc` bitmap
+    backend implementations.
   - [[#149]](https://github.com/rust-vmm/vm-memory/issues/149): Implement builder for MmapRegion.
   - [[#140]](https://github.com/rust-vmm/vm-memory/issues/140): Add dirty bitmap tracking abstractions. 
 
