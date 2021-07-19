@@ -5,6 +5,7 @@
 
 use std::fmt::{self, Debug};
 use std::ops::Deref;
+use std::sync::Arc;
 
 use crate::bitmap::{Bitmap, BitmapSlice, WithBitmapSlice};
 
@@ -89,6 +90,9 @@ impl<B: Default> Default for BaseSlice<B> {
 /// A `BitmapSlice` implementation that wraps a reference to a `Bitmap` object.
 pub type RefSlice<'a, B> = BaseSlice<&'a B>;
 
+/// A `BitmapSlice` implementation that uses an `Arc` handle to a `Bitmap` object.
+pub type ArcSlice<B> = BaseSlice<Arc<B>>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,7 +101,7 @@ mod tests {
     use crate::bitmap::AtomicBitmap;
 
     #[test]
-    fn test_ref_slice() {
+    fn test_slice() {
         let bitmap_size = 0x1_0000;
         let dirty_offset = 0x1000;
         let dirty_len = 0x100;

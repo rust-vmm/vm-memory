@@ -14,7 +14,7 @@ use std::fmt::Debug;
 use crate::{GuestMemory, GuestMemoryRegion};
 
 #[cfg(any(test, feature = "backend-bitmap"))]
-pub use backend::{AtomicBitmap, RefSlice};
+pub use backend::{ArcSlice, AtomicBitmap, RefSlice};
 
 /// Trait implemented by types that support creating `BitmapSlice` objects.
 pub trait WithBitmapSlice<'a> {
