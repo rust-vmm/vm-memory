@@ -24,10 +24,7 @@ pub trait WithBitmapSlice<'a> {
 
 /// Trait used to represent that a `BitmapSlice` is a `Bitmap` itself, but also satisfies the
 /// restriction that slices created from it have the same type as `Self`.
-pub trait BitmapSlice:
-    Bitmap + Clone + Copy + Debug + for<'a> WithBitmapSlice<'a, S = Self>
-{
-}
+pub trait BitmapSlice: Bitmap + Clone + Debug + for<'a> WithBitmapSlice<'a, S = Self> {}
 
 /// Common bitmap operations. Using Higher-Rank Trait Bounds (HRTBs) to effectively define
 /// an associated type that has a lifetime parameter, without tagging the `Bitmap` trait with

@@ -27,7 +27,7 @@ impl<B> BaseSlice<B> {
 
 impl<'a, B> WithBitmapSlice<'a> for BaseSlice<B>
 where
-    B: Copy + Deref,
+    B: Clone + Deref,
     B::Target: Bitmap,
 {
     type S = Self;
@@ -35,14 +35,14 @@ where
 
 impl<B> BitmapSlice for BaseSlice<B>
 where
-    B: Copy + Deref,
+    B: Clone + Deref,
     B::Target: Bitmap,
 {
 }
 
 impl<B> Bitmap for BaseSlice<B>
 where
-    B: Copy + Deref,
+    B: Clone + Deref,
     B::Target: Bitmap,
 {
     /// Mark the memory range specified by the given `offset` (relative to the base offset of
