@@ -345,11 +345,11 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
     /// assert_eq!(8, start.len());
     /// assert_eq!(24, end.len());
     /// ```
-    pub fn split_at(self, mid: usize) -> Result<(Self, Self)> {
+    pub fn split_at(&self, mid: usize) -> Result<(Self, Self)> {
         let end = self.offset(mid)?;
         let start = unsafe {
             // safe because self.offset() already checked the bounds
-            VolatileSlice::with_bitmap(self.addr, mid, self.bitmap)
+            VolatileSlice::with_bitmap(self.addr, mid, self.bitmap.clone())
         };
 
         Ok((start, end))
@@ -360,7 +360,7 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
     ///
     /// The returned subslice is a copy of this slice with the address increased by `offset` bytes
     /// and the size set to `count` bytes.
-    pub fn subslice(self, offset: usize, count: usize) -> Result<Self> {
+    pub fn subslice(&self, offset: usize, count: usize) -> Result<Self> {
         let mem_end = compute_offset(offset, count)?;
         if mem_end > self.len() {
             return Err(Error::OutOfBounds { addr: mem_end });
@@ -381,7 +381,7 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
     ///
     /// The returned subslice is a copy of this slice with the address increased by `count` bytes
     /// and the size reduced by `count` bytes.
-    pub fn offset(self, count: usize) -> Result<VolatileSlice<'a, B>> {
+    pub fn offset(&self, count: usize) -> Result<VolatileSlice<'a, B>> {
         let new_addr = (self.addr as usize)
             .checked_add(count)
             .ok_or(Error::Overflow {
@@ -953,7 +953,7 @@ where
     }
 
     /// Returns a pointer to the underlying memory.
-    pub fn as_ptr(self) -> *mut u8 {
+    pub fn as_ptr(&self) -> *mut u8 {
         self.addr as *mut u8
     }
 
@@ -968,7 +968,7 @@ where
     /// let v_ref = unsafe { VolatileRef::<u32>::new(0 as *mut _) };
     /// assert_eq!(v_ref.len(), size_of::<u32>() as usize);
     /// ```
-    pub fn len(self) -> usize {
+    pub fn len(&self) -> usize {
         size_of::<T>()
     }
 
@@ -979,14 +979,14 @@ where
 
     /// Does a volatile write of the value `v` to the address of this ref.
     #[inline(always)]
-    pub fn store(self, v: T) {
+    pub fn store(&self, v: T) {
         unsafe { write_volatile(self.addr, Packed::<T>(v)) };
         self.bitmap.mark_dirty(0, size_of::<T>())
     }
 
     /// Does a volatile read of the value at the address of this ref.
     #[inline(always)]
-    pub fn load(self) -> T {
+    pub fn load(&self) -> T {
         // For the purposes of demonstrating why read_volatile is necessary, try replacing the code
         // in this function with the commented code below and running `cargo test --release`.
         // unsafe { *(self.addr as *const T) }
@@ -995,8 +995,10 @@ where
 
     /// Converts this to a [`VolatileSlice`](struct.VolatileSlice.html) with the same size and
     /// address.
-    pub fn to_slice(self) -> VolatileSlice<'a, B> {
-        unsafe { VolatileSlice::with_bitmap(self.addr as *mut u8, size_of::<T>(), self.bitmap) }
+    pub fn to_slice(&self) -> VolatileSlice<'a, B> {
+        unsafe {
+            VolatileSlice::with_bitmap(self.addr as *mut u8, size_of::<T>(), self.bitmap.clone())
+        }
     }
 }
 
@@ -1122,7 +1124,11 @@ where
     /// Converts this to a `VolatileSlice` with the same size and address.
     pub fn to_slice(&self) -> VolatileSlice<'a, B> {
         unsafe {
-            VolatileSlice::with_bitmap(self.addr, self.nelem * self.element_size(), self.bitmap)
+            VolatileSlice::with_bitmap(
+                self.addr,
+                self.nelem * self.element_size(),
+                self.bitmap.clone(),
+            )
         }
     }
 
