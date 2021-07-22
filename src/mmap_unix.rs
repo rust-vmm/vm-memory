@@ -17,7 +17,7 @@ use std::os::unix::io::AsRawFd;
 use std::ptr::null_mut;
 use std::result;
 
-use crate::bitmap::{Bitmap, BS};
+use crate::bitmap::Bitmap;
 use crate::guest_memory::FileOffset;
 use crate::mmap::{check_file_offset, AsSlice, NewBitmap};
 use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
@@ -429,7 +429,7 @@ impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
         &self,
         offset: usize,
         count: usize,
-    ) -> volatile_memory::Result<VolatileSlice<BS<B>>> {
+    ) -> volatile_memory::Result<VolatileSlice<Self::B>> {
         let end = compute_offset(offset, count)?;
         if end > self.size {
             return Err(volatile_memory::Error::OutOfBounds { addr: end });

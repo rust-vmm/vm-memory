@@ -4,81 +4,25 @@
 //! Bitmap backend implementation based on atomic integers.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
-use crate::bitmap::{Bitmap, RefSlice, WithBitmapSlice};
-
+use crate::bitmap::Bitmap;
 #[cfg(feature = "backend-mmap")]
 use crate::mmap::NewBitmap;
 
-/// `AtomicBitmap` implements a simple bit map on the page level with test and set operations.
+/// Struct to maintain state for dirty page tracking by using atomic integers.
+///
+/// `AtomicBitmapState` implements a simple bit map on the page level with test and set operations.
 /// It is page-size aware, so it converts addresses to page numbers before setting or clearing
 /// the bits.
 #[derive(Debug)]
-pub struct AtomicBitmap {
+pub struct AtomicBitmapState {
     map: Vec<AtomicU64>,
     size: usize,
     page_size: usize,
 }
 
-#[allow(clippy::len_without_is_empty)]
-impl AtomicBitmap {
-    /// Create a new bitmap of `byte_size`, with one bit per page. This is effectively
-    /// rounded up, and we get a new vector of the next multiple of 64 bigger than `bit_size`.
-    pub fn new(byte_size: usize, page_size: usize) -> Self {
-        let mut num_pages = byte_size / page_size;
-        if byte_size % page_size > 0 {
-            num_pages += 1;
-        }
-
-        // Adding one entry element more just in case `num_pages` is not a multiple of `64`.
-        let map_size = num_pages / 64 + 1;
-        let map: Vec<AtomicU64> = (0..map_size).map(|_| AtomicU64::new(0)).collect();
-
-        AtomicBitmap {
-            map,
-            size: num_pages,
-            page_size,
-        }
-    }
-
-    /// Is bit `n` set? Bits outside the range of the bitmap are always unset.
-    pub fn is_bit_set(&self, index: usize) -> bool {
-        if index < self.size {
-            (self.map[index >> 6].load(Ordering::Acquire) & (1 << (index & 63))) != 0
-        } else {
-            // Out-of-range bits are always unset.
-            false
-        }
-    }
-
-    /// Is the bit corresponding to address `addr` set?
-    pub fn is_addr_set(&self, addr: usize) -> bool {
-        self.is_bit_set(addr / self.page_size)
-    }
-
-    /// Set a range of `len` bytes starting at `start_addr`. The first bit set in the bitmap
-    /// is for the page corresponding to `start_addr`, and the last bit that we set corresponds
-    /// to address `start_addr + len - 1`.
-    pub fn set_addr_range(&self, start_addr: usize, len: usize) {
-        // Return early in the unlikely event that `len == 0` so the `len - 1` computation
-        // below does not underflow.
-        if len == 0 {
-            return;
-        }
-
-        let first_bit = start_addr / self.page_size;
-        // Handle input ranges where `start_addr + len - 1` would otherwise overflow an `usize`
-        // by ignoring pages at invalid addresses.
-        let last_bit = start_addr.saturating_add(len - 1) / self.page_size;
-        for n in first_bit..=last_bit {
-            if n >= self.size {
-                // Attempts to set bits beyond the end of the bitmap are simply ignored.
-                break;
-            }
-            self.map[n >> 6].fetch_or(1 << (n & 63), Ordering::SeqCst);
-        }
-    }
-
+impl AtomicBitmapState {
     /// Get the length of the bitmap in bits (i.e. in how many pages it can represent).
     pub fn len(&self) -> usize {
         self.size
@@ -98,9 +42,68 @@ impl AtomicBitmap {
             it.store(0, Ordering::Release);
         }
     }
+
+    /// Create a new bitmap state object of `byte_size`, with one bit per page.
+    ///
+    /// This is effectively rounded up, and we get a new vector of the next multiple of 64 bigger
+    /// than `bit_size`.
+    fn new(byte_size: usize, page_size: usize) -> Self {
+        let mut num_pages = byte_size / page_size;
+        if byte_size % page_size > 0 {
+            num_pages += 1;
+        }
+
+        // Adding one entry element more just in case `num_pages` is not a multiple of `64`.
+        let map_size = num_pages / 64 + 1;
+        let map: Vec<AtomicU64> = (0..map_size).map(|_| AtomicU64::new(0)).collect();
+
+        AtomicBitmapState {
+            map,
+            size: num_pages,
+            page_size,
+        }
+    }
+
+    /// Set a range of `len` bytes starting at `start_addr`. The first bit set in the bitmap
+    /// is for the page corresponding to `start_addr`, and the last bit that we set corresponds
+    /// to address `start_addr + len - 1`.
+    fn set_addr_range(&self, start_addr: usize, len: usize) {
+        // Return early in the unlikely event that `len == 0` so the `len - 1` computation
+        // below does not underflow.
+        if len == 0 {
+            return;
+        }
+
+        let first_bit = start_addr / self.page_size;
+        // Handle input ranges where `start_addr + len - 1` would otherwise overflow an `usize`
+        // by ignoring pages at invalid addresses.
+        let last_bit = start_addr.saturating_add(len - 1) / self.page_size;
+        for n in first_bit..=last_bit {
+            if n >= self.size {
+                // Attempts to set bits beyond the end of the bitmap are simply ignored.
+                break;
+            }
+            self.map[n >> 6].fetch_or(1 << (n & 63), Ordering::SeqCst);
+        }
+    }
+
+    /// Is bit `n` set? Bits outside the range of the bitmap are always unset.
+    fn is_bit_set(&self, index: usize) -> bool {
+        if index < self.size {
+            (self.map[index >> 6].load(Ordering::Acquire) & (1 << (index & 63))) != 0
+        } else {
+            // Out-of-range bits are always unset.
+            false
+        }
+    }
+
+    /// Is the bit corresponding to address `addr` set?
+    fn is_addr_set(&self, addr: usize) -> bool {
+        self.is_bit_set(addr / self.page_size)
+    }
 }
 
-impl Clone for AtomicBitmap {
+impl Clone for AtomicBitmapState {
     fn clone(&self) -> Self {
         let map = self
             .map
@@ -108,7 +111,7 @@ impl Clone for AtomicBitmap {
             .map(|i| i.load(Ordering::Acquire))
             .map(AtomicU64::new)
             .collect();
-        AtomicBitmap {
+        AtomicBitmapState {
             map,
             size: self.size,
             page_size: self.page_size,
@@ -116,21 +119,57 @@ impl Clone for AtomicBitmap {
     }
 }
 
-impl<'a> WithBitmapSlice<'a> for AtomicBitmap {
-    type S = RefSlice<'a, Self>;
+/// Implement dirty page tracking by using atomic integers.
+///
+/// `AtomicBitmap` implements a simple bit map on the page level with test and set operations.
+/// It is page-size aware, so it converts addresses to page numbers before setting or clearing
+/// the bits. It also supports `slice_at()` operation by sharing the underlying `AtomicBitmapState`
+/// objecct.
+#[derive(Debug, Clone)]
+pub struct AtomicBitmap {
+    state: Arc<AtomicBitmapState>,
+    base: usize,
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl AtomicBitmap {
+    /// Create a new bitmap of `byte_size`, with one bit per page.
+    ///
+    /// This is effectively rounded up, and we get a new vector of the next multiple of 64 bigger
+    /// than `bit_size`.
+    pub fn new(byte_size: usize, page_size: usize) -> Self {
+        AtomicBitmap {
+            state: Arc::new(AtomicBitmapState::new(byte_size, page_size)),
+            base: 0,
+        }
+    }
+
+    /// Get the length of the bitmap in bits (i.e. in how many pages it can represent).
+    pub fn len(&self) -> usize {
+        self.state.len().saturating_sub(self.base)
+    }
+
+    /// Get the underlying dirty tracking state object.
+    pub fn state(&self) -> &Arc<AtomicBitmapState> {
+        &self.state
+    }
 }
 
 impl Bitmap for AtomicBitmap {
     fn mark_dirty(&self, offset: usize, len: usize) {
-        self.set_addr_range(offset, len)
+        self.state
+            .set_addr_range(offset.saturating_add(self.base), len)
     }
 
     fn dirty_at(&self, offset: usize) -> bool {
-        self.is_addr_set(offset)
+        self.state.is_addr_set(offset.saturating_add(self.base))
     }
 
-    fn slice_at(&self, offset: usize) -> <Self as WithBitmapSlice>::S {
-        RefSlice::new(self, offset)
+    fn slice_at(&self, base: usize) -> Self {
+        Self {
+            state: self.state.clone(),
+            base: self.base.saturating_add(base),
+        }
     }
 }
 
@@ -182,10 +221,10 @@ mod tests {
     #[test]
     fn test_bitmap_basic() {
         // Test that bitmap size is properly rounded up.
-        let a = AtomicBitmap::new(1025, 128);
+        let a = AtomicBitmapState::new(1025, 128);
         assert_eq!(a.len(), 9);
 
-        let b = AtomicBitmap::new(1024, 128);
+        let b = AtomicBitmapState::new(1024, 128);
         assert_eq!(b.len(), 8);
         b.set_addr_range(128, 129);
         assert!(!b.is_addr_set(0));
@@ -215,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_bitmap_out_of_range() {
-        let b = AtomicBitmap::new(1024, 1);
+        let b = AtomicBitmapState::new(1024, 1);
         // Set a partial range that goes beyond the end of the bitmap
         b.set_addr_range(768, 512);
         assert!(b.is_addr_set(768));
@@ -228,5 +267,29 @@ mod tests {
     fn test_bitmap_impl() {
         let b = AtomicBitmap::new(0x2000, 128);
         test_bitmap(&b);
+    }
+
+    #[test]
+    fn test_bitmap_slice() {
+        let a = AtomicBitmap::new(1024, 1);
+        let b = a.slice_at(512);
+
+        a.mark_dirty(0, 1);
+        a.mark_dirty(513, 2);
+        a.mark_dirty(1023, 1);
+
+        assert_eq!(a.len(), 1024);
+        assert_eq!(b.len(), 512);
+        assert_eq!(a.dirty_at(0), true);
+        assert_eq!(a.dirty_at(1), false);
+        assert_eq!(a.dirty_at(513), true);
+        assert_eq!(a.dirty_at(514), true);
+        assert_eq!(a.dirty_at(1023), true);
+        assert_eq!(a.dirty_at(1024), false);
+        assert_eq!(b.dirty_at(0), false);
+        assert_eq!(b.dirty_at(1), true);
+        assert_eq!(b.dirty_at(2), true);
+        assert_eq!(b.dirty_at(511), true);
+        assert_eq!(b.dirty_at(512), false);
     }
 }

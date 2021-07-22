@@ -6,59 +6,29 @@
 //! `GuestMemoryRegion` object, and the resulting bitmaps can then be aggregated to build the
 //! global view for an entire `GuestMemory` object.
 
-#[cfg(any(test, feature = "backend-bitmap"))]
-mod backend;
-
 use std::fmt::Debug;
 
 use crate::{GuestMemory, GuestMemoryRegion};
 
 #[cfg(any(test, feature = "backend-bitmap"))]
-pub use backend::{AtomicBitmap, RefSlice};
+mod backend;
+#[cfg(any(test, feature = "backend-bitmap"))]
+pub use backend::AtomicBitmap;
 
-/// Trait implemented by types that support creating `BitmapSlice` objects.
-pub trait WithBitmapSlice<'a> {
-    /// Type of the bitmap slice.
-    type S: BitmapSlice;
-}
-
-/// Trait used to represent that a `BitmapSlice` is a `Bitmap` itself, but also satisfies the
-/// restriction that slices created from it have the same type as `Self`.
-pub trait BitmapSlice:
-    Bitmap + Clone + Copy + Debug + for<'a> WithBitmapSlice<'a, S = Self>
-{
-}
-
-/// Common bitmap operations. Using Higher-Rank Trait Bounds (HRTBs) to effectively define
-/// an associated type that has a lifetime parameter, without tagging the `Bitmap` trait with
-/// a lifetime as well.
-///
-/// Using an associated type allows implementing the `Bitmap` and `BitmapSlice` functionality
-/// as a zero-cost abstraction when providing trivial implementations such as the one
-/// defined for `()`.
-// These methods represent the core functionality that's required by `vm-memory` abstractions
-// to implement generic tracking logic, as well as tests that can be reused by different backends.
-pub trait Bitmap: for<'a> WithBitmapSlice<'a> {
+/// Trait to support dirty page tracking for guest memory by using bitmap.
+pub trait Bitmap: Debug + Default + Clone {
     /// Mark the memory range specified by the given `offset` and `len` as dirtied.
     fn mark_dirty(&self, offset: usize, len: usize);
 
     /// Check whether the specified `offset` is marked as dirty.
     fn dirty_at(&self, offset: usize) -> bool;
 
-    /// Return a `<Self as WithBitmapSlice>::S` slice of the current bitmap, starting at
-    /// the specified `offset`.
-    fn slice_at(&self, offset: usize) -> <Self as WithBitmapSlice>::S;
+    /// Return a slice of the current bitmap, starting at the specified `base`.
+    fn slice_at(&self, base: usize) -> Self;
 }
 
 /// A no-op `Bitmap` implementation that can be provided for backends that do not actually
 /// require the tracking functionality.
-
-impl<'a> WithBitmapSlice<'a> for () {
-    type S = Self;
-}
-
-impl BitmapSlice for () {}
-
 impl Bitmap for () {
     fn mark_dirty(&self, _offset: usize, _len: usize) {}
 
@@ -66,20 +36,10 @@ impl Bitmap for () {
         false
     }
 
-    fn slice_at(&self, _offset: usize) -> Self {}
+    fn slice_at(&self, _base: usize) -> Self {}
 }
 
-/// A `Bitmap` and `BitmapSlice` implementation for `Option<B>`.
-
-impl<'a, B> WithBitmapSlice<'a> for Option<B>
-where
-    B: WithBitmapSlice<'a>,
-{
-    type S = Option<B::S>;
-}
-
-impl<B: BitmapSlice> BitmapSlice for Option<B> {}
-
+/// A `Bitmap` implementation for `Option<B>`.
 impl<B: Bitmap> Bitmap for Option<B> {
     fn mark_dirty(&self, offset: usize, len: usize) {
         if let Some(inner) = self {
@@ -94,21 +54,17 @@ impl<B: Bitmap> Bitmap for Option<B> {
         false
     }
 
-    fn slice_at(&self, offset: usize) -> Option<<B as WithBitmapSlice>::S> {
+    fn slice_at(&self, base: usize) -> Self {
         if let Some(inner) = self {
-            return Some(inner.slice_at(offset));
+            return Some(inner.slice_at(base));
         }
         None
     }
 }
 
-/// Helper type alias for referring to the `BitmapSlice` concrete type associated with
-/// an object `B: WithBitmapSlice<'a>`.
-pub type BS<'a, B> = <B as WithBitmapSlice<'a>>::S;
-
-/// Helper type alias for referring to the `BitmapSlice` concrete type associated with
-/// the memory regions of an object `M: GuestMemory`.
-pub type MS<'a, M> = BS<'a, <<M as GuestMemory>::R as GuestMemoryRegion>::B>;
+/// Helper type alias for referring to the `Bitmap` concrete type associated with the memory regions
+/// of an object `M: GuestMemory`.
+pub type MS<M> = <<M as GuestMemory>::R as GuestMemoryRegion>::B;
 
 #[cfg(test)]
 pub(crate) mod tests {
