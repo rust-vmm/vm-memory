@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "test_name": "build-gnu-mmap",
+      "command": "cargo build --release --features=backend-mmap",
+      "platform": ["x86_64", "aarch64"]
+    },
+    {
+      "test_name": "build-musl-mmap",
+      "command": "cargo build --release --features=backend-mmap --target {target_platform}-unknown-linux-musl",
+      "platform": ["x86_64", "aarch64"]
+    }
+  ]
+}
