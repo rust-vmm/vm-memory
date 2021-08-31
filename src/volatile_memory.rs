@@ -952,7 +952,9 @@ where
         }
     }
 
-    /// Returns a pointer to the underlying memory.
+    /// Returns a pointer to the underlying memory. Mutable accesses performed
+    /// using the resulting pointer are not automatically accounted for by the dirty bitmap
+    /// tracking functionality.
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr as *mut u8
     }
