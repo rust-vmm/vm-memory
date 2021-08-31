@@ -1133,6 +1133,10 @@ where
     }
 
     /// Does a volatile read of the element at `index`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is less than the number of elements of the array to which `&self` points.
     pub fn ref_at(&self, index: usize) -> VolatileRef<'a, T, B> {
         assert!(index < self.nelem);
         // Safe because the memory has the same lifetime and points to a subset of the
