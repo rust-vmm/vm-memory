@@ -729,7 +729,7 @@ pub trait GuestMemory {
     }
 }
 
-impl<T: GuestMemory> Bytes<GuestAddress> for T {
+impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     type E = Error;
 
     fn write(&self, buf: &[u8], addr: GuestAddress) -> Result<usize> {
