@@ -29,8 +29,6 @@ pub enum Error {
     InvalidOffsetLength,
     /// The specified pointer to the mapping is not page-aligned.
     InvalidPointer,
-    /// The specified size for the region is not a multiple of the page size.
-    InvalidSize,
     /// The forbidden `MAP_FIXED` flag was specified.
     MapFixed,
     /// Mappings using the same fd overlap in terms of file offset and length.
@@ -51,10 +49,6 @@ impl fmt::Display for Error {
             Error::InvalidPointer => write!(
                 f,
                 "The specified pointer to the mapping is not page-aligned",
-            ),
-            Error::InvalidSize => write!(
-                f,
-                "The specified size for the region is not a multiple of the page size",
             ),
             Error::MapFixed => write!(f, "The forbidden `MAP_FIXED` flag was specified"),
             Error::MappingOverlap => write!(
@@ -204,11 +198,6 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
             return Err(Error::InvalidPointer);
         }
 
-        // Check that the size is a multiple of the page size.
-        if self.size & (page_size - 1) != 0 {
-            return Err(Error::InvalidSize);
-        }
-
         Ok(MmapRegion {
             addr,
             size: self.size,
@@ -309,7 +298,7 @@ impl<B: NewBitmap> MmapRegion<B> {
     ///
     /// # Arguments
     /// * `addr` - Pointer to the start of the mapping. Must be page-aligned.
-    /// * `size` - The size of the memory region in bytes. Must be a multiple of the page size.
+    /// * `size` - The size of the memory region in bytes.
     /// * `prot` - Must correspond to the memory protection attributes of the existing mapping.
     /// * `flags` - Must correspond to the flags that were passed to `mmap` for the creation of
     ///             the existing mapping.
@@ -635,9 +624,6 @@ mod tests {
 
         let r = unsafe { MmapRegion::build_raw((addr + 1) as *mut u8, size, prot, flags) };
         assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidPointer");
-
-        let r = unsafe { MmapRegion::build_raw(addr as *mut u8, size + 1, prot, flags) };
-        assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidSize");
 
         let r = unsafe { MmapRegion::build_raw(addr as *mut u8, size, prot, flags).unwrap() };
 
