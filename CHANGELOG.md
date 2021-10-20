@@ -1,6 +1,16 @@
 # Changelog
 ## [Unreleased]
 
+## [v0.7.0]
+
+### Changed
+
+- [[#176]](https://github.com/rust-vmm/vm-memory/pull/176): Relax the trait
+  bounds of `Bytes` auto impl for `T: GuestMemory`
+- [[#178]](https://github.com/rust-vmm/vm-memory/pull/178):
+  `MmapRegion::build_raw` no longer requires that the length of the region is a
+  multiple of the page size.
+
 ## [v0.6.0]
 
 ### Added
