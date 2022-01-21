@@ -157,7 +157,7 @@ impl FileOffset {
 
     /// Returns a reference to the inner `File` object.
     pub fn file(&self) -> &File {
-        &self.file.as_ref()
+        self.file.as_ref()
     }
 
     /// Return a reference to the inner `Arc<File>` object.
