@@ -588,6 +588,10 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// assert_eq!(res.unwrap(), 4);
     /// ```
     fn write(&self, buf: &[u8], addr: usize) -> Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
         if addr >= self.size {
             return Err(Error::OutOfBounds { addr });
         }
@@ -618,6 +622,10 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// assert_eq!(res.unwrap(), 14);
     /// ```
     fn read(&self, buf: &mut [u8], addr: usize) -> Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
         if addr >= self.size {
             return Err(Error::OutOfBounds { addr });
         }
@@ -1818,6 +1826,17 @@ mod tests {
         assert!(s.read(&mut buf, 5).is_err());
         assert!(s.read_slice(&mut buf, 2).is_ok());
         assert_eq!(buf, sample_buf);
+
+        // Writing an empty buffer at the end of the volatile slice works.
+        assert_eq!(s.write(&[], 100).unwrap(), 0);
+        let buf: &mut [u8] = &mut [];
+        assert_eq!(s.read(buf, 4).unwrap(), 0);
+
+        // Check that reading and writing an empty buffer does not yield an error.
+        let empty_mem = VecMem::new(0);
+        let empty = empty_mem.as_volatile_slice();
+        assert_eq!(empty.write(&[], 1).unwrap(), 0);
+        assert_eq!(empty.read(buf, 1).unwrap(), 0);
     }
 
     #[test]
