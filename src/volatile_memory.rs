@@ -588,6 +588,10 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// assert_eq!(res.unwrap(), 4);
     /// ```
     fn write(&self, buf: &[u8], addr: usize) -> Result<usize> {
+        if self.size == 0 {
+            return Ok(0);
+        }
+
         if addr >= self.size {
             return Err(Error::OutOfBounds { addr });
         }
@@ -618,6 +622,10 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// assert_eq!(res.unwrap(), 14);
     /// ```
     fn read(&self, buf: &mut [u8], addr: usize) -> Result<usize> {
+        if self.size == 0 {
+            return Ok(0);
+        }
+
         if addr >= self.size {
             return Err(Error::OutOfBounds { addr });
         }
