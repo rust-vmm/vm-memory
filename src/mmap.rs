@@ -1529,15 +1529,15 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(guest_mem.check_range(start_addr1, 0x0), true);
-        assert_eq!(guest_mem.check_range(start_addr1, 0x200), true);
-        assert_eq!(guest_mem.check_range(start_addr1, 0x400), true);
-        assert_eq!(guest_mem.check_range(start_addr1, 0xa00), false);
-        assert_eq!(guest_mem.check_range(start_addr2, 0x7ff), true);
-        assert_eq!(guest_mem.check_range(start_addr2, 0x800), true);
-        assert_eq!(guest_mem.check_range(start_addr2, 0x801), false);
-        assert_eq!(guest_mem.check_range(start_addr2, 0xc00), false);
-        assert_eq!(guest_mem.check_range(start_addr1, std::usize::MAX), false);
+        assert!(guest_mem.check_range(start_addr1, 0x0));
+        assert!(guest_mem.check_range(start_addr1, 0x200));
+        assert!(guest_mem.check_range(start_addr1, 0x400));
+        assert!(!guest_mem.check_range(start_addr1, 0xa00));
+        assert!(guest_mem.check_range(start_addr2, 0x7ff));
+        assert!(guest_mem.check_range(start_addr2, 0x800));
+        assert!(!guest_mem.check_range(start_addr2, 0x801));
+        assert!(!guest_mem.check_range(start_addr2, 0xc00));
+        assert!(!guest_mem.check_range(start_addr1, std::usize::MAX));
     }
 
     #[test]

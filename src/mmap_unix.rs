@@ -191,7 +191,7 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
     fn build_raw(self) -> Result<MmapRegion<B>> {
         // Safe because this call just returns the page size and doesn't have any side effects.
         let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
-        let addr = self.raw_ptr.clone().unwrap();
+        let addr = self.raw_ptr.unwrap();
 
         // Check that the pointer to the mapping is page-aligned.
         if (addr as usize) & (page_size - 1) != 0 {

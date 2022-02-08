@@ -3,6 +3,8 @@
 
 use std::sync::atomic::Ordering;
 
+/// # Safety
+///
 /// Objects that implement this trait must consist exclusively of atomic types
 /// from [`std::sync::atomic`](https://doc.rust-lang.org/std/sync/atomic/), except for
 /// [`AtomicPtr<T>`](https://doc.rust-lang.org/std/sync/atomic/struct.AtomicPtr.html) and

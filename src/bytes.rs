@@ -22,6 +22,8 @@ use crate::volatile_memory::VolatileSlice;
 
 /// Types for which it is safe to initialize from raw data.
 ///
+/// # Safety
+///
 /// A type `T` is `ByteValued` if and only if it can be initialized by reading its contents from a
 /// byte array.  This is generally true for all plain-old-data structs.  It is notably not true for
 /// any type that includes a reference.
@@ -55,7 +57,7 @@ pub unsafe trait ByteValued: Copy + Default + Send + Sync {
 
     /// Converts a mutable slice of raw data into a mutable reference of `Self`.
     ///
-    /// Because `Self` is made from a reference to the mutable slice`, mutations to the returned
+    /// Because `Self` is made from a reference to the mutable slice, mutations to the returned
     /// reference are immediately reflected in `data`. The value of the returned `Self` will depend
     /// on the representation of the type in memory, and may change in an unstable fashion.
     ///
