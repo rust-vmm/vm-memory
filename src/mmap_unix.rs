@@ -29,6 +29,8 @@ pub enum Error {
     InvalidOffsetLength,
     /// The specified pointer to the mapping is not page-aligned.
     InvalidPointer,
+    /// The specified file type is invalid.
+    InvalidFileType,
     /// The forbidden `MAP_FIXED` flag was specified.
     MapFixed,
     /// Mappings using the same fd overlap in terms of file offset and length.
@@ -50,6 +52,7 @@ impl fmt::Display for Error {
                 f,
                 "The specified pointer to the mapping is not page-aligned",
             ),
+            Error::InvalidFileType => write!(f, "The specified file type is invalid"),
             Error::MapFixed => write!(f, "The forbidden `MAP_FIXED` flag was specified"),
             Error::MappingOverlap => write!(
                 f,

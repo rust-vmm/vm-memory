@@ -15,8 +15,14 @@
 use std::borrow::Borrow;
 use std::error;
 use std::fmt;
+#[cfg(unix)]
+use std::fs::{read_link, read_to_string, File};
 use std::io::{Read, Write};
 use std::ops::Deref;
+#[cfg(unix)]
+use std::os::unix::fs::FileTypeExt;
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
 use std::result;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -106,6 +112,56 @@ impl fmt::Display for Error {
 
 impl error::Error for Error {}
 
+#[cfg(unix)]
+/// Return the size of `file`.
+///
+/// For regular files this returns the files' metadata.length().
+/// For devdax and block devices, the size is checked in sysfs.
+fn calculate_file_size(file: &File) -> Option<u64> {
+    let metadata = file.metadata().ok()?;
+    let file_type = metadata.file_type();
+
+    if file_type.is_file() {
+        return Some(metadata.len());
+    }
+
+    let mut device_size_multiplier = 0;
+    let mut sys_fs_location = "";
+    let proc_file_name = format!("/proc/self/fd/{}", file.as_raw_fd());
+    let file_name = read_link(proc_file_name).ok()?;
+
+    if file_type.is_block_device() {
+        // block device size are reported as 512 byte blocks.
+        device_size_multiplier = 512;
+        sys_fs_location = "/sys/block";
+    } else if file_type.is_char_device() {
+        if let Some(file_name) = file_name.to_str() {
+            if file_name.starts_with("/dev/dax") {
+                device_size_multiplier = 1;
+                sys_fs_location = "/sys/bus/dax/devices";
+            } else {
+                return None;
+            }
+        }
+    } else {
+        return None;
+    }
+
+    if let Some(file_name) = file_name.to_str() {
+        if let Some(device_name) = file_name.split('/').last() {
+            if let Ok(device_size_str) =
+                read_to_string(format!("{}/{}/size", sys_fs_location, device_name))
+            {
+                if let Ok(device_size_int) = device_size_str.trim().parse::<u64>() {
+                    return Some(device_size_int * device_size_multiplier);
+                }
+            }
+        }
+    }
+
+    None
+}
+
 // TODO: use this for Windows as well after we redefine the Error type there.
 #[cfg(unix)]
 /// Checks if a mapping of `size` bytes fits at the provided `file_offset`.
@@ -119,14 +175,16 @@ pub fn check_file_offset(
     let file = file_offset.file();
     let start = file_offset.start();
 
-    if let Some(end) = start.checked_add(size as u64) {
-        if let Ok(metadata) = file.metadata() {
-            if metadata.len() < end {
+    if let Some(file_size) = calculate_file_size(file) {
+        if let Some(end) = start.checked_add(size as u64) {
+            if file_size < end {
                 return Err(MmapRegionError::MappingPastEof);
             }
+        } else {
+            return Err(MmapRegionError::InvalidOffsetLength);
         }
     } else {
-        return Err(MmapRegionError::InvalidOffsetLength);
+        return Err(MmapRegionError::InvalidFileType);
     }
 
     Ok(())
