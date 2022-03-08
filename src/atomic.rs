@@ -12,6 +12,7 @@
 extern crate arc_swap;
 
 use arc_swap::{ArcSwap, Guard};
+use std::any::Any;
 use std::ops::Deref;
 use std::sync::{Arc, LockResult, Mutex, MutexGuard, PoisonError};
 
@@ -75,12 +76,16 @@ impl<M: GuestMemory> GuestMemoryAtomic<M> {
     }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for GuestMemoryAtomic<M> {
-    type T = GuestMemoryLoadGuard<M>;
+impl<M: GuestMemory + 'static> GuestAddressSpace for GuestMemoryAtomic<M> {
     type M = M;
+    type T = GuestMemoryLoadGuard<M>;
 
     fn memory(&self) -> Self::T {
         GuestMemoryLoadGuard { guard: self.load() }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -147,6 +152,23 @@ mod tests {
     type GuestMemoryMmap = crate::GuestMemoryMmap<()>;
     type GuestRegionMmap = crate::GuestRegionMmap<()>;
     type GuestMemoryMmapAtomic = GuestMemoryAtomic<GuestMemoryMmap>;
+
+    #[test]
+    fn test_as_any() {
+        let region_size = 0x400;
+        let regions = vec![
+            (GuestAddress(0x0), region_size),
+            (GuestAddress(0x1000), region_size),
+        ];
+        let gmm = GuestMemoryMmap::from_ranges(&regions).unwrap();
+        let gm = GuestMemoryMmapAtomic::new(gmm);
+
+        assert!(gm
+            .as_any()
+            .downcast_ref::<GuestMemoryMmapAtomic>()
+            .is_some());
+        assert!(gm.as_any().downcast_ref::<String>().is_none());
+    }
 
     #[test]
     fn test_atomic_memory() {
