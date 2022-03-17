@@ -1,6 +1,13 @@
 # Changelog
 ## [Unreleased]
 
+## [v0.8.0]
+
+### Fixed
+
+- [[#190]](https://github.com/rust-vmm/vm-memory/pull/190):
+  `VolatileSlice::read/write` when input slice is empty.
+
 ## [v0.7.0]
 
 ### Changed
