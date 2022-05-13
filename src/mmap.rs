@@ -16,6 +16,8 @@ use std::borrow::Borrow;
 use std::error;
 use std::fmt;
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::io::{Seek, SeekFrom};
 use std::ops::Deref;
 use std::result;
 use std::sync::atomic::Ordering;
@@ -116,14 +118,17 @@ pub fn check_file_offset(
     file_offset: &FileOffset,
     size: usize,
 ) -> result::Result<(), MmapRegionError> {
-    let file = file_offset.file();
+    let mut file = file_offset.file();
     let start = file_offset.start();
 
     if let Some(end) = start.checked_add(size as u64) {
-        if let Ok(metadata) = file.metadata() {
-            if metadata.len() < end {
-                return Err(MmapRegionError::MappingPastEof);
-            }
+        let filesize = file
+            .seek(SeekFrom::End(0))
+            .map_err(MmapRegionError::SeekEnd)?;
+        file.seek(SeekFrom::Start(0))
+            .map_err(MmapRegionError::SeekStart)?;
+        if filesize < end {
+            return Err(MmapRegionError::MappingPastEof);
         }
     } else {
         return Err(MmapRegionError::InvalidOffsetLength);
