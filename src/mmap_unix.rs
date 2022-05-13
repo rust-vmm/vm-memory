@@ -37,6 +37,10 @@ pub enum Error {
     MappingPastEof,
     /// The `mmap` call returned an error.
     Mmap(io::Error),
+    /// Seeking the end of the file returned an error.
+    SeekEnd(io::Error),
+    /// Seeking the start of the file returned an error.
+    SeekStart(io::Error),
 }
 
 impl fmt::Display for Error {
@@ -60,6 +64,8 @@ impl fmt::Display for Error {
                 "The specified file offset and length is greater then file length"
             ),
             Error::Mmap(error) => write!(f, "{}", error),
+            Error::SeekEnd(error) => write!(f, "Error seeking the end of the file: {}", error),
+            Error::SeekStart(error) => write!(f, "Error seeking the start of the file: {}", error),
         }
     }
 }
