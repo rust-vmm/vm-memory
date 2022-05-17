@@ -1,5 +1,8 @@
 # vm-memory
 
+[![crates.io](https://img.shields.io/crates/v/vm-memory)](https://crates.io/crates/vm-memory)
+[![docs.rs](https://img.shields.io/docsrs/vm-memory)](https://docs.rs/vm-memory/)
+
 ## Design
 
 In a typical Virtual Machine Monitor (VMM) there are several components, such
