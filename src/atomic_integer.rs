@@ -53,13 +53,23 @@ macro_rules! impl_atomic_integer_ops {
 impl_atomic_integer_ops!(std::sync::atomic::AtomicI8, i8);
 impl_atomic_integer_ops!(std::sync::atomic::AtomicI16, i16);
 impl_atomic_integer_ops!(std::sync::atomic::AtomicI32, i32);
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "powerpc64",
+    target_arch = "s390x"
+))]
 impl_atomic_integer_ops!(std::sync::atomic::AtomicI64, i64);
 
 impl_atomic_integer_ops!(std::sync::atomic::AtomicU8, u8);
 impl_atomic_integer_ops!(std::sync::atomic::AtomicU16, u16);
 impl_atomic_integer_ops!(std::sync::atomic::AtomicU32, u32);
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "powerpc64",
+    target_arch = "s390x"
+))]
 impl_atomic_integer_ops!(std::sync::atomic::AtomicU64, u64);
 
 impl_atomic_integer_ops!(std::sync::atomic::AtomicIsize, isize);
