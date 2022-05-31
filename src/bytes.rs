@@ -181,13 +181,23 @@ macro_rules! impl_atomic_access {
 impl_atomic_access!(i8, std::sync::atomic::AtomicI8);
 impl_atomic_access!(i16, std::sync::atomic::AtomicI16);
 impl_atomic_access!(i32, std::sync::atomic::AtomicI32);
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "powerpc64",
+    target_arch = "s390x"
+))]
 impl_atomic_access!(i64, std::sync::atomic::AtomicI64);
 
 impl_atomic_access!(u8, std::sync::atomic::AtomicU8);
 impl_atomic_access!(u16, std::sync::atomic::AtomicU16);
 impl_atomic_access!(u32, std::sync::atomic::AtomicU32);
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "powerpc64",
+    target_arch = "s390x"
+))]
 impl_atomic_access!(u64, std::sync::atomic::AtomicU64);
 
 impl_atomic_access!(isize, std::sync::atomic::AtomicIsize);
