@@ -1,6 +1,24 @@
 # Changelog
 ## [Unreleased]
 
+## [v0.9.0]
+
+### Fixed
+
+- [[#195]](https://github.com/rust-vmm/vm-memory/issues/195):
+  `mmap::check_file_offset` is doing the correct size validation for block and
+  char devices as well.
+
+### Changed
+
+- [[#198]](https://github.com/rust-vmm/vm-memory/pull/198): atomic: enable 64
+  bit atomics on ppc64le and s390x.
+- [[#200]](https://github.com/rust-vmm/vm-memory/pull/200): docs: enable all
+  features in `docs.rs`.
+- [[#199]](https://github.com/rust-vmm/vm-memory/issues/199): Update the way
+  the dependencies are pulled such that we don't end up with incompatible
+  versions.
+
 ## [v0.8.0]
 
 ### Fixed
