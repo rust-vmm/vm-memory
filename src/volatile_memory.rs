@@ -24,7 +24,6 @@
 //! not reordered or elided the access.
 
 use std::cmp::min;
-use std::convert::TryFrom;
 use std::error;
 use std::fmt;
 use std::io::{self, Read, Write};
