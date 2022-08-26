@@ -143,8 +143,6 @@ impl Default for AtomicBitmap {
 #[cfg(feature = "backend-mmap")]
 impl NewBitmap for AtomicBitmap {
     fn with_len(len: usize) -> Self {
-        use std::convert::TryFrom;
-
         let page_size;
 
         #[cfg(unix)]
