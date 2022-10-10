@@ -61,6 +61,64 @@ pub enum Error {
     PartialBuffer { expected: usize, completed: usize },
 }
 
+impl PartialEq for Error {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            // error.kind should be enough to assert equallity because each error
+            // has the kind field set and the OS error numbers can be converted
+            // to ErrorKind through `sys::decode_error_kind`.
+            (Error::IOError(left), Error::IOError(right)) => left.kind() == right.kind(),
+            (
+                Error::OutOfBounds { addr: left_address },
+                Error::OutOfBounds {
+                    addr: right_address,
+                },
+            ) => left_address == right_address,
+            (
+                Error::Overflow {
+                    base: left_base,
+                    offset: left_offset,
+                },
+                Error::Overflow {
+                    base: right_base,
+                    offset: right_offset,
+                },
+            ) => left_offset == right_offset && left_base == right_base,
+            (
+                Error::TooBig {
+                    nelements: left_nelements,
+                    size: left_size,
+                },
+                Error::TooBig {
+                    nelements: right_nelements,
+                    size: right_size,
+                },
+            ) => left_nelements == right_nelements && left_size == right_size,
+            (
+                Error::Misaligned {
+                    addr: left_addr,
+                    alignment: left_align,
+                },
+                Error::Misaligned {
+                    addr: right_addr,
+                    alignment: right_align,
+                },
+            ) => left_addr == right_addr && left_align == right_align,
+            (
+                Error::PartialBuffer {
+                    expected: left_expected,
+                    completed: left_completed,
+                },
+                Error::PartialBuffer {
+                    expected: right_expected,
+                    completed: right_completed,
+                },
+            ) => left_expected == right_expected && left_completed == right_completed,
+            _ => false,
+        }
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -1527,7 +1585,10 @@ mod tests {
         let a_ref =
             unsafe { VolatileSlice::new(&mut a[0] as *mut usize as *mut u8, size_of::<usize>()) };
         assert!(a_ref.get_atomic_ref::<AtomicUsize>(0).is_ok());
-        assert!(a_ref.get_atomic_ref::<AtomicUsize>(1).is_err());
+        assert_eq!(
+            a_ref.get_atomic_ref::<AtomicUsize>(1).unwrap_err(),
+            Error::OutOfBounds { addr: 9 }
+        );
     }
 
     #[test]
@@ -1628,20 +1689,46 @@ mod tests {
         assert!(slice.write(&[1; 80], 10).is_ok());
 
         assert!(slice.subslice(0, 0).is_ok());
-        assert!(slice.subslice(0, 101).is_err());
+        assert_eq!(
+            slice.subslice(0, 101).unwrap_err(),
+            Error::OutOfBounds { addr: 101 }
+        );
 
         assert!(slice.subslice(99, 0).is_ok());
         assert!(slice.subslice(99, 1).is_ok());
-        assert!(slice.subslice(99, 2).is_err());
+        assert_eq!(
+            slice.subslice(99, 2).unwrap_err(),
+            Error::OutOfBounds { addr: 101 }
+        );
 
         assert!(slice.subslice(100, 0).is_ok());
-        assert!(slice.subslice(100, 1).is_err());
+        assert_eq!(
+            slice.subslice(100, 1).unwrap_err(),
+            Error::OutOfBounds { addr: 101 }
+        );
+        assert_eq!(
+            slice.subslice(101, 0).unwrap_err(),
+            Error::OutOfBounds { addr: 101 }
+        );
+        assert_eq!(
+            slice.subslice(101, 1).unwrap_err(),
+            Error::OutOfBounds { addr: 102 }
+        );
 
-        assert!(slice.subslice(101, 0).is_err());
-        assert!(slice.subslice(101, 1).is_err());
-
-        assert!(slice.subslice(std::usize::MAX, 2).is_err());
-        assert!(slice.subslice(2, std::usize::MAX).is_err());
+        assert_eq!(
+            slice.subslice(std::usize::MAX, 2).unwrap_err(),
+            Error::Overflow {
+                base: std::usize::MAX,
+                offset: 2
+            }
+        );
+        assert_eq!(
+            slice.subslice(2, std::usize::MAX).unwrap_err(),
+            Error::Overflow {
+                base: 2,
+                offset: std::usize::MAX
+            }
+        );
 
         let maybe_offset_slice = slice.subslice(10, 80);
         assert!(maybe_offset_slice.is_ok());
@@ -1658,7 +1745,6 @@ mod tests {
         let mem = VecMem::new(100);
         let slice = mem.get_slice(0, 100).unwrap();
         assert!(slice.write(&[1; 80], 10).is_ok());
-
         assert!(slice.offset(101).is_err());
 
         let maybe_offset_slice = slice.offset(10);
@@ -1750,12 +1836,11 @@ mod tests {
     fn slice_overflow_error() {
         use std::usize::MAX;
         let a = VecMem::new(1);
-        let res = a.get_slice(MAX, 1).unwrap_err();
-        assert_matches!(
-            res,
+        assert_eq!(
+            a.get_slice(MAX, 1).unwrap_err(),
             Error::Overflow {
                 base: MAX,
-                offset: 1,
+                offset: 1
             }
         );
     }
@@ -1764,17 +1849,18 @@ mod tests {
     fn slice_oob_error() {
         let a = VecMem::new(100);
         a.get_slice(50, 50).unwrap();
-        let res = a.get_slice(55, 50).unwrap_err();
-        assert_matches!(res, Error::OutOfBounds { addr: 105 });
+        assert_eq!(
+            a.get_slice(55, 50).unwrap_err(),
+            Error::OutOfBounds { addr: 105 }
+        );
     }
 
     #[test]
     fn ref_overflow_error() {
         use std::usize::MAX;
         let a = VecMem::new(1);
-        let res = a.get_ref::<u8>(MAX).unwrap_err();
-        assert_matches!(
-            res,
+        assert_eq!(
+            a.get_ref::<u8>(MAX).unwrap_err(),
             Error::Overflow {
                 base: MAX,
                 offset: 1,
@@ -1786,15 +1872,19 @@ mod tests {
     fn ref_oob_error() {
         let a = VecMem::new(100);
         a.get_ref::<u8>(99).unwrap();
-        let res = a.get_ref::<u16>(99).unwrap_err();
-        assert_matches!(res, Error::OutOfBounds { addr: 101 });
+        assert_eq!(
+            a.get_ref::<u16>(99).unwrap_err(),
+            Error::OutOfBounds { addr: 101 }
+        );
     }
 
     #[test]
     fn ref_oob_too_large() {
         let a = VecMem::new(3);
-        let res = a.get_ref::<u32>(0).unwrap_err();
-        assert_matches!(res, Error::OutOfBounds { addr: 4 });
+        assert_eq!(
+            a.get_ref::<u32>(0).unwrap_err(),
+            Error::OutOfBounds { addr: 4 }
+        );
     }
 
     #[test]
@@ -1820,10 +1910,16 @@ mod tests {
         let a = VecMem::new(5);
         let s = a.as_volatile_slice();
         let sample_buf = [1, 2, 3];
-        assert!(s.write(&sample_buf, 5).is_err());
+        assert_eq!(
+            s.write(&sample_buf, 5).unwrap_err(),
+            Error::OutOfBounds { addr: 5 }
+        );
         assert!(s.write(&sample_buf, 2).is_ok());
         let mut buf = [0u8; 3];
-        assert!(s.read(&mut buf, 5).is_err());
+        assert_eq!(
+            s.read(&mut buf, 5).unwrap_err(),
+            Error::OutOfBounds { addr: 5 }
+        );
         assert!(s.read_slice(&mut buf, 2).is_ok());
         assert_eq!(buf, sample_buf);
 
@@ -1843,12 +1939,28 @@ mod tests {
     fn obj_read_and_write() {
         let a = VecMem::new(5);
         let s = a.as_volatile_slice();
-        assert!(s.write_obj(55u16, 4).is_err());
-        assert!(s.write_obj(55u16, core::usize::MAX).is_err());
+        assert_eq!(
+            s.write_obj(55u16, 4).unwrap_err(),
+            Error::PartialBuffer {
+                expected: 2,
+                completed: 1
+            }
+        );
         assert!(s.write_obj(55u16, 2).is_ok());
         assert_eq!(s.read_obj::<u16>(2).unwrap(), 55u16);
-        assert!(s.read_obj::<u16>(4).is_err());
-        assert!(s.read_obj::<u16>(core::usize::MAX).is_err());
+        assert_eq!(
+            s.read_obj::<u16>(4).unwrap_err(),
+            Error::PartialBuffer {
+                expected: 2,
+                completed: 1
+            }
+        );
+        assert_eq!(
+            s.read_obj::<u16>(core::usize::MAX).unwrap_err(),
+            Error::OutOfBounds {
+                addr: core::usize::MAX
+            }
+        );
     }
 
     #[test]
@@ -1861,15 +1973,30 @@ mod tests {
         } else {
             File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
         };
-        assert!(s.read_exact_from(2, &mut file, size_of::<u32>()).is_err());
-        assert!(s
-            .read_exact_from(core::usize::MAX, &mut file, size_of::<u32>())
-            .is_err());
+        assert_eq!(
+            s.read_exact_from(2, &mut file, size_of::<u32>())
+                .unwrap_err(),
+            Error::OutOfBounds { addr: 6 }
+        );
+        assert_eq!(
+            s.read_exact_from(core::usize::MAX, &mut file, size_of::<u32>())
+                .unwrap_err(),
+            Error::Overflow {
+                base: core::usize::MAX,
+                offset: 4
+            }
+        );
 
         assert!(s.read_exact_from(1, &mut file, size_of::<u32>()).is_ok());
 
         let mut f = TempFile::new().unwrap().into_file();
-        assert!(s.read_exact_from(1, &mut f, size_of::<u32>()).is_err());
+        assert_eq!(
+            s.read_exact_from(1, &mut f, size_of::<u32>()).unwrap_err(),
+            Error::IOError(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "failed to fill the whole buffer"
+            ))
+        );
         format!("{:?}", s.read_exact_from(1, &mut f, size_of::<u32>()));
 
         let value = s.read_obj::<u32>(1).unwrap();
@@ -1881,10 +2008,18 @@ mod tests {
 
         let mut sink = Vec::new();
         assert!(s.write_all_to(1, &mut sink, size_of::<u32>()).is_ok());
-        assert!(s.write_all_to(2, &mut sink, size_of::<u32>()).is_err());
-        assert!(s
-            .write_all_to(core::usize::MAX, &mut sink, size_of::<u32>())
-            .is_err());
+        assert_eq!(
+            s.write_all_to(2, &mut sink, size_of::<u32>()).unwrap_err(),
+            Error::OutOfBounds { addr: 6 }
+        );
+        assert_eq!(
+            s.write_all_to(core::usize::MAX, &mut sink, size_of::<u32>())
+                .unwrap_err(),
+            Error::Overflow {
+                base: core::usize::MAX,
+                offset: 4
+            }
+        );
         format!("{:?}", s.write_all_to(2, &mut sink, size_of::<u32>()));
         if cfg!(unix) {
             assert_eq!(sink, vec![0; size_of::<u32>()]);
@@ -1959,9 +2094,8 @@ mod tests {
     fn ref_array_overflow() {
         let mut a = [0, 0, 2, 3, 10];
         let a_ref = &mut a[..];
-        let res = a_ref.get_array_ref::<u32>(4, usize::MAX).unwrap_err();
-        assert_matches!(
-            res,
+        assert_eq!(
+            a_ref.get_array_ref::<u32>(4, usize::MAX).unwrap_err(),
             Error::TooBig {
                 nelements: usize::MAX,
                 size: 4,
