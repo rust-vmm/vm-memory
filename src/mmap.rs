@@ -71,7 +71,7 @@ pub(crate) trait AsSlice {
 }
 
 /// Errors that can occur when creating a memory map.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// Adding the guest base address to the length of the underlying mapping resulted
     /// in an overflow.
@@ -775,43 +775,21 @@ mod tests {
     #[test]
     fn test_no_memory_region() {
         let regions_summary = [];
-
         assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap(&regions_summary).err().unwrap()
-            ),
-            format!("{:?}", Error::NoMemoryRegion)
+            new_guest_memory_mmap(&regions_summary).unwrap_err(),
+            Error::NoMemoryRegion
         );
-
         assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_with_files(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::NoMemoryRegion)
+            new_guest_memory_mmap_with_files(&regions_summary).unwrap_err(),
+            Error::NoMemoryRegion
         );
-
         assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::NoMemoryRegion)
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::NoMemoryRegion
         );
-
         assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_arc_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::NoMemoryRegion)
+            new_guest_memory_mmap_from_arc_regions(&regions_summary).unwrap_err(),
+            Error::NoMemoryRegion
         );
     }
 
@@ -820,41 +798,20 @@ mod tests {
         let regions_summary = [(GuestAddress(0), 100_usize), (GuestAddress(99), 100_usize)];
 
         assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap(&regions_summary).err().unwrap()
-            ),
-            format!("{:?}", Error::MemoryRegionOverlap)
+            new_guest_memory_mmap(&regions_summary).unwrap_err(),
+            Error::MemoryRegionOverlap
         );
-
         assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_with_files(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::MemoryRegionOverlap)
+            new_guest_memory_mmap_with_files(&regions_summary).unwrap_err(),
+            Error::MemoryRegionOverlap
         );
-
         assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::MemoryRegionOverlap)
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::MemoryRegionOverlap
         );
-
         assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_arc_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::MemoryRegionOverlap)
+            new_guest_memory_mmap_from_arc_regions(&regions_summary).unwrap_err(),
+            Error::MemoryRegionOverlap
         );
     }
 
@@ -863,41 +820,20 @@ mod tests {
         let regions_summary = [(GuestAddress(100), 100_usize), (GuestAddress(0), 100_usize)];
 
         assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap(&regions_summary).err().unwrap()
-            ),
-            format!("{:?}", Error::UnsortedMemoryRegions)
+            new_guest_memory_mmap(&regions_summary).unwrap_err(),
+            Error::UnsortedMemoryRegions
         );
-
         assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_with_files(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::UnsortedMemoryRegions)
+            new_guest_memory_mmap_with_files(&regions_summary).unwrap_err(),
+            Error::UnsortedMemoryRegions
         );
-
         assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::UnsortedMemoryRegions)
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::UnsortedMemoryRegions
         );
-
         assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_arc_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::UnsortedMemoryRegions)
+            new_guest_memory_mmap_from_arc_regions(&regions_summary).unwrap_err(),
+            Error::UnsortedMemoryRegions
         );
     }
 
@@ -1054,7 +990,10 @@ mod tests {
 
         let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
-            assert!(guest_mem.get_host_address(GuestAddress(0x600)).is_err());
+            assert_eq!(
+                guest_mem.get_host_address(GuestAddress(0x600)).unwrap_err(),
+                guest_memory::Error::InvalidGuestAddress(GuestAddress(0x600))
+            );
             let ptr0 = guest_mem.get_host_address(GuestAddress(0x800)).unwrap();
             let ptr1 = guest_mem.get_host_address(GuestAddress(0xa00)).unwrap();
             assert_eq!(
@@ -1122,18 +1061,16 @@ mod tests {
             let val1: u64 = 0xaa55_aa55_aa55_aa55;
             let val2: u64 = 0x55aa_55aa_55aa_55aa;
             assert_eq!(
-                format!("{:?}", gm.write_obj(val1, bad_addr).err().unwrap()),
-                format!("InvalidGuestAddress({:?})", bad_addr,)
+                gm.write_obj(val1, bad_addr).unwrap_err(),
+                guest_memory::Error::InvalidGuestAddress(bad_addr)
             );
             assert_eq!(
-                format!("{:?}", gm.write_obj(val1, bad_addr2).err().unwrap()),
-                format!(
-                    "PartialBuffer {{ expected: {:?}, completed: {:?} }}",
-                    mem::size_of::<u64>(),
-                    max_addr.checked_offset_from(bad_addr2).unwrap()
-                )
+                gm.write_obj(val1, bad_addr2).unwrap_err(),
+                guest_memory::Error::PartialBuffer {
+                    expected: mem::size_of::<u64>(),
+                    completed: max_addr.checked_offset_from(bad_addr2).unwrap() as usize
+                }
             );
-
             gm.write_obj(val1, GuestAddress(0x500)).unwrap();
             gm.write_obj(val2, GuestAddress(0x1000 + 32)).unwrap();
             let num1: u64 = gm.read_obj(GuestAddress(0x500)).unwrap();
@@ -1435,7 +1372,11 @@ mod tests {
         // Error case when slice_size is beyond the boundary.
         let slice_addr = MemoryRegionAddress(0x300);
         let slice_size = 0x200;
-        assert!(region.get_slice(slice_addr, slice_size).is_err());
+
+        assert_eq!(
+            region.get_slice(slice_addr, slice_size).unwrap_err(),
+            guest_memory::Error::InvalidBackendAddress
+        );
     }
 
     #[test]
@@ -1483,9 +1424,18 @@ mod tests {
             .is_empty());
 
         // Error cases, wrong size or base address.
-        assert!(guest_mem.get_slice(GuestAddress(0), 0x500).is_err());
-        assert!(guest_mem.get_slice(GuestAddress(0x600), 0x100).is_err());
-        assert!(guest_mem.get_slice(GuestAddress(0xc00), 0x100).is_err());
+        assert_eq!(
+            guest_mem.get_slice(GuestAddress(0), 0x500).unwrap_err(),
+            guest_memory::Error::InvalidBackendAddress
+        );
+        assert_eq!(
+            guest_mem.get_slice(GuestAddress(0x600), 0x100).unwrap_err(),
+            guest_memory::Error::InvalidGuestAddress(GuestAddress(0x600))
+        );
+        assert_eq!(
+            guest_mem.get_slice(GuestAddress(0xc00), 0x100).unwrap_err(),
+            guest_memory::Error::InvalidGuestAddress(GuestAddress(0xc00))
+        );
     }
 
     #[test]
