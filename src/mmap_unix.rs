@@ -43,6 +43,24 @@ pub enum Error {
     SeekStart(io::Error),
 }
 
+impl PartialEq for Error {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            // error.kind should be enough to assert equallity because each error
+            // has the kind field set and the OS error numbers can be converted
+            // to ErrorKind through `sys::decode_error_kind`.
+            (Error::Mmap(left), Error::Mmap(right))
+            | (Error::SeekEnd(left), Error::SeekEnd(right))
+            | (Error::SeekStart(left), Error::SeekStart(right)) => left.kind() == right.kind(),
+            (Error::InvalidOffsetLength, Error::InvalidOffsetLength) => true,
+            (Error::InvalidPointer, Error::InvalidPointer) => true,
+            (Error::MapFixed, Error::MapFixed) => true,
+            (Error::MappingOverlap, Error::MappingOverlap) => true,
+            (Error::MappingPastEof, Error::MappingPastEof) => true,
+            _ => false,
+        }
+    }
+}
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> fmt::Result {
         match self {
@@ -467,20 +485,12 @@ mod tests {
 
     type MmapRegion = super::MmapRegion<()>;
 
-    // Adding a helper method to extract the errno within an Error::Mmap(e), or return a
-    // distinctive value when the error is represented by another variant.
-    impl Error {
-        pub fn raw_os_error(&self) -> i32 {
-            match self {
-                Error::Mmap(e) => e.raw_os_error().unwrap(),
-                _ => std::i32::MIN,
-            }
-        }
-    }
-
     #[test]
     fn test_mmap_region_new() {
-        assert!(MmapRegion::new(0).is_err());
+        assert_eq!(
+            MmapRegion::new(0).unwrap_err(),
+            Error::Mmap(std::io::Error::from_raw_os_error(libc::EINVAL))
+        );
 
         let size = 4096;
 
@@ -496,7 +506,10 @@ mod tests {
 
     #[test]
     fn test_mmap_region_set_hugetlbfs() {
-        assert!(MmapRegion::new(0).is_err());
+        assert_eq!(
+            MmapRegion::new(0).unwrap_err(),
+            Error::Mmap(std::io::Error::from_raw_os_error(libc::EINVAL))
+        );
 
         let size = 4096;
 
@@ -567,7 +580,7 @@ mod tests {
             prot,
             flags,
         );
-        assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidOffsetLength");
+        assert_eq!(r.unwrap_err(), Error::InvalidOffsetLength);
 
         // Offset + size is greater than the size of the file (which is 0 at this point).
         let r = MmapRegion::build(
@@ -576,7 +589,7 @@ mod tests {
             prot,
             flags,
         );
-        assert_eq!(format!("{:?}", r.unwrap_err()), "MappingPastEof");
+        assert_eq!(r.unwrap_err(), Error::MappingPastEof);
 
         // MAP_FIXED was specified among the flags.
         let r = MmapRegion::build(
@@ -585,7 +598,7 @@ mod tests {
             prot,
             flags | libc::MAP_FIXED,
         );
-        assert_eq!(format!("{:?}", r.unwrap_err()), "MapFixed");
+        assert_eq!(r.unwrap_err(), Error::MapFixed);
 
         // Let's resize the file.
         assert_eq!(unsafe { libc::ftruncate(a.as_raw_fd(), 1024 * 10) }, 0);
@@ -597,7 +610,10 @@ mod tests {
             prot,
             flags,
         );
-        assert_eq!(r.unwrap_err().raw_os_error(), libc::EINVAL);
+        assert_eq!(
+            r.unwrap_err(),
+            Error::Mmap(std::io::Error::from_raw_os_error(libc::EINVAL))
+        );
 
         // The build should be successful now.
         let r =
@@ -629,7 +645,7 @@ mod tests {
         let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
 
         let r = unsafe { MmapRegion::build_raw((addr + 1) as *mut u8, size, prot, flags) };
-        assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidPointer");
+        assert_eq!(r.unwrap_err(), Error::InvalidPointer);
 
         let r = unsafe { MmapRegion::build_raw(addr as *mut u8, size, prot, flags).unwrap() };
 
