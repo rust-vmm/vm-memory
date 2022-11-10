@@ -25,6 +25,9 @@ pub unsafe trait AtomicInteger: Sync + Send {
 
 macro_rules! impl_atomic_integer_ops {
     ($T:path, $V:ty) => {
+        // SAFETY: This is safe as long as T is an Atomic type.
+        // This is a helper macro for generating the implementation for common
+        // Atomic types.
         unsafe impl AtomicInteger for $T {
             type V = $V;
 

@@ -147,7 +147,7 @@ impl NewBitmap for AtomicBitmap {
 
         #[cfg(unix)]
         {
-            // There's no unsafe potential in calling this function.
+            // SAFETY: There's no unsafe potential in calling this function.
             page_size = unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) };
         }
 
