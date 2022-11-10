@@ -848,6 +848,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
         self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
             // Check if something bad happened before doing unsafe things.
             assert!(offset <= count);
+            // SAFETY: Safe because we are checking the offset.
             if let Some(dst) = unsafe { region.as_mut_slice() } {
                 // This is safe cause `start` and `len` are within the `region`, and we manually
                 // record the dirty status of the written range below.
@@ -935,6 +936,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
         self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
             // Check if something bad happened before doing unsafe things.
             assert!(offset <= count);
+            // SAFETY: Safe because we are checking the offset is valid.
             if let Some(src) = unsafe { region.as_slice() } {
                 // This is safe cause `start` and `len` are within the `region`.
                 let start = caddr.raw_value() as usize;
@@ -1024,6 +1026,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use super::*;
     #[cfg(feature = "backend-mmap")]
     use crate::bytes::ByteValued;

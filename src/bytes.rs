@@ -44,11 +44,12 @@ pub unsafe trait ByteValued: Copy + Default + Send + Sync {
             return None;
         }
 
-        // Safe because the ByteValued trait asserts any data is valid for this type, and we ensured
-        // the size of the pointer's buffer is the correct size. The `align_to` method ensures that
-        // we don't have any unaligned references. This aliases a pointer, but because the pointer
-        // is from a const slice reference, there are no mutable aliases. Finally, the reference
-        // returned can not outlive data because they have equal implicit lifetime constraints.
+        // SAFETY: Safe because the ByteValued trait asserts any data is valid for this type, and
+        // we ensured the size of the pointer's buffer is the correct size. The `align_to` method
+        // ensures that we don't have any unaligned references. This aliases a pointer, but because
+        // the pointer is from a const slice reference, there are no mutable aliases. Finally, the
+        // reference returned can not outlive data because they have equal implicit lifetime
+        // constraints.
         match unsafe { data.align_to::<Self>() } {
             ([], [mid], []) => Some(mid),
             _ => None,
@@ -69,12 +70,12 @@ pub unsafe trait ByteValued: Copy + Default + Send + Sync {
             return None;
         }
 
-        // Safe because the ByteValued trait asserts any data is valid for this type, and we ensured
-        // the size of the pointer's buffer is the correct size. The `align_to` method ensures that
-        // we don't have any unaligned references. This aliases a pointer, but because the pointer
-        // is from a mut slice reference, we borrow the passed in mutable reference. Finally, the
-        // reference returned can not outlive data because they have equal implicit lifetime
-        // constraints.
+        // SAFETY: Safe because the ByteValued trait asserts any data is valid for this type, and
+        // we ensured the size of the pointer's buffer is the correct size. The `align_to` method
+        // ensures that we don't have any unaligned references. This aliases a pointer, but because
+        // the pointer is from a mut slice reference, we borrow the passed in mutable reference.
+        // Finally, the reference returned can not outlive data because they have equal implicit
+        // lifetime constraints.
         match unsafe { data.align_to_mut::<Self>() } {
             ([], [mid], []) => Some(mid),
             _ => None,
@@ -87,9 +88,9 @@ pub unsafe trait ByteValued: Copy + Default + Send + Sync {
     /// The value of bytes in the returned slice will depend on the representation of the type in
     /// memory, and may change in an unstable fashion.
     fn as_slice(&self) -> &[u8] {
-        // Safe because the entire size of self is accessible as bytes because the trait guarantees
-        // it. The lifetime of the returned slice is the same as the passed reference, so that no
-        // dangling pointers will result from this pointer alias.
+        // SAFETY: Safe because the entire size of self is accessible as bytes because the trait
+        // guarantees it. The lifetime of the returned slice is the same as the passed reference,
+        // so that no dangling pointers will result from this pointer alias.
         unsafe { from_raw_parts(self as *const Self as *const u8, size_of::<Self>()) }
     }
 
@@ -99,12 +100,12 @@ pub unsafe trait ByteValued: Copy + Default + Send + Sync {
     /// immediately reflected in `self`. The value of bytes in the returned slice will depend on
     /// the representation of the type in memory, and may change in an unstable fashion.
     fn as_mut_slice(&mut self) -> &mut [u8] {
-        // Safe because the entire size of self is accessible as bytes because the trait guarantees
-        // it. The trait also guarantees that any combination of bytes is valid for this type, so
-        // modifying them in the form of a byte slice is valid. The lifetime of the returned slice
-        // is the same as the passed reference, so that no dangling pointers will result from this
-        // pointer alias. Although this does alias a mutable pointer, we do so by exclusively
-        // borrowing the given mutable reference.
+        // SAFETY: Safe because the entire size of self is accessible as bytes because the trait
+        // guarantees it. The trait also guarantees that any combination of bytes is valid for this
+        // type, so modifying them in the form of a byte slice is valid. The lifetime of the
+        // returned slice is the same as the passed reference, so that no dangling pointers will
+        // result from this pointer alias. Although this does alias a mutable pointer, we do so by
+        // exclusively borrowing the given mutable reference.
         unsafe { from_raw_parts_mut(self as *mut Self as *mut u8, size_of::<Self>()) }
     }
 
@@ -118,17 +119,16 @@ pub unsafe trait ByteValued: Copy + Default + Send + Sync {
     /// that all accesses to `self` use volatile accesses (because there can
     /// be no other accesses).
     fn as_bytes(&mut self) -> VolatileSlice {
-        unsafe {
-            // This is safe because the lifetime is the same as self
-            VolatileSlice::new(self as *mut Self as usize as *mut _, size_of::<Self>())
-        }
+        // SAFETY: This is safe because the lifetime is the same as self
+        unsafe { VolatileSlice::new(self as *mut Self as usize as *mut _, size_of::<Self>()) }
     }
 }
 
-// All intrinsic types and arrays of intrinsic types are ByteValued. They are just numbers.
 macro_rules! byte_valued_array {
     ($T:ty, $($N:expr)+) => {
         $(
+            // SAFETY: All intrinsic types and arrays of intrinsic types are ByteValued.
+            // They are just numbers.
             unsafe impl ByteValued for [$T; $N] {}
         )+
     }
@@ -136,6 +136,8 @@ macro_rules! byte_valued_array {
 
 macro_rules! byte_valued_type {
     ($T:ty) => {
+        // SAFETY: Safe as long T is POD.
+        // We are using this macro to generated the implementation for integer types below.
         unsafe impl ByteValued for $T {}
         byte_valued_array! {
             $T,
@@ -329,6 +331,7 @@ pub trait Bytes<A> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use super::*;
 
     use std::fmt::Debug;

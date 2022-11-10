@@ -670,6 +670,7 @@ impl<B: Bitmap + 'static> GuestMemory for GuestMemoryMmap<B> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     extern crate vmm_sys_util;
 
     use super::*;

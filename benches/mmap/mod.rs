@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 #![cfg(feature = "backend-mmap")]
+#![allow(clippy::undocumented_unsafe_blocks)]
 
 extern crate criterion;
 extern crate vm_memory;

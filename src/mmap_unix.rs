@@ -165,8 +165,9 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
             (-1, 0)
         };
 
-        // This is safe because we're not allowing MAP_FIXED, and invalid parameters cannot break
-        // Rust safety guarantees (things may change if we're mapping /dev/mem or some wacky file).
+        // SAFETY: This is safe because we're not allowing MAP_FIXED, and invalid parameters
+        // cannot break Rust safety guarantees (things may change if we're mapping /dev/mem or
+        // some wacky file).
         let addr = unsafe {
             libc::mmap(
                 null_mut(),
@@ -195,7 +196,8 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
     }
 
     fn build_raw(self) -> Result<MmapRegion<B>> {
-        // Safe because this call just returns the page size and doesn't have any side effects.
+        // SAFETY: Safe because this call just returns the page size and doesn't have any side
+        // effects.
         let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
         let addr = self.raw_ptr.unwrap();
 
@@ -238,11 +240,12 @@ pub struct MmapRegion<B = ()> {
     hugetlbfs: Option<bool>,
 }
 
-// Send and Sync aren't automatically inherited for the raw address pointer.
+// SAFETY: Send and Sync aren't automatically inherited for the raw address pointer.
 // Accessing that pointer is only done through the stateless interface which
 // allows the object to be shared by multiple threads without a decrease in
 // safety.
 unsafe impl<B: Send> Send for MmapRegion<B> {}
+// SAFETY: See comment above.
 unsafe impl<B: Sync> Sync for MmapRegion<B> {}
 
 impl<B: NewBitmap> MmapRegion<B> {
@@ -399,16 +402,16 @@ impl<B: Bitmap> MmapRegion<B> {
 }
 
 impl<B> AsSlice for MmapRegion<B> {
+    // SAFETY: This is safe because we mapped the area at addr ourselves, so this slice will not
+    // overflow. However, it is possible to alias.
     unsafe fn as_slice(&self) -> &[u8] {
-        // This is safe because we mapped the area at addr ourselves, so this slice will not
-        // overflow. However, it is possible to alias.
         std::slice::from_raw_parts(self.addr, self.size)
     }
 
+    // SAFETY: This is safe because we mapped the area at addr ourselves, so this slice will not
+    // overflow. However, it is possible to alias.
     #[allow(clippy::mut_from_ref)]
     unsafe fn as_mut_slice(&self) -> &mut [u8] {
-        // This is safe because we mapped the area at addr ourselves, so this slice will not
-        // overflow. However, it is possible to alias.
         std::slice::from_raw_parts_mut(self.addr, self.size)
     }
 }
@@ -430,23 +433,25 @@ impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
             return Err(volatile_memory::Error::OutOfBounds { addr: end });
         }
 
-        // Safe because we checked that offset + count was within our range and we only ever hand
-        // out volatile accessors.
-        Ok(unsafe {
-            VolatileSlice::with_bitmap(
-                (self.addr as usize + offset) as *mut _,
-                count,
-                self.bitmap.slice_at(offset),
-            )
-        })
+        Ok(
+            // SAFETY: Safe because we checked that offset + count was within our range and we only
+            // ever hand out volatile accessors.
+            unsafe {
+                VolatileSlice::with_bitmap(
+                    (self.addr as usize + offset) as *mut _,
+                    count,
+                    self.bitmap.slice_at(offset),
+                )
+            },
+        )
     }
 }
 
 impl<B> Drop for MmapRegion<B> {
     fn drop(&mut self) {
-        // This is safe because we mmap the area at addr ourselves, and nobody
-        // else is holding a reference to it.
         if self.owned {
+            // SAFETY: This is safe because we mmap the area at addr ourselves, and nobody
+            // else is holding a reference to it.
             unsafe {
                 libc::munmap(self.addr as *mut libc::c_void, self.size);
             }
@@ -456,6 +461,7 @@ impl<B> Drop for MmapRegion<B> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use super::*;
 
     use std::io::Write;

@@ -63,6 +63,8 @@ macro_rules! endian_type {
             }
         }
 
+        // SAFETY: Safe because we are using this for implementing ByteValued for endian types
+        // which are POD.
         unsafe impl ByteValued for $new_type {}
 
         impl PartialEq<$old_type> for $new_type {
@@ -102,6 +104,7 @@ endian_type!(usize, BeSize, to_be, from_be);
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
     use super::*;
 
     use std::convert::From;
