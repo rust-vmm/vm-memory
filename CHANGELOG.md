@@ -1,5 +1,12 @@
 # Changelog
-## [Unreleased]
+
+## [v0.10.0]
+
+### Changed
+- [[#208]](https://github.com/rust-vmm/vm-memory/issues/208) Updated
+  vmm-sys-util dependency to v0.11.0
+- [[#203]](https://github.com/rust-vmm/vm-memory/pull/203) Switched to Rust
+  edition 2021.
 
 ## [v0.9.0]
 
