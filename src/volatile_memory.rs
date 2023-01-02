@@ -716,17 +716,16 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
         F: Read,
     {
         let end = self.compute_end_offset(addr, count)?;
-        // SAFETY: It is safe to overwrite the volatile memory. Accessing the guest
+        // SAFETY: We checked the addr and count so accessing the slice is safe.
+        // Also, it is safe to overwrite the volatile memory. Accessing the guest
         // memory as a mutable slice is OK because nothing assumes another
         // thread won't change what is loaded.
-        let bytes_read = unsafe {
-            let dst = &mut self.as_mut_slice()[addr..end];
-            loop {
-                match src.read(dst) {
-                    Ok(n) => break n,
-                    Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(e) => return Err(Error::IOError(e)),
-                }
+        let dst = unsafe { &mut self.as_mut_slice()[addr..end] };
+        let bytes_read = loop {
+            match src.read(dst) {
+                Ok(n) => break n,
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(Error::IOError(e)),
             }
         };
 
@@ -802,17 +801,16 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
         F: Write,
     {
         let end = self.compute_end_offset(addr, count)?;
-        // SAFETY: It is safe to read from volatile memory. Accessing the guest
+        // SAFETY: We checked the addr and count so accessing the slice is safe.
+        // It is safe to read from volatile memory. Accessing the guest
         // memory as a slice is OK because nothing assumes another thread
         // won't change what is loaded.
-        unsafe {
-            let src = &self.as_slice()[addr..end];
-            loop {
-                match dst.write(src) {
-                    Ok(n) => break Ok(n),
-                    Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(e) => break Err(Error::IOError(e)),
-                }
+        let src = unsafe { &self.as_slice()[addr..end] };
+        loop {
+            match dst.write(src) {
+                Ok(n) => break Ok(n),
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => break Err(Error::IOError(e)),
             }
         }
     }
