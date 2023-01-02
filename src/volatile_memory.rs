@@ -1375,6 +1375,8 @@ mod tests {
     use super::*;
 
     use std::fs::File;
+    use std::io::Cursor;
+    use std::mem;
     use std::mem::size_of_val;
     use std::path::Path;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1903,6 +1905,30 @@ mod tests {
         let mut buf: [u8; 7] = Default::default();
         assert!(s.read_slice(&mut buf, 0).is_ok());
         assert_eq!(buf, sample_buf);
+    }
+
+    #[test]
+    fn test_read_from_exceeds_size() {
+        #[derive(Debug, Default, Copy, Clone)]
+        struct BytesToRead {
+            _val1: u128, // 16 bytes
+            _val2: u128, // 16 bytes
+        }
+        unsafe impl ByteValued for BytesToRead {}
+        let cursor_size = 20;
+        let mut image = Cursor::new(vec![1u8; cursor_size]);
+
+        // Trying to read more bytes than we have available in the cursor should
+        // make the read_from function return maximum cursor size (i.e. 20).
+        let mut bytes_to_read = BytesToRead::default();
+        let size_of_bytes = mem::size_of_val(&bytes_to_read);
+        assert_eq!(
+            bytes_to_read
+                .as_bytes()
+                .read_from(0, &mut image, size_of_bytes)
+                .unwrap(),
+            cursor_size
+        );
     }
 
     #[test]
