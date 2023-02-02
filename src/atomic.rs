@@ -116,7 +116,7 @@ impl<M: GuestMemory> Deref for GuestMemoryLoadGuard<M> {
     type Target = M;
 
     fn deref(&self) -> &Self::Target {
-        &*self.guard
+        &self.guard
     }
 }
 

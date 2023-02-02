@@ -610,7 +610,7 @@ mod tests {
             MmapRegion::build(Some(FileOffset::from_arc(a, offset)), size, prot, flags).unwrap();
 
         assert_eq!(r.size(), size);
-        assert_eq!(r.file_offset().unwrap().start(), offset as u64);
+        assert_eq!(r.file_offset().unwrap().start(), offset);
         assert_eq!(r.prot(), libc::PROT_READ | libc::PROT_WRITE);
         assert_eq!(r.flags(), libc::MAP_NORESERVE | libc::MAP_PRIVATE);
         assert!(r.owned());
