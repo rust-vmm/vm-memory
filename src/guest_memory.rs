@@ -737,7 +737,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
             buf.len(),
             addr,
             |offset, _count, caddr, region| -> Result<usize> {
-                region.write(&buf[offset as usize..], caddr)
+                region.write(&buf[offset..], caddr)
             },
         )
     }
@@ -747,7 +747,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
             buf.len(),
             addr,
             |offset, _count, caddr, region| -> Result<usize> {
-                region.read(&mut buf[offset as usize..], caddr)
+                region.read(&mut buf[offset..], caddr)
             },
         )
     }
