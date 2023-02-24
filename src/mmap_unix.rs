@@ -20,7 +20,7 @@ use std::result;
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::FileOffset;
 use crate::mmap::{check_file_offset, NewBitmap};
-use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
+use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
 #[derive(Debug)]
@@ -413,17 +413,14 @@ impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
         offset: usize,
         count: usize,
     ) -> volatile_memory::Result<VolatileSlice<BS<B>>> {
-        let end = compute_offset(offset, count)?;
-        if end > self.size {
-            return Err(volatile_memory::Error::OutOfBounds { addr: end });
-        }
+        let _ = self.compute_end_offset(offset, count)?;
 
         Ok(
             // SAFETY: Safe because we checked that offset + count was within our range and we only
             // ever hand out volatile accessors.
             unsafe {
                 VolatileSlice::with_bitmap(
-                    (self.addr as usize + offset) as *mut _,
+                    self.addr.add(offset),
                     count,
                     self.bitmap.slice_at(offset),
                 )

@@ -32,7 +32,6 @@ use std::mem::{align_of, size_of};
 use std::ptr::copy;
 use std::ptr::{read_volatile, write_volatile};
 use std::result;
-use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::sync::atomic::Ordering;
 use std::usize;
 
@@ -352,15 +351,13 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
     /// The returned subslice is a copy of this slice with the address increased by `offset` bytes
     /// and the size set to `count` bytes.
     pub fn subslice(&self, offset: usize, count: usize) -> Result<Self> {
-        let mem_end = compute_offset(offset, count)?;
-        if mem_end > self.len() {
-            return Err(Error::OutOfBounds { addr: mem_end });
-        }
+        let _ = self.compute_end_offset(offset, count)?;
+
         // SAFETY: This is safe because the pointer is range-checked by compute_end_offset, and
         // the lifetime is the same as the original slice.
         unsafe {
             Ok(VolatileSlice::with_bitmap(
-                (self.as_ptr() as usize + offset) as *mut u8,
+                self.as_ptr().add(offset),
                 count,
                 self.bitmap.slice_at(offset),
             ))
@@ -529,30 +526,6 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
             // `VolatileArrayRef::copy_from` already takes care of that.
             dest.copy_from(buf);
         };
-    }
-
-    /// Returns a slice corresponding to the data in the underlying memory.
-    ///
-    /// # Safety
-    ///
-    /// This function is private and only used for the read/write functions. It is not valid in
-    /// general to take slices of volatile memory.
-    unsafe fn as_slice(&self) -> &[u8] {
-        from_raw_parts(self.addr, self.size)
-    }
-
-    /// Returns a mutable slice corresponding to the data in the underlying memory. Writes to the
-    /// slice have to be tracked manually using the handle returned by `VolatileSlice::bitmap`.
-    ///
-    /// # Safety
-    ///
-    /// This function is private and only used for the read/write functions. It is not valid in
-    /// general to take slices of volatile memory. Mutable accesses performed through the returned
-    /// slice are not visible to the dirty bitmap tracking functionality, and must be manually
-    /// recorded using the associated bitmap object.
-    #[allow(clippy::mut_from_ref)]
-    unsafe fn as_mut_slice(&self) -> &mut [u8] {
-        from_raw_parts_mut(self.addr, self.size)
     }
 
     /// Checks if the current slice is aligned at `alignment` bytes.
@@ -741,19 +714,29 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     where
         F: Read,
     {
-        let end = self.compute_end_offset(addr, count)?;
-        // SAFETY: We checked the addr and count so accessing the slice is safe.
-        // Also, it is safe to overwrite the volatile memory. Accessing the guest
-        // memory as a mutable slice is OK because nothing assumes another
-        // thread won't change what is loaded.
-        let dst = unsafe { &mut self.as_mut_slice()[addr..end] };
+        let _ = self.compute_end_offset(addr, count)?;
+
+        let mut dst = vec![0; count];
+
         let bytes_read = loop {
-            match src.read(dst) {
+            match src.read(&mut dst) {
                 Ok(n) => break n,
                 Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(Error::IOError(e)),
             }
         };
+
+        // There is no guarantee that the read implementation is well-behaved, see the docs for
+        // Read::read.
+        assert!(bytes_read <= count);
+
+        // SAFETY: We have checked via compute_end_offset that accessing the specified
+        // region of guest memory is valid. We asserted that the value returned by `read` is between
+        // 0 and count (the length of the buffer passed to it), and that the
+        // regions don't overlap because we allocated the Vec outside of guest memory.
+        unsafe {
+            copy_slice(self.as_ptr().add(addr), dst.as_ptr(), bytes_read);
+        }
 
         self.bitmap.mark_dirty(addr, bytes_read);
         Ok(bytes_read)
@@ -787,16 +770,22 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     where
         F: Read,
     {
-        let end = self.compute_end_offset(addr, count)?;
+        let _ = self.compute_end_offset(addr, count)?;
 
-        // SAFETY: It is safe to overwrite the volatile memory. Accessing the guest memory as a
-        // mutable slice is OK because nothing assumes another thread won't change what is loaded.
-        // We also manually update the dirty bitmap below.
-        let dst = unsafe { &mut self.as_mut_slice()[addr..end] };
+        let mut dst = vec![0; count];
 
-        let result = src.read_exact(dst).map_err(Error::IOError);
+        // Read into buffer that can be copied into guest memory
+        src.read_exact(&mut dst).map_err(Error::IOError)?;
+
+        // SAFETY: We have checked via compute_end_offset that accessing the specified
+        // region of guest memory is valid. We know that `dst` has len `count`, and that the
+        // regions don't overlap because we allocated the Vec outside of guest memory
+        unsafe {
+            copy_slice(self.as_ptr().add(addr), dst.as_ptr(), count);
+        }
+
         self.bitmap.mark_dirty(addr, count);
-        result
+        Ok(())
     }
 
     /// # Examples
@@ -826,14 +815,21 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     where
         F: Write,
     {
-        let end = self.compute_end_offset(addr, count)?;
+        let _ = self.compute_end_offset(addr, count)?;
+        let mut src = Vec::with_capacity(count);
         // SAFETY: We checked the addr and count so accessing the slice is safe.
-        // It is safe to read from volatile memory. Accessing the guest
-        // memory as a slice is OK because nothing assumes another thread
-        // won't change what is loaded.
-        let src = unsafe { &self.as_slice()[addr..end] };
+        // It is safe to read from volatile memory. The Vec has capacity for exactly `count`
+        // many bytes, and the memory regions pointed to definitely do not overlap, as we
+        // allocated src outside of guest memory.
+        // The call to set_len is safe because the bytes between 0 and count have been initialized
+        // via copying from guest memory, and the Vec's capacity is `count`
+        unsafe {
+            copy_slice(src.as_mut_ptr(), self.as_ptr().add(addr), count);
+            src.set_len(count);
+        }
+
         loop {
-            match dst.write(src) {
+            match dst.write(&src) {
                 Ok(n) => break Ok(n),
                 Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(e) => break Err(Error::IOError(e)),
@@ -868,14 +864,22 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     where
         F: Write,
     {
-        let end = self.compute_end_offset(addr, count)?;
-        // SAFETY: It is safe to read from volatile memory. Accessing the guest
-        // memory as a slice is OK because nothing assumes another thread
-        // won't change what is loaded.
+        let _ = self.compute_end_offset(addr, count)?;
+        let mut src = Vec::with_capacity(count);
+
+        // SAFETY: We checked the addr and count so accessing the slice is safe.
+        // It is safe to read from volatile memory. The Vec has capacity for exactly `count`
+        // many bytes, and the memory regions pointed to definitely do not overlap, as we
+        // allocated src outside of guest memory.
+        // The call to set_len is safe because the bytes between 0 and count have been initialized
+        // via copying from guest memory, and the Vec's capacity is `count`
         unsafe {
-            let src = &self.as_slice()[addr..end];
-            dst.write_all(src).map_err(Error::IOError)?;
+            copy_slice(src.as_mut_ptr(), self.as_ptr().add(addr), count);
+            src.set_len(count);
         }
+
+        dst.write_all(&src).map_err(Error::IOError)?;
+
         Ok(())
     }
 
@@ -906,7 +910,7 @@ impl<B: BitmapSlice> VolatileMemory for VolatileSlice<'_, B> {
             // the lifetime is the same as self.
             unsafe {
                 VolatileSlice::with_bitmap(
-                    (self.addr as usize + offset) as *mut u8,
+                    self.addr.add(offset),
                     count,
                     self.bitmap.slice_at(offset),
                 )

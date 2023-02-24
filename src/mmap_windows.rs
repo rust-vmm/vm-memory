@@ -210,11 +210,7 @@ impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
         // Safe because we checked that offset + count was within our range and we only ever hand
         // out volatile accessors.
         Ok(unsafe {
-            VolatileSlice::with_bitmap(
-                (self.addr as usize + offset) as *mut _,
-                count,
-                self.bitmap.slice_at(offset),
-            )
+            VolatileSlice::with_bitmap(self.addr.add(offset), count, self.bitmap.slice_at(offset))
         })
     }
 }
