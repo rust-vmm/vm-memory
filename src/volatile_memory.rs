@@ -1318,32 +1318,55 @@ mod copy_slice_impl {
     // - `src_addr` and `dst_addr` must be properly aligned with respect to `align`.
     // - `src_addr` must point to a properly initialized value, which is true here because
     //   we're only using integer primitives.
-    unsafe fn copy_single(align: usize, src_addr: usize, dst_addr: usize) {
+    unsafe fn copy_single(align: usize, src_addr: *const u8, dst_addr: *mut u8) {
         match align {
             8 => write_volatile(dst_addr as *mut u64, read_volatile(src_addr as *const u64)),
             4 => write_volatile(dst_addr as *mut u32, read_volatile(src_addr as *const u32)),
             2 => write_volatile(dst_addr as *mut u16, read_volatile(src_addr as *const u16)),
-            1 => write_volatile(dst_addr as *mut u8, read_volatile(src_addr as *const u8)),
+            1 => write_volatile(dst_addr, read_volatile(src_addr)),
             _ => unreachable!(),
         }
     }
 
-    fn copy_slice_volatile(dst: &mut [u8], src: &[u8]) -> usize {
-        let total = min(src.len(), dst.len());
+    /// Copies `total` bytes from `src` to `dst` using a loop of volatile reads and writes
+    ///
+    /// SAFETY: `src` and `dst` must be point to a contiguously allocated memory region of at least
+    /// length `total`. The regions must not overlap
+    unsafe fn copy_slice_volatile(mut dst: *mut u8, mut src: *const u8, total: usize) -> usize {
         let mut left = total;
 
-        let mut src_addr = src.as_ptr() as usize;
-        let mut dst_addr = dst.as_ptr() as usize;
-        let align = min(alignment(src_addr), alignment(dst_addr));
+        let align = min(alignment(src as usize), alignment(dst as usize));
 
         let mut copy_aligned_slice = |min_align| {
-            while align >= min_align && left >= min_align {
+            if align < min_align {
+                return;
+            }
+
+            while left >= min_align {
                 // SAFETY: Safe because we check alignment beforehand, the memory areas are valid
                 // for reads/writes, and the source always contains a valid value.
-                unsafe { copy_single(min_align, src_addr, dst_addr) };
-                src_addr += min_align;
-                dst_addr += min_align;
+                unsafe { copy_single(min_align, src, dst) };
+
                 left -= min_align;
+
+                if left == 0 {
+                    break;
+                }
+
+                // SAFETY: We only explain the invariants for `src`, the argument for `dst` is
+                // analogous.
+                // - `src` and `src + min_align` are within (or one byte past) the same allocated object
+                //   This is given by the invariant on this function ensuring that [src, src + total)
+                //   are part of the same allocated object, and the condition on the while loop
+                //   ensures that we do not go outside this object
+                // - The computed offset in bytes cannot overflow isize, because `min_align` is at
+                //   most 8 when the closure is called (see below)
+                // - The sum `src as usize + min_align` can only wrap around if src as usize + min_align - 1 == usize::MAX,
+                //   however in this case, left == 0, and we'll have exited the loop above.
+                unsafe {
+                    src = src.add(min_align);
+                    dst = dst.add(min_align);
+                }
             }
         };
 
@@ -1360,7 +1383,9 @@ mod copy_slice_impl {
     pub(super) fn copy_slice(dst: &mut [u8], src: &[u8]) -> usize {
         let total = min(src.len(), dst.len());
         if total <= size_of::<usize>() {
-            copy_slice_volatile(dst, src);
+            // SAFETY: we take pointers to slices, which are assured to reference contiguously
+            // allocated memory of length total (as total is the minimum of the lengths of the slices)
+            unsafe { copy_slice_volatile(dst.as_mut_ptr(), src.as_ptr(), total) };
         } else {
             dst[..total].copy_from_slice(&src[..total]);
         }
