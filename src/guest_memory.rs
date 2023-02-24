@@ -250,6 +250,8 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// # Safety
     ///
     /// Unsafe because of possible aliasing.
+    #[deprecated = "It is impossible to use this function for accessing memory of a running virtual \
+    machine without violating aliasing rules "]
     unsafe fn as_slice(&self) -> Option<&[u8]> {
         None
     }
@@ -263,6 +265,8 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// Unsafe because of possible aliasing. Mutable accesses performed through the
     /// returned slice are not visible to the dirty bitmap tracking functionality of
     /// the region, and must be manually recorded using the associated bitmap object.
+    #[deprecated = "It is impossible to use this function for accessing memory of a running virtual \
+    machine without violating aliasing rules "]
     unsafe fn as_mut_slice(&self) -> Option<&mut [u8]> {
         None
     }
@@ -848,38 +852,22 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
         self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
             // Check if something bad happened before doing unsafe things.
             assert!(offset <= count);
-            // SAFETY: Safe because we are checking the offset.
-            if let Some(dst) = unsafe { region.as_mut_slice() } {
-                // This is safe cause `start` and `len` are within the `region`, and we manually
-                // record the dirty status of the written range below.
-                let start = caddr.raw_value() as usize;
-                let end = start + len;
-                let bytes_read = loop {
-                    match src.read(&mut dst[start..end]) {
-                        Ok(n) => break n,
-                        Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                        Err(e) => return Err(Error::IOError(e)),
-                    }
-                };
 
-                region.bitmap().mark_dirty(start, bytes_read);
-                Ok(bytes_read)
-            } else {
-                let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
-                let mut buf = vec![0u8; len].into_boxed_slice();
-                loop {
-                    match src.read(&mut buf[..]) {
-                        Ok(bytes_read) => {
-                            // We don't need to update the dirty bitmap manually here because it's
-                            // expected to be handled by the logic within the `Bytes`
-                            // implementation for the region object.
-                            let bytes_written = region.write(&buf[0..bytes_read], caddr)?;
-                            assert_eq!(bytes_written, bytes_read);
-                            break Ok(bytes_read);
-                        }
-                        Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                        Err(e) => break Err(Error::IOError(e)),
+            let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
+            let mut buf = vec![0u8; len].into_boxed_slice();
+
+            loop {
+                match src.read(&mut buf[..]) {
+                    Ok(bytes_read) => {
+                        // We don't need to update the dirty bitmap manually here because it's
+                        // expected to be handled by the logic within the `Bytes`
+                        // implementation for the region object.
+                        let bytes_written = region.write(&buf[0..bytes_read], caddr)?;
+                        assert_eq!(bytes_written, bytes_read);
+                        break Ok(bytes_read);
                     }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => break Err(Error::IOError(e)),
                 }
             }
         })
@@ -936,32 +924,15 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
         self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
             // Check if something bad happened before doing unsafe things.
             assert!(offset <= count);
-            // SAFETY: Safe because we are checking the offset is valid.
-            if let Some(src) = unsafe { region.as_slice() } {
-                // This is safe cause `start` and `len` are within the `region`.
-                let start = caddr.raw_value() as usize;
-                let end = start + len;
-                loop {
-                    // It is safe to read from volatile memory. Accessing the guest
-                    // memory as a slice should be OK as long as nothing assumes another
-                    // thread won't change what is loaded; however, we may want to introduce
-                    // VolatileRead and VolatileWrite traits in the future.
-                    match dst.write(&src[start..end]) {
-                        Ok(n) => break Ok(n),
-                        Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                        Err(e) => break Err(Error::IOError(e)),
-                    }
-                }
-            } else {
-                let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
-                let mut buf = vec![0u8; len].into_boxed_slice();
-                let bytes_read = region.read(&mut buf, caddr)?;
-                assert_eq!(bytes_read, len);
-                // For a non-RAM region, reading could have side effects, so we
-                // must use write_all().
-                dst.write_all(&buf).map_err(Error::IOError)?;
-                Ok(len)
-            }
+
+            let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
+            let mut buf = vec![0u8; len].into_boxed_slice();
+            let bytes_read = region.read(&mut buf, caddr)?;
+            assert_eq!(bytes_read, len);
+            // For a non-RAM region, reading could have side effects, so we
+            // must use write_all().
+            dst.write_all(&buf).map_err(Error::IOError)?;
+            Ok(len)
         })
     }
 

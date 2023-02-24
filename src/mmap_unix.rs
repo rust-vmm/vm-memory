@@ -19,7 +19,7 @@ use std::result;
 
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::FileOffset;
-use crate::mmap::{check_file_offset, AsSlice, NewBitmap};
+use crate::mmap::{check_file_offset, NewBitmap};
 use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
@@ -398,21 +398,6 @@ impl<B: Bitmap> MmapRegion<B> {
     /// Returns a reference to the inner bitmap object.
     pub fn bitmap(&self) -> &B {
         &self.bitmap
-    }
-}
-
-impl<B> AsSlice for MmapRegion<B> {
-    // SAFETY: This is safe because we mapped the area at addr ourselves, so this slice will not
-    // overflow. However, it is possible to alias.
-    unsafe fn as_slice(&self) -> &[u8] {
-        std::slice::from_raw_parts(self.addr, self.size)
-    }
-
-    // SAFETY: This is safe because we mapped the area at addr ourselves, so this slice will not
-    // overflow. However, it is possible to alias.
-    #[allow(clippy::mut_from_ref)]
-    unsafe fn as_mut_slice(&self) -> &mut [u8] {
-        std::slice::from_raw_parts_mut(self.addr, self.size)
     }
 }
 
