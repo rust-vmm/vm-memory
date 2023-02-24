@@ -50,26 +50,6 @@ impl NewBitmap for () {
     fn with_len(_len: usize) -> Self {}
 }
 
-/// Trait implemented by the underlying `MmapRegion`.
-pub(crate) trait AsSlice {
-    /// Returns a slice corresponding to the data in the underlying `MmapRegion`.
-    ///
-    /// # Safety
-    ///
-    /// This is unsafe because of possible aliasing.
-    unsafe fn as_slice(&self) -> &[u8];
-
-    /// Returns a mutable slice corresponding to the data in the underlying `MmapRegion`.
-    ///
-    /// # Safety
-    ///
-    /// This is unsafe because of possible aliasing. Accesses done through the resulting slice
-    /// are not visible to dirty bitmap tracking functionality (when present), and have to be
-    /// explicitly accounted for.
-    #[allow(clippy::mut_from_ref)]
-    unsafe fn as_mut_slice(&self) -> &mut [u8];
-}
-
 /// Errors that can occur when creating a memory map.
 #[derive(Debug)]
 pub enum Error {
@@ -484,14 +464,6 @@ impl<B: Bitmap> GuestMemoryRegion for GuestRegionMmap<B> {
 
     fn file_offset(&self) -> Option<&FileOffset> {
         self.mapping.file_offset()
-    }
-
-    unsafe fn as_slice(&self) -> Option<&[u8]> {
-        Some(self.mapping.as_slice())
-    }
-
-    unsafe fn as_mut_slice(&self) -> Option<&mut [u8]> {
-        Some(self.mapping.as_mut_slice())
     }
 
     fn get_slice(
