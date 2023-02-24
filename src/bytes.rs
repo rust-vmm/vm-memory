@@ -120,7 +120,7 @@ pub unsafe trait ByteValued: Copy + Default + Send + Sync {
     /// be no other accesses).
     fn as_bytes(&mut self) -> VolatileSlice {
         // SAFETY: This is safe because the lifetime is the same as self
-        unsafe { VolatileSlice::new(self as *mut Self as usize as *mut _, size_of::<Self>()) }
+        unsafe { VolatileSlice::new(self as *mut Self as *mut _, size_of::<Self>()) }
     }
 }
 
