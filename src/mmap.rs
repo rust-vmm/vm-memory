@@ -170,6 +170,24 @@ impl<B: Bitmap> GuestRegionMmap<B> {
     }
 }
 
+impl<B: NewBitmap> GuestRegionMmap<B> {
+    /// Create a new memory-mapped memory region from guest's physical memory, size and file.
+    pub fn from_range(
+        addr: GuestAddress,
+        size: usize,
+        file: Option<FileOffset>,
+    ) -> result::Result<Self, Error> {
+        let region = if let Some(ref f_off) = file {
+            MmapRegion::from_file(f_off.clone(), size)
+        } else {
+            MmapRegion::new(size)
+        }
+        .map_err(Error::MmapRegion)?;
+
+        Self::new(region, addr)
+    }
+}
+
 impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionMmap<B> {
     type E = guest_memory::Error;
 
@@ -529,16 +547,7 @@ impl<B: NewBitmap> GuestMemoryMmap<B> {
             ranges
                 .into_iter()
                 .map(|x| {
-                    let guest_base = x.borrow().0;
-                    let size = x.borrow().1;
-
-                    if let Some(ref f_off) = x.borrow().2 {
-                        MmapRegion::from_file(f_off.clone(), size)
-                    } else {
-                        MmapRegion::new(size)
-                    }
-                    .map_err(Error::MmapRegion)
-                    .and_then(|r| GuestRegionMmap::new(r, guest_base))
+                    GuestRegionMmap::from_range(x.borrow().0, x.borrow().1, x.borrow().2.clone())
                 })
                 .collect::<result::Result<Vec<_>, Error>>()?,
         )
@@ -734,8 +743,7 @@ mod tests {
             regions_summary
                 .iter()
                 .map(|(region_addr, region_size)| {
-                    GuestRegionMmap::new(MmapRegion::new(*region_size).unwrap(), *region_addr)
-                        .unwrap()
+                    GuestRegionMmap::from_range(*region_addr, *region_size, None).unwrap()
                 })
                 .collect(),
         )
@@ -748,10 +756,7 @@ mod tests {
             regions_summary
                 .iter()
                 .map(|(region_addr, region_size)| {
-                    Arc::new(
-                        GuestRegionMmap::new(MmapRegion::new(*region_size).unwrap(), *region_addr)
-                            .unwrap(),
-                    )
+                    Arc::new(GuestRegionMmap::from_range(*region_addr, *region_size, None).unwrap())
                 })
                 .collect(),
         )
@@ -929,7 +934,7 @@ mod tests {
 
     #[test]
     fn slice_addr() {
-        let m = GuestRegionMmap::new(MmapRegion::new(5).unwrap(), GuestAddress(0)).unwrap();
+        let m = GuestRegionMmap::from_range(GuestAddress(0), 5, None).unwrap();
         let s = m.get_slice(MemoryRegionAddress(2), 3).unwrap();
         assert_eq!(s.as_ptr(), unsafe { m.as_ptr().offset(2) });
     }
@@ -940,8 +945,8 @@ mod tests {
         let sample_buf = &[1, 2, 3, 4, 5];
         assert!(f.write_all(sample_buf).is_ok());
 
-        let region = MmapRegion::from_file(FileOffset::new(f, 0), sample_buf.len()).unwrap();
-        let mem_map = GuestRegionMmap::new(region, GuestAddress(0)).unwrap();
+        let file = Some(FileOffset::new(f, 0));
+        let mem_map = GuestRegionMmap::from_range(GuestAddress(0), sample_buf.len(), file).unwrap();
         let buf = &mut [0u8; 16];
         assert_eq!(
             mem_map.as_volatile_slice().unwrap().read(buf, 0).unwrap(),
@@ -1365,21 +1370,17 @@ mod tests {
         let mem_orig = gm.memory();
         assert_eq!(mem_orig.num_regions(), 2);
 
-        let mmap = Arc::new(
-            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0x8000)).unwrap(),
-        );
+        let mmap =
+            Arc::new(GuestRegionMmap::from_range(GuestAddress(0x8000), 0x1000, None).unwrap());
         let gm = gm.insert_region(mmap).unwrap();
-        let mmap = Arc::new(
-            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0x4000)).unwrap(),
-        );
+        let mmap =
+            Arc::new(GuestRegionMmap::from_range(GuestAddress(0x4000), 0x1000, None).unwrap());
         let gm = gm.insert_region(mmap).unwrap();
-        let mmap = Arc::new(
-            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0xc000)).unwrap(),
-        );
+        let mmap =
+            Arc::new(GuestRegionMmap::from_range(GuestAddress(0xc000), 0x1000, None).unwrap());
         let gm = gm.insert_region(mmap).unwrap();
-        let mmap = Arc::new(
-            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0xc000)).unwrap(),
-        );
+        let mmap =
+            Arc::new(GuestRegionMmap::from_range(GuestAddress(0xc000), 0x1000, None).unwrap());
         gm.insert_region(mmap).unwrap_err();
 
         assert_eq!(mem_orig.num_regions(), 2);
@@ -1416,10 +1417,7 @@ mod tests {
 
     #[test]
     fn test_guest_memory_mmap_get_slice() {
-        let region_addr = GuestAddress(0);
-        let region_size = 0x400;
-        let region =
-            GuestRegionMmap::new(MmapRegion::new(region_size).unwrap(), region_addr).unwrap();
+        let region = GuestRegionMmap::from_range(GuestAddress(0), 0x400, None).unwrap();
 
         // Normal case.
         let slice_addr = MemoryRegionAddress(0x100);
@@ -1441,10 +1439,8 @@ mod tests {
 
     #[test]
     fn test_guest_memory_mmap_as_volatile_slice() {
-        let region_addr = GuestAddress(0);
         let region_size = 0x400;
-        let region =
-            GuestRegionMmap::new(MmapRegion::new(region_size).unwrap(), region_addr).unwrap();
+        let region = GuestRegionMmap::from_range(GuestAddress(0), region_size, None).unwrap();
 
         // Test slice length.
         let slice = region.as_volatile_slice().unwrap();
@@ -1548,8 +1544,7 @@ mod tests {
 
     #[test]
     fn test_atomic_accesses() {
-        let region =
-            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0)).unwrap();
+        let region = GuestRegionMmap::from_range(GuestAddress(0), 0x1000, None).unwrap();
 
         crate::bytes::tests::check_atomic_accesses(
             region,
