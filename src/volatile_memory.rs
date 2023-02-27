@@ -230,23 +230,17 @@ pub trait VolatileMemory {
     }
 }
 
-impl<'a> VolatileMemory for &'a mut [u8] {
-    type B = ();
-
-    fn len(&self) -> usize {
-        <[u8]>::len(self)
-    }
-
-    fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice<()>> {
-        let _ = self.compute_end_offset(offset, count)?;
-        // SAFETY: This is safe because the pointer is range-checked by compute_end_offset, and
-        // the lifetime is the same as the original slice.
-        unsafe {
-            Ok(VolatileSlice::new(
-                (self.as_ptr() as usize + offset) as *mut _,
-                count,
-            ))
-        }
+impl<'a> From<&'a mut [u8]> for VolatileSlice<'a, ()> {
+    fn from(value: &'a mut [u8]) -> Self {
+        // SAFETY: Since we construct the VolatileSlice from a rust slice, we know that
+        // the memory at addr `value as *mut u8` is valid for reads and writes (because mutable
+        // reference) of len `value.len()`. Since the `VolatileSlice` inherits the lifetime `'a`,
+        // it is not possible to access/mutate `value` while the VolatileSlice is alive.
+        //
+        // Note that it is possible for multiple aliasing sub slices of this `VolatileSlice`s to
+        // be created through `VolatileSlice::subslice`. This is OK, as pointers are allowed to
+        // alias, and it is impossible to get rust-style references from a `VolatileSlice`.
+        unsafe { VolatileSlice::new(value.as_mut_ptr(), value.len()) }
     }
 }
 
@@ -322,16 +316,13 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
     /// # Example
     ///
     /// ```
-    /// # use vm_memory::VolatileMemory;
+    /// # use vm_memory::{VolatileMemory, VolatileSlice};
     /// #
     /// # // Create a buffer
     /// # let mut mem = [0u8; 32];
-    /// # let mem_ref = &mut mem[..];
     /// #
     /// # // Get a `VolatileSlice` from the buffer
-    /// let vslice = mem_ref
-    ///     .get_slice(0, 32)
-    ///     .expect("Could not get VolatileSlice");
+    /// let vslice = VolatileSlice::from(&mut mem[..]);
     ///
     /// let (start, end) = vslice.split_at(8).expect("Could not split VolatileSlice");
     /// assert_eq!(8, start.len());
@@ -400,13 +391,10 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
     /// # Examples
     ///
     /// ```
-    /// # use vm_memory::VolatileMemory;
+    /// # use vm_memory::{VolatileMemory, VolatileSlice};
     /// #
     /// let mut mem = [0u8; 32];
-    /// let mem_ref = &mut mem[..];
-    /// let vslice = mem_ref
-    ///     .get_slice(0, 32)
-    ///     .expect("Could not get VolatileSlice");
+    /// let vslice = VolatileSlice::from(&mut mem[..]);
     /// let mut buf = [5u8; 16];
     /// let res = vslice.copy_to(&mut buf[..]);
     ///
@@ -445,15 +433,13 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
     /// # Examples
     ///
     /// ```
-    /// # use vm_memory::VolatileMemory;
+    /// # use vm_memory::{VolatileMemory, VolatileSlice};
     /// #
     /// # // Create a buffer
     /// # let mut mem = [0u8; 32];
-    /// # let mem_ref = &mut mem[..];
     /// #
     /// # // Get a `VolatileSlice` from the buffer
-    /// # let vslice = mem_ref.get_slice(0, 32)
-    /// #    .expect("Could not get VolatileSlice");
+    /// # let vslice = VolatileSlice::from(&mut mem[..]);
     /// #
     /// vslice.copy_to_volatile_slice(
     ///     vslice
@@ -480,13 +466,10 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
     /// # Examples
     ///
     /// ```
-    /// # use vm_memory::VolatileMemory;
+    /// # use vm_memory::{VolatileMemory, VolatileSlice};
     /// #
     /// let mut mem = [0u8; 32];
-    /// let mem_ref = &mut mem[..];
-    /// let vslice = mem_ref
-    ///     .get_slice(0, 32)
-    ///     .expect("Could not get VolatileSlice");
+    /// let vslice = VolatileSlice::from(&mut mem[..]);
     ///
     /// let buf = [5u8; 64];
     /// vslice.copy_from(&buf[..]);
@@ -549,11 +532,10 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// * Write a slice of size 5 at offset 1020 of a 1024-byte `VolatileSlice`.
     ///
     /// ```
-    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// # use vm_memory::{Bytes, VolatileMemory, VolatileSlice};
     /// #
     /// let mut mem = [0u8; 1024];
-    /// let mut mem_ref = &mut mem[..];
-    /// let vslice = mem_ref.as_volatile_slice();
+    /// let vslice = VolatileSlice::from(&mut mem[..]);
     /// let res = vslice.write(&[1, 2, 3, 4, 5], 1020);
     ///
     /// assert!(res.is_ok());
@@ -591,11 +573,10 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// * Read a slice of size 16 at offset 1010 of a 1024-byte `VolatileSlice`.
     ///
     /// ```
-    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// # use vm_memory::{Bytes, VolatileMemory, VolatileSlice};
     /// #
     /// let mut mem = [0u8; 1024];
-    /// let mut mem_ref = &mut mem[..];
-    /// let vslice = mem_ref.as_volatile_slice();
+    /// let vslice = VolatileSlice::from(&mut mem[..]);
     /// let buf = &mut [0u8; 16];
     /// let res = vslice.read(buf, 1010);
     ///
@@ -631,14 +612,13 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// * Write a slice at offset 256.
     ///
     /// ```
-    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// # use vm_memory::{Bytes, VolatileMemory, VolatileSlice};
     /// #
     /// # // Create a buffer
     /// # let mut mem = [0u8; 1024];
-    /// # let mut mem_ref = &mut mem[..];
     /// #
     /// # // Get a `VolatileSlice` from the buffer
-    /// # let vslice = mem_ref.as_volatile_slice();
+    /// # let vslice = VolatileSlice::from(&mut mem[..]);
     /// #
     /// let res = vslice.write_slice(&[1, 2, 3, 4, 5], 256);
     ///
@@ -661,14 +641,13 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// * Read a slice of size 16 at offset 256.
     ///
     /// ```
-    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// # use vm_memory::{Bytes, VolatileMemory, VolatileSlice};
     /// #
     /// # // Create a buffer
     /// # let mut mem = [0u8; 1024];
-    /// # let mut mem_ref = &mut mem[..];
     /// #
     /// # // Get a `VolatileSlice` from the buffer
-    /// # let vslice = mem_ref.as_volatile_slice();
+    /// # let vslice = VolatileSlice::from(&mut mem[..]);
     /// #
     /// let buf = &mut [0u8; 16];
     /// let res = vslice.read_slice(buf, 256);
@@ -691,14 +670,13 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// * Read bytes from /dev/urandom
     ///
     /// ```
-    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// # use vm_memory::{Bytes, VolatileMemory, VolatileSlice};
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// #
     /// # if cfg!(unix) {
     /// # let mut mem = [0u8; 1024];
-    /// # let mut mem_ref = &mut mem[..];
-    /// # let vslice = mem_ref.as_volatile_slice();
+    /// # let vslice = VolatileSlice::from(&mut mem[..]);
     /// let mut file = File::open(Path::new("/dev/urandom")).expect("Could not open /dev/urandom");
     ///
     /// vslice
@@ -747,14 +725,13 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// * Read bytes from /dev/urandom
     ///
     /// ```
-    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// # use vm_memory::{Bytes, VolatileMemory, VolatileSlice};
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// #
     /// # if cfg!(unix) {
     /// # let mut mem = [0u8; 1024];
-    /// # let mut mem_ref = &mut mem[..];
-    /// # let vslice = mem_ref.as_volatile_slice();
+    /// # let vslice = VolatileSlice::from(&mut mem[..]);
     /// let mut file = File::open(Path::new("/dev/urandom")).expect("Could not open /dev/urandom");
     ///
     /// vslice
@@ -793,14 +770,13 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// * Write 128 bytes to /dev/null
     ///
     /// ```
-    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// # use vm_memory::{Bytes, VolatileMemory, VolatileSlice};
     /// # use std::fs::OpenOptions;
     /// # use std::path::Path;
     /// #
     /// # if cfg!(unix) {
     /// # let mut mem = [0u8; 1024];
-    /// # let mut mem_ref = &mut mem[..];
-    /// # let vslice = mem_ref.as_volatile_slice();
+    /// # let vslice = VolatileSlice::from(&mut mem[..]);
     /// let mut file = OpenOptions::new()
     ///     .write(true)
     ///     .open("/dev/null")
@@ -842,14 +818,13 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// * Write 128 bytes to /dev/null
     ///
     /// ```
-    /// # use vm_memory::{Bytes, VolatileMemory};
+    /// # use vm_memory::{Bytes, VolatileMemory, VolatileSlice};
     /// # use std::fs::OpenOptions;
     /// # use std::path::Path;
     /// #
     /// # if cfg!(unix) {
     /// # let mut mem = [0u8; 1024];
-    /// # let mut mem_ref = &mut mem[..];
-    /// # let vslice = mem_ref.as_volatile_slice();
+    /// # let vslice = VolatileSlice::from(&mut mem[..]);
     /// let mut file = OpenOptions::new()
     ///     .write(true)
     ///     .open("/dev/null")
@@ -1448,7 +1423,9 @@ mod copy_slice_impl {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
+
     use super::*;
+    use std::alloc::Layout;
 
     use std::fs::File;
     use std::io::Cursor;
@@ -1466,34 +1443,6 @@ mod tests {
         check_range, range_is_clean, range_is_dirty, test_bytes, test_volatile_memory,
     };
     use crate::bitmap::{AtomicBitmap, RefSlice};
-
-    #[derive(Clone)]
-    struct VecMem {
-        mem: Arc<[u8]>,
-    }
-
-    impl VecMem {
-        fn new(size: usize) -> VecMem {
-            VecMem {
-                mem: vec![0; size].into(),
-            }
-        }
-    }
-
-    impl VolatileMemory for VecMem {
-        type B = ();
-
-        fn len(&self) -> usize {
-            self.mem.len()
-        }
-
-        fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice<()>> {
-            let _ = self.compute_end_offset(offset, count)?;
-            Ok(unsafe {
-                VolatileSlice::new((self.mem.as_ptr() as usize + offset) as *mut _, count)
-            })
-        }
-    }
 
     #[test]
     fn test_display_error() {
@@ -1550,7 +1499,7 @@ mod tests {
     #[test]
     fn misaligned_ref() {
         let mut a = [0u8; 3];
-        let a_ref = &mut a[..];
+        let a_ref = VolatileSlice::from(&mut a[..]);
         unsafe {
             assert!(
                 a_ref.aligned_as_ref::<u16>(0).is_err() ^ a_ref.aligned_as_ref::<u16>(1).is_err()
@@ -1608,7 +1557,7 @@ mod tests {
     fn ref_store() {
         let mut a = [0u8; 1];
         {
-            let a_ref = &mut a[..];
+            let a_ref = VolatileSlice::from(&mut a[..]);
             let v_ref = a_ref.get_ref(0).unwrap();
             v_ref.store(2u8);
         }
@@ -1619,7 +1568,7 @@ mod tests {
     fn ref_load() {
         let mut a = [5u8; 1];
         {
-            let a_ref = &mut a[..];
+            let a_ref = VolatileSlice::from(&mut a[..]);
             let c = {
                 let v_ref = a_ref.get_ref::<u8>(0).unwrap();
                 assert_eq!(v_ref.load(), 5u8);
@@ -1636,7 +1585,7 @@ mod tests {
     #[test]
     fn ref_to_slice() {
         let mut a = [1u8; 5];
-        let a_ref = &mut a[..];
+        let a_ref = VolatileSlice::from(&mut a[..]);
         let v_ref = a_ref.get_ref(1).unwrap();
         v_ref.store(0x1234_5678u32);
         let ref_slice = v_ref.to_slice();
@@ -1647,16 +1596,28 @@ mod tests {
 
     #[test]
     fn observe_mutate() {
-        let a = VecMem::new(1);
-        let a_clone = a.clone();
-        let v_ref = a.get_ref::<u8>(0).unwrap();
+        struct RawMemory(*mut u8);
+
+        // SAFETY: we use property synchronization below
+        unsafe impl Send for RawMemory {}
+        unsafe impl Sync for RawMemory {}
+
+        let mem = Arc::new(RawMemory(unsafe {
+            std::alloc::alloc(Layout::from_size_align(1, 1).unwrap())
+        }));
+
+        let outside_slice = unsafe { VolatileSlice::new(Arc::clone(&mem).0, 1) };
+        let inside_arc = Arc::clone(&mem);
+
+        let v_ref = outside_slice.get_ref::<u8>(0).unwrap();
         let barrier = Arc::new(Barrier::new(2));
         let barrier1 = barrier.clone();
 
         v_ref.store(99);
         spawn(move || {
             barrier1.wait();
-            let clone_v_ref = a_clone.get_ref::<u8>(0).unwrap();
+            let inside_slice = unsafe { VolatileSlice::new(inside_arc.0, 1) };
+            let clone_v_ref = inside_slice.get_ref::<u8>(0).unwrap();
             clone_v_ref.store(0);
             barrier1.wait();
         });
@@ -1665,20 +1626,25 @@ mod tests {
         barrier.wait();
         barrier.wait();
         assert_eq!(v_ref.load(), 0);
+
+        unsafe { std::alloc::dealloc(mem.0, Layout::from_size_align(1, 1).unwrap()) }
     }
 
     #[test]
     fn mem_is_empty() {
-        let a = VecMem::new(100);
+        let mut backing = vec![0u8; 100];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         assert!(!a.is_empty());
 
-        let a = VecMem::new(0);
+        let mut backing = vec![];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         assert!(a.is_empty());
     }
 
     #[test]
     fn slice_len() {
-        let mem = VecMem::new(100);
+        let mut backing = vec![0u8; 100];
+        let mem = VolatileSlice::from(backing.as_mut_slice());
         let slice = mem.get_slice(0, 27).unwrap();
         assert_eq!(slice.len(), 27);
         assert!(!slice.is_empty());
@@ -1697,7 +1663,8 @@ mod tests {
 
     #[test]
     fn slice_subslice() {
-        let mem = VecMem::new(100);
+        let mut backing = vec![0u8; 100];
+        let mem = VolatileSlice::from(backing.as_mut_slice());
         let slice = mem.get_slice(0, 100).unwrap();
         assert!(slice.write(&[1; 80], 10).is_ok());
 
@@ -1729,7 +1696,8 @@ mod tests {
 
     #[test]
     fn slice_offset() {
-        let mem = VecMem::new(100);
+        let mut backing = vec![0u8; 100];
+        let mem = VolatileSlice::from(backing.as_mut_slice());
         let slice = mem.get_slice(0, 100).unwrap();
         assert!(slice.write(&[1; 80], 10).is_ok());
 
@@ -1750,12 +1718,12 @@ mod tests {
         let mut a = [2u8, 4, 6, 8, 10];
         let mut b = [0u8; 4];
         let mut c = [0u8; 6];
-        let a_ref = &mut a[..];
+        let a_ref = VolatileSlice::from(&mut a[..]);
         let v_ref = a_ref.get_slice(0, a_ref.len()).unwrap();
         v_ref.copy_to(&mut b[..]);
         v_ref.copy_to(&mut c[..]);
-        assert_eq!(b[0..4], a_ref[0..4]);
-        assert_eq!(c[0..5], a_ref[0..5]);
+        assert_eq!(b[0..4], a[0..4]);
+        assert_eq!(c[0..5], a[0..5]);
     }
 
     #[test]
@@ -1778,15 +1746,15 @@ mod tests {
         let a = [2u8, 4, 6, 8, 10];
         let mut b = [0u8; 4];
         let mut c = [0u8; 6];
-        let b_ref = &mut b[..];
+        let b_ref = VolatileSlice::from(&mut b[..]);
         let v_ref = b_ref.get_slice(0, b_ref.len()).unwrap();
         v_ref.copy_from(&a[..]);
-        assert_eq!(b_ref[0..4], a[0..4]);
+        assert_eq!(b[0..4], a[0..4]);
 
-        let c_ref = &mut c[..];
+        let c_ref = VolatileSlice::from(&mut c[..]);
         let v_ref = c_ref.get_slice(0, c_ref.len()).unwrap();
         v_ref.copy_from(&a[..]);
-        assert_eq!(c_ref[0..5], a[0..5]);
+        assert_eq!(c[0..5], a[0..5]);
     }
 
     #[test]
@@ -1809,11 +1777,11 @@ mod tests {
     #[test]
     fn slice_copy_to_volatile_slice() {
         let mut a = [2u8, 4, 6, 8, 10];
-        let a_ref = &mut a[..];
+        let a_ref = VolatileSlice::from(&mut a[..]);
         let a_slice = a_ref.get_slice(0, a_ref.len()).unwrap();
 
         let mut b = [0u8; 4];
-        let b_ref = &mut b[..];
+        let b_ref = VolatileSlice::from(&mut b[..]);
         let b_slice = b_ref.get_slice(0, b_ref.len()).unwrap();
 
         a_slice.copy_to_volatile_slice(b_slice);
@@ -1823,7 +1791,8 @@ mod tests {
     #[test]
     fn slice_overflow_error() {
         use std::usize::MAX;
-        let a = VecMem::new(1);
+        let mut backing = vec![0u8];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         let res = a.get_slice(MAX, 1).unwrap_err();
         assert_matches!(
             res,
@@ -1836,7 +1805,8 @@ mod tests {
 
     #[test]
     fn slice_oob_error() {
-        let a = VecMem::new(100);
+        let mut backing = vec![0u8; 100];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         a.get_slice(50, 50).unwrap();
         let res = a.get_slice(55, 50).unwrap_err();
         assert_matches!(res, Error::OutOfBounds { addr: 105 });
@@ -1845,7 +1815,8 @@ mod tests {
     #[test]
     fn ref_overflow_error() {
         use std::usize::MAX;
-        let a = VecMem::new(1);
+        let mut backing = vec![0u8];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         let res = a.get_ref::<u8>(MAX).unwrap_err();
         assert_matches!(
             res,
@@ -1858,7 +1829,8 @@ mod tests {
 
     #[test]
     fn ref_oob_error() {
-        let a = VecMem::new(100);
+        let mut backing = vec![0u8; 100];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         a.get_ref::<u8>(99).unwrap();
         let res = a.get_ref::<u16>(99).unwrap_err();
         assert_matches!(res, Error::OutOfBounds { addr: 101 });
@@ -1866,14 +1838,16 @@ mod tests {
 
     #[test]
     fn ref_oob_too_large() {
-        let a = VecMem::new(3);
+        let mut backing = vec![0u8; 3];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         let res = a.get_ref::<u32>(0).unwrap_err();
         assert_matches!(res, Error::OutOfBounds { addr: 4 });
     }
 
     #[test]
     fn slice_store() {
-        let a = VecMem::new(5);
+        let mut backing = vec![0u8; 5];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
         let r = a.get_ref(2).unwrap();
         r.store(9u16);
@@ -1882,7 +1856,8 @@ mod tests {
 
     #[test]
     fn test_write_past_end() {
-        let a = VecMem::new(5);
+        let mut backing = vec![0u8; 5];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
         let res = s.write(&[1, 2, 3, 4, 5, 6], 0);
         assert!(res.is_ok());
@@ -1891,7 +1866,8 @@ mod tests {
 
     #[test]
     fn slice_read_and_write() {
-        let a = VecMem::new(5);
+        let mut backing = vec![0u8; 5];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
         let sample_buf = [1, 2, 3];
         assert!(s.write(&sample_buf, 5).is_err());
@@ -1907,7 +1883,8 @@ mod tests {
         assert_eq!(s.read(buf, 4).unwrap(), 0);
 
         // Check that reading and writing an empty buffer does not yield an error.
-        let empty_mem = VecMem::new(0);
+        let mut backing = Vec::new();
+        let empty_mem = VolatileSlice::from(backing.as_mut_slice());
         let empty = empty_mem.as_volatile_slice();
         assert_eq!(empty.write(&[], 1).unwrap(), 0);
         assert_eq!(empty.read(buf, 1).unwrap(), 0);
@@ -1915,7 +1892,8 @@ mod tests {
 
     #[test]
     fn obj_read_and_write() {
-        let a = VecMem::new(5);
+        let mut backing = vec![0u8; 5];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
         assert!(s.write_obj(55u16, 4).is_err());
         assert!(s.write_obj(55u16, core::usize::MAX).is_err());
@@ -1927,7 +1905,8 @@ mod tests {
 
     #[test]
     fn mem_read_and_write() {
-        let a = VecMem::new(5);
+        let mut backing = vec![0u8; 5];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
         assert!(s.write_obj(!0u32, 1).is_ok());
         let mut file = if cfg!(unix) {
@@ -1969,7 +1948,8 @@ mod tests {
 
     #[test]
     fn unaligned_read_and_write() {
-        let a = VecMem::new(7);
+        let mut backing = vec![0u8; 7];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
         let sample_buf: [u8; 7] = [1, 2, 0xAA, 0xAA, 0xAA, 0xAA, 4];
         assert!(s.write_slice(&sample_buf, 0).is_ok());
@@ -2011,7 +1991,7 @@ mod tests {
     fn ref_array_from_slice() {
         let mut a = [2, 4, 6, 8, 10];
         let a_vec = a.to_vec();
-        let a_ref = &mut a[..];
+        let a_ref = VolatileSlice::from(&mut a[..]);
         let a_slice = a_ref.get_slice(0, a_ref.len()).unwrap();
         let a_array_ref: VolatileArrayRef<u8, ()> = a_slice.into();
         for (i, entry) in a_vec.iter().enumerate() {
@@ -2023,7 +2003,7 @@ mod tests {
     fn ref_array_store() {
         let mut a = [0u8; 5];
         {
-            let a_ref = &mut a[..];
+            let a_ref = VolatileSlice::from(&mut a[..]);
             let v_ref = a_ref.get_array_ref(1, 4).unwrap();
             v_ref.store(1, 2u8);
             v_ref.store(2, 4u8);
@@ -2037,7 +2017,7 @@ mod tests {
     fn ref_array_load() {
         let mut a = [0, 0, 2, 3, 10];
         {
-            let a_ref = &mut a[..];
+            let a_ref = VolatileSlice::from(&mut a[..]);
             let c = {
                 let v_ref = a_ref.get_array_ref::<u8>(1, 4).unwrap();
                 assert_eq!(v_ref.load(1), 2u8);
@@ -2056,7 +2036,7 @@ mod tests {
     #[test]
     fn ref_array_overflow() {
         let mut a = [0, 0, 2, 3, 10];
-        let a_ref = &mut a[..];
+        let a_ref = VolatileSlice::from(&mut a[..]);
         let res = a_ref.get_array_ref::<u32>(4, usize::MAX).unwrap_err();
         assert_matches!(
             res,
@@ -2080,7 +2060,8 @@ mod tests {
 
     #[test]
     fn test_atomic_accesses() {
-        let a = VecMem::new(0x1000);
+        let mut backing = vec![0u8; 0x1000];
+        let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
 
         crate::bytes::tests::check_atomic_accesses(s, 0, 0x1000);
@@ -2089,7 +2070,7 @@ mod tests {
     #[test]
     fn split_at() {
         let mut mem = [0u8; 32];
-        let mem_ref = &mut mem[..];
+        let mem_ref = VolatileSlice::from(&mut mem[..]);
         let vslice = mem_ref.get_slice(0, 32).unwrap();
         let (start, end) = vslice.split_at(8).unwrap();
         assert_eq!(start.len(), 8);
