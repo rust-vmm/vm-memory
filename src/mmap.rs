@@ -33,12 +33,15 @@ use crate::volatile_memory::{VolatileMemory, VolatileSlice};
 use crate::{AtomicAccess, Bytes};
 
 #[cfg(unix)]
-pub use crate::mmap_unix::{Error as MmapRegionError, MmapRegion, MmapRegionBuilder};
+pub use crate::mmap_unix::{
+    Error as MmapRegionError, MmapRegion, MmapRegionBuilder, MmapUnix as MmapDefault,
+    Result as MmapRegionResult,
+};
 
 #[cfg(windows)]
-pub use crate::mmap_windows::MmapRegion;
+pub use crate::mmap_windows::{MmapRegion, MmapWindows as MmapDefault};
 #[cfg(windows)]
-pub use std::io::Error as MmapRegionError;
+pub use std::io::{Error as MmapRegionError, Result as MmapRegionResult};
 
 /// A `Bitmap` that can be created starting from an initial size.
 pub trait NewBitmap: Bitmap + Default {
@@ -48,6 +51,74 @@ pub trait NewBitmap: Bitmap + Default {
 
 impl NewBitmap for () {
     fn with_len(_len: usize) -> Self {}
+}
+
+/// Trait to convert address to mapped offset.
+pub trait MappedAddress: fmt::Debug {
+    /// Mapped address for the region.
+    fn offset(&self) -> usize;
+}
+
+// Simple implementation of MappedAddress, which doesn't perform any additional {un}mapping.
+#[derive(Debug)]
+pub(crate) struct MappedAddressSimple(usize);
+
+impl MappedAddress for MappedAddressSimple {
+    fn offset(&self) -> usize {
+        self.0
+    }
+}
+
+impl MappedAddressSimple {
+    pub(crate) fn new(offset: usize) -> Self {
+        Self(offset)
+    }
+}
+
+/// Trait implemented by underlying `MmapRegion`.
+pub trait MmapInternal: fmt::Debug + 'static {
+    /// Maps the memory in architecture / platform dependent way.
+    fn mmap(
+        &mut self,
+        size: usize,
+        prot: i32,
+        flags: i32,
+        file_offset: &Option<FileOffset>,
+    ) -> MmapRegionResult<()>;
+
+    /// Unmaps the memory in architecture / platform dependent way.
+    fn munmap(&self);
+
+    /// Returns the mapped address corresponding to offset.
+    fn translate(
+        &self,
+        _size: usize,
+        _is_read: bool,
+        offset: usize,
+    ) -> MmapRegionResult<Box<dyn MappedAddress>> {
+        Ok(Box::new(MappedAddressSimple::new(offset)))
+    }
+
+    /// Set mapped address for the region.
+    fn set_addr(&mut self, addr: *mut u8) -> MmapRegionResult<()>;
+
+    /// Mapped address for the region.
+    fn addr(&self) -> *mut u8;
+
+    /// Mmap specific flags.
+    fn mmap_flags(&self) -> u32 {
+        0
+    }
+
+    /// Mmap specific data.
+    fn mmap_data(&self) -> u32 {
+        0
+    }
+
+    /// Clone.
+    fn clone(&self) -> Self
+    where
+        Self: Sized;
 }
 
 /// Errors that can occur when creating a memory map.
@@ -147,6 +218,16 @@ impl<B: Bitmap> GuestRegionMmap<B> {
             guest_base,
         })
     }
+
+    fn map(
+        &self,
+        offset: MemoryRegionAddress,
+        count: usize,
+        is_read: bool,
+    ) -> guest_memory::Result<Box<dyn MappedAddress>> {
+        self.translate(count, is_read, offset.raw_value() as usize)
+            .map_err(|_| guest_memory::Error::InvalidGuestAddress(GuestAddress(offset.raw_value())))
+    }
 }
 
 impl<B: NewBitmap> GuestRegionMmap<B> {
@@ -156,10 +237,20 @@ impl<B: NewBitmap> GuestRegionMmap<B> {
         size: usize,
         file: Option<FileOffset>,
     ) -> result::Result<Self, Error> {
+        Self::from_range_with_map(MmapDefault::new(), addr, size, file)
+    }
+
+    /// Create a new memory-mapped memory region from guest's physical memory, size and file.
+    pub fn from_range_with_map<M: MmapInternal>(
+        map: M,
+        addr: GuestAddress,
+        size: usize,
+        file: Option<FileOffset>,
+    ) -> result::Result<Self, Error> {
         let region = if let Some(ref f_off) = file {
-            MmapRegion::from_file(f_off.clone(), size)
+            MmapRegion::from_file(map, f_off.clone(), size)
         } else {
-            MmapRegion::new(size)
+            MmapRegion::new_with_map(map, size)
         }
         .map_err(Error::MmapRegion)?;
 
@@ -186,10 +277,10 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionMmap<B> {
     /// assert_eq!(5, res);
     /// ```
     fn write(&self, buf: &[u8], addr: MemoryRegionAddress) -> guest_memory::Result<usize> {
-        let maddr = addr.raw_value() as usize;
+        let maddr = self.map(addr, buf.len(), false)?;
         self.as_volatile_slice()
             .unwrap()
-            .write(buf, maddr)
+            .write(buf, maddr.offset())
             .map_err(Into::into)
     }
 
@@ -210,26 +301,26 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionMmap<B> {
     /// assert_eq!(16, res);
     /// ```
     fn read(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> guest_memory::Result<usize> {
-        let maddr = addr.raw_value() as usize;
+        let maddr = self.map(addr, buf.len(), true)?;
         self.as_volatile_slice()
             .unwrap()
-            .read(buf, maddr)
+            .read(buf, maddr.offset())
             .map_err(Into::into)
     }
 
     fn write_slice(&self, buf: &[u8], addr: MemoryRegionAddress) -> guest_memory::Result<()> {
-        let maddr = addr.raw_value() as usize;
+        let maddr = self.map(addr, buf.len(), false)?;
         self.as_volatile_slice()
             .unwrap()
-            .write_slice(buf, maddr)
+            .write_slice(buf, maddr.offset())
             .map_err(Into::into)
     }
 
     fn read_slice(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> guest_memory::Result<()> {
-        let maddr = addr.raw_value() as usize;
+        let maddr = self.map(addr, buf.len(), true)?;
         self.as_volatile_slice()
             .unwrap()
-            .read_slice(buf, maddr)
+            .read_slice(buf, maddr.offset())
             .map_err(Into::into)
     }
 
@@ -271,10 +362,10 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionMmap<B> {
     where
         F: Read,
     {
-        let maddr = addr.raw_value() as usize;
+        let maddr = self.map(addr, count, true)?;
         self.as_volatile_slice()
             .unwrap()
-            .read_from::<F>(maddr, src, count)
+            .read_from::<F>(maddr.offset(), src, count)
             .map_err(Into::into)
     }
 
@@ -316,10 +407,10 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionMmap<B> {
     where
         F: Read,
     {
-        let maddr = addr.raw_value() as usize;
+        let maddr = self.map(addr, count, true)?;
         self.as_volatile_slice()
             .unwrap()
-            .read_exact_from::<F>(maddr, src, count)
+            .read_exact_from::<F>(maddr.offset(), src, count)
             .map_err(Into::into)
     }
 
@@ -361,10 +452,10 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionMmap<B> {
     where
         F: Write,
     {
-        let maddr = addr.raw_value() as usize;
+        let maddr = self.map(addr, count, false)?;
         self.as_volatile_slice()
             .unwrap()
-            .write_to::<F>(maddr, dst, count)
+            .write_to::<F>(maddr.offset(), dst, count)
             .map_err(Into::into)
     }
 
@@ -406,10 +497,10 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionMmap<B> {
     where
         F: Write,
     {
-        let maddr = addr.raw_value() as usize;
+        let maddr = self.map(addr, count, false)?;
         self.as_volatile_slice()
             .unwrap()
-            .write_all_to::<F>(maddr, dst, count)
+            .write_all_to::<F>(maddr.offset(), dst, count)
             .map_err(Into::into)
     }
 
@@ -419,10 +510,9 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionMmap<B> {
         addr: MemoryRegionAddress,
         order: Ordering,
     ) -> guest_memory::Result<()> {
-        self.as_volatile_slice().and_then(|s| {
-            s.store(val, addr.raw_value() as usize, order)
-                .map_err(Into::into)
-        })
+        let maddr = self.map(addr, 1, false)?;
+        self.as_volatile_slice()
+            .and_then(|s| s.store(val, maddr.offset(), order).map_err(Into::into))
     }
 
     fn load<T: AtomicAccess>(
@@ -430,8 +520,9 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionMmap<B> {
         addr: MemoryRegionAddress,
         order: Ordering,
     ) -> guest_memory::Result<T> {
+        let maddr = self.map(addr, 1, true)?;
         self.as_volatile_slice()
-            .and_then(|s| s.load(addr.raw_value() as usize, order).map_err(Into::into))
+            .and_then(|s| s.load(maddr.offset(), order).map_err(Into::into))
     }
 }
 
@@ -444,6 +535,16 @@ impl<B: Bitmap> GuestMemoryRegion for GuestRegionMmap<B> {
 
     fn start_addr(&self) -> GuestAddress {
         self.guest_base
+    }
+
+    /// Returns mmap flags.
+    fn mmap_flags(&self) -> u32 {
+        self.mapping.mmap_flags()
+    }
+
+    /// Returns mmap data.
+    fn mmap_data(&self) -> u32 {
+        self.mapping.mmap_data()
     }
 
     fn bitmap(&self) -> &Self::B {
@@ -502,23 +603,45 @@ impl<B: NewBitmap> GuestMemoryMmap<B> {
     ///
     /// Valid memory regions are specified as a slice of (Address, Size) tuples sorted by Address.
     pub fn from_ranges(ranges: &[(GuestAddress, usize)]) -> result::Result<Self, Error> {
-        Self::from_ranges_with_files(ranges.iter().map(|r| (r.0, r.1, None)))
+        Self::from_ranges_with_files_and_map(
+            ranges.iter().map(|r| (MmapDefault::new(), r.0, r.1, None)),
+        )
     }
 
     /// Creates a container and allocates anonymous memory for guest memory regions.
     ///
     /// Valid memory regions are specified as a sequence of (Address, Size, Option<FileOffset>)
     /// tuples sorted by Address.
-    pub fn from_ranges_with_files<A, T>(ranges: T) -> result::Result<Self, Error>
+    pub fn from_ranges_with_files(
+        ranges: &[(GuestAddress, usize, Option<FileOffset>)],
+    ) -> result::Result<Self, Error> {
+        Self::from_ranges_with_files_and_map(
+            ranges
+                .iter()
+                .map(|r| (MmapDefault::new(), r.0, r.1, r.2.clone())),
+        )
+    }
+
+    /// Creates a container and allocates anonymous memory for guest memory regions.
+    ///
+    /// Valid memory regions are specified as a sequence of (Address, Size, Option<FileOffset>)
+    /// tuples sorted by Address.
+    pub fn from_ranges_with_files_and_map<M, A, T>(ranges: T) -> result::Result<Self, Error>
     where
-        A: Borrow<(GuestAddress, usize, Option<FileOffset>)>,
+        A: Borrow<(M, GuestAddress, usize, Option<FileOffset>)>,
         T: IntoIterator<Item = A>,
+        M: MmapInternal,
     {
         Self::from_regions(
             ranges
                 .into_iter()
                 .map(|x| {
-                    GuestRegionMmap::from_range(x.borrow().0, x.borrow().1, x.borrow().2.clone())
+                    GuestRegionMmap::from_range_with_map(
+                        x.borrow().0.clone(),
+                        x.borrow().1,
+                        x.borrow().2,
+                        x.borrow().3.clone(),
+                    )
                 })
                 .collect::<result::Result<Vec<_>, Error>>()?,
         )
@@ -696,6 +819,10 @@ mod tests {
         {
             assert_eq!(region_addr, &mmap.guest_base);
             assert_eq!(region_size, &mmap.mapping.size());
+
+            // These must be 0 for default MmapInternal types.
+            assert_eq!(mmap.mapping.mmap_flags(), 0);
+            assert_eq!(mmap.mapping.mmap_data(), 0);
 
             assert!(guest_mem.find_region(*region_addr).is_some());
         }

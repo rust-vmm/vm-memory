@@ -3,7 +3,6 @@
 
 //! Helper structure for working with mmaped memory regions in Windows.
 
-use std;
 use std::io;
 use std::os::windows::io::{AsRawHandle, RawHandle};
 use std::ptr::{null, null_mut};
@@ -14,7 +13,7 @@ use winapi::um::errhandlingapi::GetLastError;
 
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::FileOffset;
-use crate::mmap::NewBitmap;
+use crate::mmap::{MappedAddress, MmapInternal, NewBitmap};
 use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
 
 #[allow(non_snake_case)]
@@ -61,6 +60,52 @@ pub const INVALID_HANDLE_VALUE: RawHandle = (-1isize) as RawHandle;
 #[allow(dead_code)]
 pub const ERROR_INVALID_PARAMETER: i32 = 87;
 
+#[derive(Copy, Clone, Debug, Default)]
+/// Standard Unix specific mmap() implementation.
+pub struct MmapWindows(Option<*mut u8>);
+
+impl MmapWindows {
+    /// Create a new object.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl MmapInternal for MmapWindows {
+    /// Maps the memory in architecture / platform dependent way.
+    fn mmap(
+        &mut self,
+        _size: usize,
+        _prot: i32,
+        _flags: i32,
+        _fd: i32,
+        _f_off: u64,
+    ) -> io::Result<()> {
+        panic!();
+    }
+
+    /// Unmaps the memory in architecture / platform dependent way.
+    fn munmap(&self) {
+        panic!();
+    }
+
+    /// Set mapped address for the region.
+    fn set_addr(&mut self, addr: *mut u8) -> io::Result<()> {
+        self.0 = Some(addr);
+        Ok(())
+    }
+
+    /// Mapped address for the region.
+    fn addr(&self) -> *mut u8 {
+        self.0.unwrap()
+    }
+
+    /// Clone.
+    fn clone(&self) -> Self {
+        Clone::clone(self)
+    }
+}
+
 /// Helper structure for working with mmaped memory regions in Unix.
 ///
 /// The structure is used for accessing the guest's physical memory by mmapping it into
@@ -76,6 +121,7 @@ pub struct MmapRegion<B> {
     size: usize,
     bitmap: B,
     file_offset: Option<FileOffset>,
+    map: Box<dyn MmapInternal>,
 }
 
 // Send and Sync aren't automatically inherited for the raw address pointer.
@@ -105,7 +151,17 @@ impl<B: NewBitmap> MmapRegion<B> {
             size,
             bitmap: B::with_len(size),
             file_offset: None,
+            map: Box::new(MmapWindows::new()),
         })
+    }
+
+    /// Creates a shared anonymous mapping of `size` bytes.
+    ///
+    /// # Arguments
+    /// * `_map` - Memory mapping mechanism.
+    /// * `size` - The size of the memory region in bytes.
+    pub fn new_with_map<M: MmapInternal + 'static>(_map: M, size: usize) -> io::Result<Self> {
+        Self::new(size)
     }
 
     /// Creates a shared file mapping of `size` bytes.
@@ -114,7 +170,11 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
     ///                   referred to by `file_offset.file`.
     /// * `size` - The size of the memory region in bytes.
-    pub fn from_file(file_offset: FileOffset, size: usize) -> io::Result<Self> {
+    pub fn from_file<M: MmapInternal + 'static>(
+        _map: M,
+        file_offset: FileOffset,
+        size: usize,
+    ) -> io::Result<Self> {
         let handle = file_offset.file().as_raw_handle();
         if handle == INVALID_HANDLE_VALUE {
             return Err(io::Error::from_raw_os_error(libc::EBADF));
@@ -160,11 +220,22 @@ impl<B: NewBitmap> MmapRegion<B> {
             size,
             bitmap: B::with_len(size),
             file_offset: Some(file_offset),
+            map: Box::new(MmapWindows::new()),
         })
     }
 }
 
 impl<B: Bitmap> MmapRegion<B> {
+    /// Returns the mapped address corresponding to offset.
+    pub fn translate(
+        &self,
+        size: usize,
+        is_read: bool,
+        offset: usize,
+    ) -> io::Result<Box<dyn MappedAddress>> {
+        self.map.translate(size, is_read, offset)
+    }
+
     /// Returns a pointer to the beginning of the memory region. Mutable accesses performed
     /// using the resulting pointer are not automatically accounted for by the dirty bitmap
     /// tracking functionality.
@@ -187,6 +258,16 @@ impl<B: Bitmap> MmapRegion<B> {
     /// Returns a reference to the inner bitmap object.
     pub fn bitmap(&self) -> &B {
         &self.bitmap
+    }
+
+    /// Returns mmap flags.
+    pub fn mmap_flags(&self) -> u32 {
+        panic!()
+    }
+
+    /// Returns mmap data.
+    pub fn mmap_data(&self) -> u32 {
+        panic!()
     }
 }
 
@@ -241,6 +322,7 @@ impl<B> Drop for MmapRegion<B> {
 mod tests {
     use std::os::windows::io::FromRawHandle;
 
+    use super::*;
     use crate::bitmap::AtomicBitmap;
     use crate::guest_memory::FileOffset;
     use crate::mmap_windows::INVALID_HANDLE_VALUE;
@@ -251,7 +333,7 @@ mod tests {
     fn map_invalid_handle() {
         let file = unsafe { std::fs::File::from_raw_handle(INVALID_HANDLE_VALUE) };
         let file_offset = FileOffset::new(file, 0);
-        let e = MmapRegion::from_file(file_offset, 1024).unwrap_err();
+        let e = MmapRegion::from_file(MmapWindows::new(), file_offset, 1024).unwrap_err();
         assert_eq!(e.raw_os_error(), Some(libc::EBADF));
     }
 

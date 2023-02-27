@@ -189,6 +189,12 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
         self.start_addr().unchecked_add(self.len() - 1)
     }
 
+    /// Returns mmap flags.
+    fn mmap_flags(&self) -> u32;
+
+    /// Returns mmap data.
+    fn mmap_data(&self) -> u32;
+
     /// Borrow the associated `Bitmap` object.
     fn bitmap(&self) -> &Self::B;
 
