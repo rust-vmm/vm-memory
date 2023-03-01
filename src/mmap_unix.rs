@@ -42,6 +42,10 @@ pub enum Error {
     SeekEnd(io::Error),
     /// Seeking the start of the file returned an error.
     SeekStart(io::Error),
+    /// set_addr() not allowed.
+    SetAddr(*mut u8),
+    /// Invalid Xen mmap flags.
+    XenMmapFlags(u32),
 }
 
 impl fmt::Display for Error {
@@ -67,6 +71,8 @@ impl fmt::Display for Error {
             Error::Mmap(error) => write!(f, "{}", error),
             Error::SeekEnd(error) => write!(f, "Error seeking the end of the file: {}", error),
             Error::SeekStart(error) => write!(f, "Error seeking the start of the file: {}", error),
+            Error::SetAddr(addr) => write!(f, "Setting raw address not allowed: {:x?}", addr),
+            Error::XenMmapFlags(flags) => write!(f, "Invalid Xen Mmap flags: {:x}", flags),
         }
     }
 }

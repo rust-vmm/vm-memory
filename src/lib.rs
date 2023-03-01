@@ -48,6 +48,9 @@ pub use guest_memory::{
 #[cfg(all(feature = "backend-mmap", unix))]
 mod mmap_unix;
 
+#[cfg(all(feature = "backend-mmap", unix))]
+pub mod mmap_xen;
+
 #[cfg(all(feature = "backend-mmap", windows))]
 mod mmap_windows;
 

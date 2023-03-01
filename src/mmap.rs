@@ -38,6 +38,9 @@ pub use crate::mmap_unix::{
     Result as MmapRegionResult,
 };
 
+#[cfg(unix)]
+pub use crate::mmap_xen::{MmapXenForeign, MmapXenGrant};
+
 #[cfg(windows)]
 pub use crate::mmap_windows::{MmapRegion, MmapWindows as MmapDefault};
 #[cfg(windows)]
