@@ -125,8 +125,7 @@ pub fn check_file_offset(
         let filesize = file
             .seek(SeekFrom::End(0))
             .map_err(MmapRegionError::SeekEnd)?;
-        file.seek(SeekFrom::Start(0))
-            .map_err(MmapRegionError::SeekStart)?;
+        file.rewind().map_err(MmapRegionError::SeekStart)?;
         if filesize < end {
             return Err(MmapRegionError::MappingPastEof);
         }
