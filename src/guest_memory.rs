@@ -73,6 +73,33 @@ pub enum Error {
     HostAddressNotAvailable,
 }
 
+impl PartialEq for Error {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Error::InvalidGuestAddress(left), Error::InvalidGuestAddress(right)) => left == right,
+            (Error::InvalidBackendAddress, Error::InvalidBackendAddress) => true,
+            (Error::HostAddressNotAvailable, Error::HostAddressNotAvailable) => true,
+            (
+                Error::PartialBuffer {
+                    expected: left_expected,
+                    completed: left_completed,
+                },
+                Error::PartialBuffer {
+                    expected: right_expected,
+                    completed: right_completed,
+                },
+            ) => left_expected == right_expected && left_completed == right_completed,
+            (Error::IOError(left), Error::IOError(right)) => {
+                // error.kind should be enough to assert equallity because each error
+                // has the kind field set and the OS error numbers can be converted
+                // to ErrorKind through `sys::decode_error_kind`.
+                left.kind() == right.kind()
+            }
+            _ => false,
+        }
+    }
+}
+
 impl From<volatile_memory::Error> for Error {
     fn from(e: volatile_memory::Error) -> Self {
         match e {
