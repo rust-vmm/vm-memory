@@ -1,5 +1,17 @@
 # Changelog
 
+## [v0.11.0]
+
+### Added
+- [[#216]](https://github.com/rust-vmm/vm-memory/pull/216) Add `GuestRegionMmap::from_region`.
+
+### Fixed
+- [[#217]](https://github.com/rust-vmm/vm-memory/pull/217) Fix vm-memory internally
+  taking rust-style slices to guest memory in ways that could potentially cause 
+  undefined behavior. Removes/deprecates various `as_slice`/`as_slice_mut` methods
+  whose usage violated rust's aliasing rules, as well as an unsound 
+  `impl<'a> VolatileMemory for &'a mut [u8]`.
+
 ## [v0.10.0]
 
 ### Changed
