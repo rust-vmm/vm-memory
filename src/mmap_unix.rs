@@ -12,7 +12,7 @@
 
 use std::io;
 use std::os::unix::io::AsRawFd;
-use std::ptr::null_mut;
+use std::ptr::{null_mut, NonNull};
 use std::result;
 
 use crate::bitmap::{Bitmap, BS};
@@ -57,7 +57,7 @@ pub struct MmapRegionBuilder<B = ()> {
     prot: i32,
     flags: i32,
     file_offset: Option<FileOffset>,
-    raw_ptr: Option<*mut u8>,
+    raw_ptr: Option<NonNull<u8>>,
     hugetlbfs: Option<bool>,
     bitmap: B,
 }
@@ -119,7 +119,7 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
     /// To use this safely, the caller must guarantee that `raw_addr` and `self.size` define a
     /// region within a valid mapping that is already present in the process.
     pub unsafe fn with_raw_mmap_pointer(mut self, raw_ptr: *mut u8) -> Self {
-        self.raw_ptr = Some(raw_ptr);
+        self.raw_ptr = Some(NonNull::new_unchecked(raw_ptr));
         self
     }
 
@@ -189,7 +189,7 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
         // SAFETY: Safe because this call just returns the page size and doesn't have any side
         // effects.
         let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
-        let addr = self.raw_ptr.unwrap();
+        let addr = self.raw_ptr.unwrap().as_ptr();
 
         // Check that the pointer to the mapping is page-aligned.
         if (addr as usize) & (page_size - 1) != 0 {
