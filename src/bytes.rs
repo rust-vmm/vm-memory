@@ -334,9 +334,9 @@ pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use super::*;
 
+    use std::cell::RefCell;
     use std::fmt::Debug;
     use std::mem::align_of;
-    use std::slice;
 
     // Helper method to test atomic accesses for a given `b: Bytes` that's supposed to be
     // zero-initialized.
@@ -410,13 +410,13 @@ pub(crate) mod tests {
     pub const MOCK_BYTES_CONTAINER_SIZE: usize = 10;
 
     pub struct MockBytesContainer {
-        container: [u8; MOCK_BYTES_CONTAINER_SIZE],
+        container: RefCell<[u8; MOCK_BYTES_CONTAINER_SIZE]>,
     }
 
     impl MockBytesContainer {
         pub fn new() -> Self {
             MockBytesContainer {
-                container: [0; MOCK_BYTES_CONTAINER_SIZE],
+                container: RefCell::new([0; MOCK_BYTES_CONTAINER_SIZE]),
             }
         }
 
@@ -443,10 +443,8 @@ pub(crate) mod tests {
         fn write_slice(&self, buf: &[u8], addr: usize) -> Result<(), Self::E> {
             self.validate_slice_op(buf, addr)?;
 
-            // We need to get a mut reference to `self.container`.
-            let container_ptr = self.container[addr..].as_ptr() as usize as *mut u8;
-            let container = unsafe { slice::from_raw_parts_mut(container_ptr, buf.len()) };
-            container.copy_from_slice(buf);
+            let mut container = self.container.borrow_mut();
+            container[addr..addr + buf.len()].copy_from_slice(buf);
 
             Ok(())
         }
@@ -454,7 +452,8 @@ pub(crate) mod tests {
         fn read_slice(&self, buf: &mut [u8], addr: usize) -> Result<(), Self::E> {
             self.validate_slice_op(buf, addr)?;
 
-            buf.copy_from_slice(&self.container[addr..buf.len()]);
+            let container = self.container.borrow();
+            buf.copy_from_slice(&container[addr..addr + buf.len()]);
 
             Ok(())
         }
