@@ -37,7 +37,7 @@ use crate::atomic_integer::AtomicInteger;
 use crate::bitmap::{Bitmap, BitmapSlice, BS};
 use crate::{AtomicAccess, ByteValued, Bytes};
 
-use copy_slice_impl::copy_slice;
+use copy_slice_impl::{copy_from_volatile_slice, copy_to_volatile_slice};
 
 /// `VolatileMemory` related errors.
 #[allow(missing_docs)]
@@ -390,7 +390,7 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
             //   a slice and thus has to live outside of guest memory (there can be more slices to
             //   guest memory without violating rust's aliasing rules)
             // - size is always a multiple of alignment, so treating *mut T as *mut u8 is fine
-            unsafe { copy_slice(buf.as_mut_ptr() as *mut u8, self.as_ptr(), total) }
+            unsafe { copy_from_volatile_slice(buf.as_mut_ptr() as *mut u8, self, total) }
         } else {
             let count = self.size / size_of::<T>();
             let source = self.get_array_ref::<T>(0, count).unwrap();
@@ -468,9 +468,7 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
             //   a slice and thus has to live outside of guest memory (there can be more slices to
             //   guest memory without violating rust's aliasing rules)
             // - size is always a multiple of alignment, so treating *mut T as *mut u8 is fine
-            let count = unsafe { copy_slice(self.as_ptr(), buf.as_ptr() as *const u8, total) };
-
-            self.bitmap.mark_dirty(0, count * size_of::<T>());
+            unsafe { copy_to_volatile_slice(self, buf.as_ptr() as *const u8, total) };
         } else {
             let count = self.size / size_of::<T>();
             // It's ok to use unwrap here because `count` was computed based on the current
@@ -523,22 +521,17 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
         }
 
         let total = buf.len().min(self.len() - addr);
+        let dst = self.subslice(addr, total)?;
 
         // SAFETY:
         // We check above that `addr` is a valid offset within this volatile slice, and by
         // the invariants of `VolatileSlice::new`, this volatile slice points to contiguous
-        // memory of length self.len(). Furthermore, both src and dst of the call to copy_slice
-        // are valid for reads and writes respectively of length `total` since total is the minimum
-        // of lengths of the memory areas pointed to. The areas do not overlap, since `dst` is
-        // inside guest memory, and buf is a slice (no slices to guest memory are possible without
-        // violating rust's aliasing rules).
-        let count = unsafe {
-            let dst = self.as_ptr().add(addr);
-            copy_slice(dst, buf.as_ptr(), total)
-        };
-
-        self.bitmap.mark_dirty(addr, count);
-        Ok(count)
+        // memory of length self.len(). Furthermore, both src and dst of the call to
+        // copy_to_volatile_slice are valid for reads and writes respectively of length `total`
+        // since total is the minimum of lengths of the memory areas pointed to. The areas do not
+        // overlap, since `dst` is inside guest memory, and buf is a slice (no slices to guest
+        // memory are possible without violating rust's aliasing rules).
+        Ok(unsafe { copy_to_volatile_slice(&dst, buf.as_ptr(), total) })
     }
 
     /// # Examples
@@ -565,19 +558,17 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
         }
 
         let total = buf.len().min(self.len() - addr);
+        let src = self.subslice(addr, total)?;
 
         // SAFETY:
         // We check above that `addr` is a valid offset within this volatile slice, and by
         // the invariants of `VolatileSlice::new`, this volatile slice points to contiguous
-        // memory of length self.len(). Furthermore, both src and dst of the call to copy_slice
-        // are valid for reads and writes respectively of length `total` since total is the minimum
-        // of lengths of the memory areas pointed to. The areas do not overlap, since `dst` is
-        // inside guest memory, and buf is a slice (no slices to guest memory are possible without
-        // violating rust's aliasing rules).
-        unsafe {
-            let src = self.as_ptr().add(addr);
-            Ok(copy_slice(buf.as_mut_ptr(), src, total))
-        }
+        // memory of length self.len(). Furthermore, both src and dst of the call to
+        // copy_from_volatile_slice are valid for reads and writes respectively of length `total`
+        // since total is the minimum of lengths of the memory areas pointed to. The areas do not
+        // overlap, since `dst` is inside guest memory, and buf is a slice (no slices to guest
+        // memory are possible without violating rust's aliasing rules).
+        unsafe { Ok(copy_from_volatile_slice(buf.as_mut_ptr(), &src, total)) }
     }
 
     /// # Examples
@@ -680,16 +671,13 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
         // Read::read.
         assert!(bytes_read <= count);
 
+        let slice = self.subslice(addr, bytes_read)?;
+
         // SAFETY: We have checked via compute_end_offset that accessing the specified
         // region of guest memory is valid. We asserted that the value returned by `read` is between
         // 0 and count (the length of the buffer passed to it), and that the
         // regions don't overlap because we allocated the Vec outside of guest memory.
-        unsafe {
-            copy_slice(self.as_ptr().add(addr), dst.as_ptr(), bytes_read);
-        }
-
-        self.bitmap.mark_dirty(addr, bytes_read);
-        Ok(bytes_read)
+        Ok(unsafe { copy_to_volatile_slice(&slice, dst.as_ptr(), bytes_read) })
     }
 
     /// # Examples
@@ -726,14 +714,12 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
         // Read into buffer that can be copied into guest memory
         src.read_exact(&mut dst).map_err(Error::IOError)?;
 
+        let slice = self.subslice(addr, count)?;
+
         // SAFETY: We have checked via compute_end_offset that accessing the specified
         // region of guest memory is valid. We know that `dst` has len `count`, and that the
         // regions don't overlap because we allocated the Vec outside of guest memory
-        unsafe {
-            copy_slice(self.as_ptr().add(addr), dst.as_ptr(), count);
-        }
-
-        self.bitmap.mark_dirty(addr, count);
+        unsafe { copy_to_volatile_slice(&slice, dst.as_ptr(), count) };
         Ok(())
     }
 
@@ -765,6 +751,9 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     {
         let _ = self.compute_end_offset(addr, count)?;
         let mut src = Vec::with_capacity(count);
+
+        let slice = self.subslice(addr, count)?;
+
         // SAFETY: We checked the addr and count so accessing the slice is safe.
         // It is safe to read from volatile memory. The Vec has capacity for exactly `count`
         // many bytes, and the memory regions pointed to definitely do not overlap, as we
@@ -772,7 +761,7 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
         // The call to set_len is safe because the bytes between 0 and count have been initialized
         // via copying from guest memory, and the Vec's capacity is `count`
         unsafe {
-            copy_slice(src.as_mut_ptr(), self.as_ptr().add(addr), count);
+            copy_from_volatile_slice(src.as_mut_ptr(), &slice, count);
             src.set_len(count);
         }
 
@@ -814,6 +803,8 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
         let _ = self.compute_end_offset(addr, count)?;
         let mut src = Vec::with_capacity(count);
 
+        let slice = self.subslice(addr, count)?;
+
         // SAFETY: We checked the addr and count so accessing the slice is safe.
         // It is safe to read from volatile memory. The Vec has capacity for exactly `count`
         // many bytes, and the memory regions pointed to definitely do not overlap, as we
@@ -821,7 +812,7 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
         // The call to set_len is safe because the bytes between 0 and count have been initialized
         // via copying from guest memory, and the Vec's capacity is `count`
         unsafe {
-            copy_slice(src.as_mut_ptr(), self.as_ptr().add(addr), count);
+            copy_from_volatile_slice(src.as_mut_ptr(), &slice, count);
             src.set_len(count);
         }
 
@@ -1176,7 +1167,9 @@ where
             //   a slice and thus has to live outside of guest memory (there can be more slices to
             //   guest memory without violating rust's aliasing rules)
             // - size is always a multiple of alignment, so treating *mut T as *mut u8 is fine
-            return unsafe { copy_slice(buf.as_mut_ptr() as *mut u8, source.as_ptr(), total) };
+            return unsafe {
+                copy_from_volatile_slice(buf.as_mut_ptr() as *mut u8, &source, total)
+            };
         }
 
         let mut addr = self.addr;
@@ -1253,7 +1246,6 @@ where
             let total = buf.len().min(destination.len());
 
             // absurd formatting brought to you by clippy
-            let count =
             // SAFETY:
             // - dst is valid for writes of at least `total`, since total <= destination.len()
             // - src is valid for reads of at least `total` as total <= buf.len()
@@ -1261,8 +1253,7 @@ where
             //   a slice and thus has to live outside of guest memory (there can be more slices to
             //   guest memory without violating rust's aliasing rules)
             // - size is always a multiple of alignment, so treating *const T as *const u8 is fine
-                unsafe { copy_slice(destination.as_ptr(), buf.as_ptr() as *const u8, total) };
-            self.bitmap.mark_dirty(0, count);
+            unsafe { copy_to_volatile_slice(&destination, buf.as_ptr() as *const u8, total) };
         } else {
             let mut addr = self.addr;
             for &v in buf.iter().take(self.len()) {
@@ -1371,7 +1362,7 @@ mod copy_slice_impl {
     ///
     /// SAFETY: `src` and `dst` must be point to a contiguously allocated memory region of at least
     /// length `total`. The regions must not overlap
-    pub(super) unsafe fn copy_slice(dst: *mut u8, src: *const u8, total: usize) -> usize {
+    unsafe fn copy_slice(dst: *mut u8, src: *const u8, total: usize) -> usize {
         if total <= size_of::<usize>() {
             // SAFETY: Invariants of copy_slice_volatile are the same as invariants of copy_slice
             unsafe {
@@ -1389,6 +1380,34 @@ mod copy_slice_impl {
         }
 
         total
+    }
+
+    /// Copies `total` bytes from `slice` to `dst`
+    ///
+    /// SAFETY: `slice` and `dst` must be point to a contiguously allocated memory region of at
+    /// least length `total`. The regions must not overlap.
+    pub(super) unsafe fn copy_from_volatile_slice<B: BitmapSlice>(
+        dst: *mut u8,
+        slice: &VolatileSlice<'_, B>,
+        total: usize,
+    ) -> usize {
+        // SAFETY: guaranteed by function invariants.
+        copy_slice(dst, slice.as_ptr(), total)
+    }
+
+    /// Copies `total` bytes from 'src' to `slice`
+    ///
+    /// SAFETY: `slice` and `src` must be point to a contiguously allocated memory region of at
+    /// least length `total`. The regions must not overlap.
+    pub(super) unsafe fn copy_to_volatile_slice<B: BitmapSlice>(
+        slice: &VolatileSlice<'_, B>,
+        src: *const u8,
+        total: usize,
+    ) -> usize {
+        // SAFETY: guaranteed by function invariants.
+        let count = copy_slice(slice.as_ptr(), src, total);
+        slice.bitmap.mark_dirty(0, count);
+        count
     }
 }
 
