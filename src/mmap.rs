@@ -908,7 +908,8 @@ mod tests {
     fn slice_addr() {
         let m = GuestRegionMmap::from_range(GuestAddress(0), 5, None).unwrap();
         let s = m.get_slice(MemoryRegionAddress(2), 3).unwrap();
-        assert_eq!(s.as_ptr(), unsafe { m.as_ptr().offset(2) });
+        let guard = s.ptr_guard();
+        assert_eq!(guard.as_ptr(), unsafe { m.as_ptr().offset(2) });
     }
 
     #[test]
