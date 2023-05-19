@@ -51,6 +51,93 @@ pub enum Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Mmap {
+    addr: *mut u8,
+    size: usize,
+    owned: bool,
+}
+
+impl Mmap {
+    pub(crate) fn new(size: usize, prot: i32, flags: i32, fd: i32, f_offset: u64) -> Result<Self> {
+        #[cfg(not(miri))]
+        let addr =
+        // SAFETY: This is safe because we're not allowing MAP_FIXED, and invalid parameters
+        // cannot break Rust safety guarantees (things may change if we're mapping /dev/mem or
+        // some wacky file).
+            unsafe { libc::mmap(null_mut(), size, prot, flags, fd, f_offset as libc::off_t) };
+
+        #[cfg(not(miri))]
+        if addr == libc::MAP_FAILED {
+            return Err(Error::Mmap(io::Error::last_os_error()));
+        }
+
+        #[cfg(miri)]
+        if size == 0 {
+            return Err(Error::Mmap(io::Error::from_raw_os_error(libc::EINVAL)));
+        }
+
+        // Miri does not support the mmap syscall, so we use rust's allocator for miri tests
+        #[cfg(miri)]
+        let addr = unsafe {
+            std::alloc::alloc_zeroed(std::alloc::Layout::from_size_align(size, 8).unwrap())
+        };
+
+        Ok(Self {
+            addr: addr as *mut u8,
+            size,
+            owned: true,
+        })
+    }
+
+    pub(crate) fn with_checks(
+        size: usize,
+        prot: i32,
+        flags: i32,
+        file_offset: &Option<FileOffset>,
+    ) -> Result<Self> {
+        let (fd, f_offset) = if let Some(ref f_offset) = file_offset {
+            check_file_offset(f_offset, size)?;
+            (f_offset.file().as_raw_fd(), f_offset.start())
+        } else {
+            (-1, 0)
+        };
+
+        Self::new(size, prot, flags, fd, f_offset)
+    }
+
+    pub(crate) fn addr(&self) -> *mut u8 {
+        self.addr
+    }
+
+    pub(crate) fn raw(addr: *mut u8) -> Self {
+        Self {
+            addr,
+            size: 0,
+            owned: false,
+        }
+    }
+}
+
+impl Drop for Mmap {
+    fn drop(&mut self) {
+        if self.owned {
+            // SAFETY: This is safe because we mmap the area at addr ourselves, and nobody
+            // else is holding a reference to it.
+            unsafe {
+                #[cfg(not(miri))]
+                libc::munmap(self.addr as *mut libc::c_void, self.size);
+
+                #[cfg(miri)]
+                std::alloc::dealloc(
+                    self.addr,
+                    std::alloc::Layout::from_size_align(self.size, 8).unwrap(),
+                );
+            }
+        }
+    }
+}
+
 /// A factory struct to build `MmapRegion` objects.
 pub struct MmapRegionBuilder<B = ()> {
     size: usize,
@@ -60,6 +147,7 @@ pub struct MmapRegionBuilder<B = ()> {
     raw_ptr: Option<*mut u8>,
     hugetlbfs: Option<bool>,
     bitmap: B,
+    mmap: Option<Mmap>,
 }
 
 impl<B: Bitmap + Default> MmapRegionBuilder<B> {
@@ -85,6 +173,7 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
             raw_ptr: None,
             hugetlbfs: None,
             bitmap,
+            mmap: None,
         }
     }
 
@@ -124,7 +213,7 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
     }
 
     /// Build the `MmapRegion` object.
-    pub fn build(self) -> Result<MmapRegion<B>> {
+    pub fn build(mut self) -> Result<MmapRegion<B>> {
         if self.raw_ptr.is_some() {
             return self.build_raw();
         }
@@ -135,57 +224,17 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
             return Err(Error::MapFixed);
         }
 
-        let (fd, offset) = if let Some(ref f_off) = self.file_offset {
-            check_file_offset(f_off, self.size)?;
-            (f_off.file().as_raw_fd(), f_off.start())
-        } else {
-            (-1, 0)
-        };
+        self.mmap = Some(Mmap::with_checks(
+            self.size,
+            self.prot,
+            self.flags,
+            &self.file_offset,
+        )?);
 
-        #[cfg(not(miri))]
-        // SAFETY: This is safe because we're not allowing MAP_FIXED, and invalid parameters
-        // cannot break Rust safety guarantees (things may change if we're mapping /dev/mem or
-        // some wacky file).
-        let addr = unsafe {
-            libc::mmap(
-                null_mut(),
-                self.size,
-                self.prot,
-                self.flags,
-                fd,
-                offset as libc::off_t,
-            )
-        };
-
-        #[cfg(not(miri))]
-        if addr == libc::MAP_FAILED {
-            return Err(Error::Mmap(io::Error::last_os_error()));
-        }
-
-        #[cfg(miri)]
-        if self.size == 0 {
-            return Err(Error::Mmap(io::Error::from_raw_os_error(libc::EINVAL)));
-        }
-
-        // Miri does not support the mmap syscall, so we use rust's allocator for miri tests
-        #[cfg(miri)]
-        let addr = unsafe {
-            std::alloc::alloc_zeroed(std::alloc::Layout::from_size_align(self.size, 8).unwrap())
-        };
-
-        Ok(MmapRegion {
-            addr: addr as *mut u8,
-            size: self.size,
-            bitmap: self.bitmap,
-            file_offset: self.file_offset,
-            prot: self.prot,
-            flags: self.flags,
-            owned: true,
-            hugetlbfs: self.hugetlbfs,
-        })
+        self.build_region()
     }
 
-    fn build_raw(self) -> Result<MmapRegion<B>> {
+    fn build_raw(mut self) -> Result<MmapRegion<B>> {
         // SAFETY: Safe because this call just returns the page size and doesn't have any side
         // effects.
         let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
@@ -196,15 +245,19 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
             return Err(Error::InvalidPointer);
         }
 
+        self.mmap = Some(Mmap::raw(addr));
+        self.build_region()
+    }
+
+    fn build_region(self) -> Result<MmapRegion<B>> {
         Ok(MmapRegion {
-            addr,
             size: self.size,
             bitmap: self.bitmap,
             file_offset: self.file_offset,
             prot: self.prot,
             flags: self.flags,
-            owned: false,
             hugetlbfs: self.hugetlbfs,
+            mmap: self.mmap.unwrap(),
         })
     }
 }
@@ -220,14 +273,13 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
 /// space size of the process.
 #[derive(Debug)]
 pub struct MmapRegion<B = ()> {
-    addr: *mut u8,
     size: usize,
     bitmap: B,
     file_offset: Option<FileOffset>,
     prot: i32,
     flags: i32,
-    owned: bool,
     hugetlbfs: Option<bool>,
+    mmap: Mmap,
 }
 
 // SAFETY: Send and Sync aren't automatically inherited for the raw address pointer.
@@ -322,7 +374,7 @@ impl<B: Bitmap> MmapRegion<B> {
     ///
     /// Should only be used for passing this region to ioctls for setting guest memory.
     pub fn as_ptr(&self) -> *mut u8 {
-        self.addr
+        self.mmap.addr()
     }
 
     /// Returns the size of this region.
@@ -343,11 +395,6 @@ impl<B: Bitmap> MmapRegion<B> {
     /// Returns the value of the `flags` parameter passed to `mmap` when mapping this region.
     pub fn flags(&self) -> i32 {
         self.flags
-    }
-
-    /// Returns `true` if the mapping is owned by this `MmapRegion` instance.
-    pub fn owned(&self) -> bool {
-        self.owned
     }
 
     /// Checks whether this region and `other` are backed by overlapping
@@ -410,31 +457,12 @@ impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
             // ever hand out volatile accessors.
             unsafe {
                 VolatileSlice::with_bitmap(
-                    self.addr.add(offset),
+                    self.as_ptr().add(offset),
                     count,
                     self.bitmap.slice_at(offset),
                 )
             },
         )
-    }
-}
-
-impl<B> Drop for MmapRegion<B> {
-    fn drop(&mut self) {
-        if self.owned {
-            // SAFETY: This is safe because we mmap the area at addr ourselves, and nobody
-            // else is holding a reference to it.
-            unsafe {
-                #[cfg(not(miri))]
-                libc::munmap(self.addr as *mut libc::c_void, self.size);
-
-                #[cfg(miri)]
-                std::alloc::dealloc(
-                    self.addr,
-                    std::alloc::Layout::from_size_align(self.size, 8).unwrap(),
-                );
-            }
-        }
     }
 }
 
@@ -451,6 +479,12 @@ mod tests {
     use crate::bitmap::AtomicBitmap;
 
     type MmapRegion = super::MmapRegion<()>;
+
+    impl Mmap {
+        fn owned(&self) -> bool {
+            self.owned
+        }
+    }
 
     // Adding a helper method to extract the errno within an Error::Mmap(e), or return a
     // distinctive value when the error is represented by another variant.
@@ -594,7 +628,7 @@ mod tests {
         assert_eq!(r.file_offset().unwrap().start(), offset);
         assert_eq!(r.prot(), libc::PROT_READ | libc::PROT_WRITE);
         assert_eq!(r.flags(), libc::MAP_NORESERVE | libc::MAP_PRIVATE);
-        assert!(r.owned());
+        assert!(r.mmap.owned());
 
         let region_size = 0x10_0000;
         let bitmap = AtomicBitmap::new(region_size, 0x1000);
@@ -624,7 +658,7 @@ mod tests {
         assert_eq!(r.size(), size);
         assert_eq!(r.prot(), libc::PROT_READ | libc::PROT_WRITE);
         assert_eq!(r.flags(), libc::MAP_NORESERVE | libc::MAP_PRIVATE);
-        assert!(!r.owned());
+        assert!(!r.mmap.owned());
     }
 
     #[test]
