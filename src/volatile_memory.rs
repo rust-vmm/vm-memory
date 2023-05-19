@@ -1155,7 +1155,7 @@ where
     /// # use vm_memory::VolatileArrayRef;
     /// #
     /// let mut v = [0u8; 32];
-    /// let v_ref = unsafe { VolatileArrayRef::new(&mut v[0] as *mut u8, v.len()) };
+    /// let v_ref = unsafe { VolatileArrayRef::new(v.as_mut_ptr(), v.len()) };
     ///
     /// let mut buf = [5u8; 16];
     /// v_ref.copy_to(&mut buf[..]);
@@ -1205,9 +1205,9 @@ where
     /// # use vm_memory::VolatileArrayRef;
     /// #
     /// let mut v = [0u8; 32];
-    /// let v_ref = unsafe { VolatileArrayRef::<u8>::new(&mut v[0] as *mut u8, v.len()) };
+    /// let v_ref = unsafe { VolatileArrayRef::<u8>::new(v.as_mut_ptr(), v.len()) };
     /// let mut buf = [5u8; 16];
-    /// let v_ref2 = unsafe { VolatileArrayRef::<u8>::new(&mut buf[0] as *mut u8, buf.len()) };
+    /// let v_ref2 = unsafe { VolatileArrayRef::<u8>::new(buf.as_mut_ptr(), buf.len()) };
     ///
     /// v_ref.copy_to_volatile_slice(v_ref2.to_slice());
     /// for &v in &buf[..] {
@@ -1238,7 +1238,7 @@ where
     /// # use vm_memory::VolatileArrayRef;
     /// #
     /// let mut v = [0u8; 32];
-    /// let v_ref = unsafe { VolatileArrayRef::<u8>::new(&mut v[0] as *mut u8, v.len()) };
+    /// let v_ref = unsafe { VolatileArrayRef::<u8>::new(v.as_mut_ptr(), v.len()) };
     ///
     /// let buf = [5u8; 64];
     /// v_ref.copy_from(&buf[..]);
