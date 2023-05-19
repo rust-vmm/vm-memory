@@ -45,8 +45,11 @@ pub use guest_memory::{
     GuestMemoryRegion, GuestUsize, MemoryRegionAddress, Result as GuestMemoryResult,
 };
 
-#[cfg(all(feature = "backend-mmap", unix))]
+#[cfg(all(feature = "backend-mmap", not(feature = "xen"), unix))]
 mod mmap_unix;
+
+#[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
+mod mmap_xen;
 
 #[cfg(all(feature = "backend-mmap", windows))]
 mod mmap_windows;
@@ -55,6 +58,8 @@ mod mmap_windows;
 pub mod mmap;
 #[cfg(feature = "backend-mmap")]
 pub use mmap::{Error, GuestMemoryMmap, GuestRegionMmap, MmapRegion};
+#[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
+pub use mmap::{MmapRange, MmapXenFlags};
 
 pub mod volatile_memory;
 pub use volatile_memory::{

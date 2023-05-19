@@ -30,8 +30,11 @@ use crate::guest_memory::{
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
 use crate::{AtomicAccess, Bytes};
 
-#[cfg(unix)]
+#[cfg(all(not(feature = "xen"), unix))]
 pub use crate::mmap_unix::{Error as MmapRegionError, MmapRegion, MmapRegionBuilder};
+
+#[cfg(all(feature = "xen", unix))]
+pub use crate::mmap_xen::{Error as MmapRegionError, MmapRange, MmapRegion, MmapXenFlags};
 
 #[cfg(windows)]
 pub use crate::mmap_windows::MmapRegion;
@@ -130,6 +133,7 @@ impl<B: Bitmap> GuestRegionMmap<B> {
     }
 }
 
+#[cfg(not(feature = "xen"))]
 impl<B: NewBitmap> GuestRegionMmap<B> {
     /// Create a new memory-mapped memory region from guest's physical memory, size and file.
     pub fn from_range(
@@ -144,6 +148,22 @@ impl<B: NewBitmap> GuestRegionMmap<B> {
         }
         .map_err(Error::MmapRegion)?;
 
+        Self::new(region, addr)
+    }
+}
+
+#[cfg(feature = "xen")]
+impl<B: NewBitmap> GuestRegionMmap<B> {
+    /// Create a new Unix memory-mapped memory region from guest's physical memory, size and file.
+    /// This must only be used for tests, doctests, benches and is not designed for end consumers.
+    pub fn from_range(
+        addr: GuestAddress,
+        size: usize,
+        file: Option<FileOffset>,
+    ) -> result::Result<Self, Error> {
+        let range = MmapRange::new_unix(size, file, addr);
+
+        let region = MmapRegion::from_range(range).map_err(Error::MmapRegion)?;
         Self::new(region, addr)
     }
 }
