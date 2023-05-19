@@ -19,6 +19,10 @@ use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::FileOffset;
 use crate::mmap::{check_file_offset, GuestMmapRange, NewBitmap};
 use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
+use crate::MmapInfo;
+
+#[cfg(feature = "xen")]
+use crate::guest_memory::GuestAddress;
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
 #[derive(Debug, thiserror::Error)]
@@ -56,6 +60,10 @@ pub enum Error {
     /// Invalid file offset.
     #[error("Invalid file offset")]
     InvalidFileOffset,
+    /// Xen specific error wrapper.
+    #[cfg(feature = "xen")]
+    #[error("Xen specific errors: {0}")]
+    Xen(crate::mmap_xen::XenError),
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -67,6 +75,16 @@ pub struct MmapRange {
     file: Option<FileOffset>,
     prot: Option<i32>,
     flags: Option<i32>,
+
+    // Region's address
+    #[cfg(feature = "xen")]
+    addr: GuestAddress,
+    // Xen mmap flags
+    #[cfg(feature = "xen")]
+    mmap_flags: u32,
+    // Xen mmap data
+    #[cfg(feature = "xen")]
+    mmap_data: u32,
 }
 
 impl MmapRange {
@@ -87,6 +105,36 @@ impl MmapRange {
             file,
             prot,
             flags,
+
+            // Defaults to standard UNIX mapping. Use `with_xen()` for Xen specific mappings.
+            #[cfg(feature = "xen")]
+            addr: GuestAddress(0),
+            #[cfg(feature = "xen")]
+            mmap_flags: super::MmapXenFlags::UNIX.bits(),
+            #[cfg(feature = "xen")]
+            mmap_data: 0,
+        }
+    }
+
+    #[cfg(all(feature = "xen", unix))]
+    /// Creates instance of the range with multiple arguments.
+    pub fn with_xen(
+        size: usize,
+        file: Option<FileOffset>,
+        prot: Option<i32>,
+        flags: Option<i32>,
+        addr: GuestAddress,
+        mmap_flags: u32,
+        mmap_data: u32,
+    ) -> Self {
+        Self {
+            size,
+            file,
+            prot,
+            flags,
+            addr,
+            mmap_flags,
+            mmap_data,
         }
     }
 }
@@ -98,12 +146,19 @@ impl From<GuestMmapRange> for MmapRange {
             file: r.file,
             prot: None,
             flags: None,
+
+            #[cfg(feature = "xen")]
+            addr: r.addr,
+            #[cfg(feature = "xen")]
+            mmap_flags: r.mmap_flags,
+            #[cfg(feature = "xen")]
+            mmap_data: r.mmap_data,
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Mmap {
+pub struct Mmap {
     addr: *mut u8,
     size: usize,
     owned: bool,
@@ -168,6 +223,10 @@ impl Mmap {
             owned: false,
         }
     }
+
+    pub(crate) fn mmap_in_advance(&self) -> bool {
+        true
+    }
 }
 
 impl Drop for Mmap {
@@ -198,7 +257,7 @@ pub struct MmapRegionBuilder<B = ()> {
     raw_ptr: Option<*mut u8>,
     hugetlbfs: Option<bool>,
     bitmap: B,
-    mmap: Option<Mmap>,
+    mmap: Option<MmapInfo>,
 }
 
 impl<B: Bitmap + Default> MmapRegionBuilder<B> {
@@ -275,13 +334,7 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
             return Err(Error::MapFixed);
         }
 
-        self.mmap = Some(Mmap::with_checks(
-            self.size,
-            self.prot,
-            self.flags,
-            &self.file_offset,
-        )?);
-
+        self.mmap()?;
         self.build_region()
     }
 
@@ -296,7 +349,7 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
             return Err(Error::InvalidPointer);
         }
 
-        self.mmap = Some(Mmap::raw(addr));
+        self.raw_mmap(addr);
         self.build_region()
     }
 
@@ -326,7 +379,53 @@ impl<B: NewBitmap> MmapRegionBuilder<B> {
             builder = builder.with_file_offset(f_off);
         }
 
+        #[cfg(feature = "xen")]
+        let builder = builder.with_mmap_info(range.addr, range.mmap_flags, range.mmap_data)?;
+
         Ok(builder)
+    }
+}
+
+#[cfg(not(feature = "xen"))]
+impl<B: Bitmap> MmapRegionBuilder<B> {
+    fn mmap(&mut self) -> Result<()> {
+        self.mmap = Some(MmapInfo::with_checks(
+            self.size,
+            self.prot,
+            self.flags,
+            &self.file_offset,
+        )?);
+
+        Ok(())
+    }
+
+    fn raw_mmap(&mut self, addr: *mut u8) {
+        self.mmap = Some(MmapInfo::raw(addr));
+    }
+}
+
+#[cfg(feature = "xen")]
+impl<B: Bitmap> MmapRegionBuilder<B> {
+    fn mmap(&mut self) -> Result<()> {
+        self.mmap
+            .as_mut()
+            .unwrap()
+            .mmap(self.size, self.prot, self.flags, &self.file_offset)
+    }
+
+    fn raw_mmap(&mut self, addr: *mut u8) {
+        self.mmap.as_mut().unwrap().raw_mmap(addr)
+    }
+
+    /// Create the `MmapRegion` object with the specified Xen mmap `flags` and data.
+    pub fn with_mmap_info(
+        mut self,
+        addr: GuestAddress,
+        mmap_flags: u32,
+        mmap_data: u32,
+    ) -> Result<Self> {
+        self.mmap = Some(MmapInfo::new(addr, mmap_flags, mmap_data)?);
+        Ok(self)
     }
 }
 
@@ -347,7 +446,7 @@ pub struct MmapRegion<B = ()> {
     prot: i32,
     flags: i32,
     hugetlbfs: Option<bool>,
-    mmap: Mmap,
+    mmap: MmapInfo,
 }
 
 // SAFETY: Send and Sync aren't automatically inherited for the raw address pointer.
@@ -476,6 +575,27 @@ impl<B: Bitmap> MmapRegion<B> {
     pub fn bitmap(&self) -> &B {
         &self.bitmap
     }
+
+    fn region_ref(&self) -> Option<&MmapInfo> {
+        if self.mmap.mmap_in_advance() {
+            None
+        } else {
+            Some(&self.mmap)
+        }
+    }
+}
+
+#[cfg(feature = "xen")]
+impl<B> MmapRegion<B> {
+    /// Returns xen mmap flags.
+    pub fn xen_mmap_flags(&self) -> u32 {
+        self.mmap.flags()
+    }
+
+    /// Returns xen mmap data.
+    pub fn xen_mmap_data(&self) -> u32 {
+        self.mmap.data()
+    }
 }
 
 impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
@@ -500,6 +620,7 @@ impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
                     self.as_ptr().add(offset),
                     count,
                     self.bitmap.slice_at(offset),
+                    self.region_ref(),
                 )
             },
         )
@@ -521,7 +642,7 @@ mod tests {
     type MmapRegion = super::MmapRegion<()>;
 
     impl Mmap {
-        fn owned(&self) -> bool {
+        pub fn owned(&self) -> bool {
             self.owned
         }
     }
@@ -534,6 +655,21 @@ mod tests {
                 Error::Mmap(e) => e.raw_os_error().unwrap(),
                 _ => std::i32::MIN,
             }
+        }
+    }
+
+    impl<B: Bitmap> MmapRegionBuilder<B> {
+        pub fn with_mmap_info_def(self) -> Self {
+            #[cfg(not(feature = "xen"))]
+            return self;
+
+            #[cfg(feature = "xen")]
+            self.with_mmap_info(
+                GuestAddress(0),
+                crate::mmap_xen::MmapXenFlags::UNIX.bits(),
+                0,
+            )
+            .unwrap()
         }
     }
 
@@ -686,7 +822,8 @@ mod tests {
         let bitmap = AtomicBitmap::new(region_size, 0x1000);
         let builder = MmapRegionBuilder::new_with_bitmap(region_size, bitmap)
             .with_hugetlbfs(true)
-            .with_mmap_prot(libc::PROT_READ | libc::PROT_WRITE);
+            .with_mmap_prot(libc::PROT_READ | libc::PROT_WRITE)
+            .with_mmap_info_def();
         assert_eq!(builder.size, region_size);
         assert_eq!(builder.hugetlbfs, Some(true));
         assert_eq!(builder.prot, libc::PROT_READ | libc::PROT_WRITE);

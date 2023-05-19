@@ -48,6 +48,21 @@ pub use guest_memory::{
 #[cfg(all(feature = "backend-mmap", unix))]
 mod mmap_unix;
 
+#[cfg(all(feature = "xen", unix))]
+mod mmap_xen;
+
+#[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
+pub use crate::mmap_xen::MmapXenFlags;
+
+#[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
+use crate::mmap_xen::{MmapXen as MmapInfo, MmapXenSlice as MmapSlice};
+
+#[cfg(all(feature = "backend-mmap", not(feature = "xen"), unix))]
+use crate::mmap_unix::Mmap as MmapInfo;
+
+#[cfg(any(not(feature = "backend-mmap"), not(unix)))]
+type MmapInfo = std::marker::PhantomData<()>;
+
 #[cfg(all(feature = "backend-mmap", windows))]
 mod mmap_windows;
 

@@ -105,12 +105,47 @@ pub struct GuestMmapRange {
     pub(crate) size: usize,
     // File offset
     pub(crate) file: Option<FileOffset>,
+
+    // Xen mmap flags
+    #[cfg(all(feature = "xen", unix))]
+    pub(crate) mmap_flags: u32,
+    // Xen mmap data
+    #[cfg(all(feature = "xen", unix))]
+    pub(crate) mmap_data: u32,
 }
 
 impl GuestMmapRange {
     /// Creates a new instance of `GuestMmapRange`
     pub fn new(addr: GuestAddress, size: usize, file: Option<FileOffset>) -> Self {
-        Self { addr, size, file }
+        Self {
+            addr,
+            size,
+            file,
+
+            // Defaults to standard UNIX mapping. Use `with_xen()` for Xen specific mappings.
+            #[cfg(all(feature = "xen", unix))]
+            mmap_flags: super::MmapXenFlags::UNIX.bits(),
+            #[cfg(all(feature = "xen", unix))]
+            mmap_data: 0,
+        }
+    }
+
+    #[cfg(all(feature = "xen", unix))]
+    /// Creates a new instance of `GuestMmapRange` for Xen mappings.
+    pub fn with_xen(
+        addr: GuestAddress,
+        size: usize,
+        file: Option<FileOffset>,
+        mmap_flags: u32,
+        mmap_data: u32,
+    ) -> Self {
+        Self {
+            addr,
+            size,
+            file,
+            mmap_flags,
+            mmap_data,
+        }
     }
 }
 
