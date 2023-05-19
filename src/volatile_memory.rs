@@ -2032,11 +2032,14 @@ mod tests {
 
     #[test]
     fn test_atomic_accesses() {
-        let mut backing = vec![0u8; 0x1000];
-        let a = VolatileSlice::from(backing.as_mut_slice());
-        let s = a.as_volatile_slice();
+        let len = 0x1000;
+        let buf = unsafe { std::alloc::alloc_zeroed(Layout::from_size_align(len, 8).unwrap()) };
+        let a = unsafe { VolatileSlice::new(buf, len) };
 
-        crate::bytes::tests::check_atomic_accesses(s, 0, 0x1000);
+        crate::bytes::tests::check_atomic_accesses(a, 0, 0x1000);
+        unsafe {
+            std::alloc::dealloc(buf, Layout::from_size_align(len, 8).unwrap());
+        }
     }
 
     #[test]
@@ -2067,14 +2070,13 @@ mod tests {
         let dirty_len = size_of_val(&val);
         let page_size = 0x1000;
 
-        let mut buf = vec![0u8; 0x10000];
+        let len = 0x10000;
+        let buf = unsafe { std::alloc::alloc_zeroed(Layout::from_size_align(len, 8).unwrap()) };
 
         // Invoke the `Bytes` test helper function.
         {
-            let bitmap = AtomicBitmap::new(buf.len(), page_size);
-            let slice = unsafe {
-                VolatileSlice::with_bitmap(buf.as_mut_ptr(), buf.len(), bitmap.slice_at(0))
-            };
+            let bitmap = AtomicBitmap::new(len, page_size);
+            let slice = unsafe { VolatileSlice::with_bitmap(buf, len, bitmap.slice_at(0)) };
 
             test_bytes(
                 &slice,
@@ -2089,24 +2091,19 @@ mod tests {
 
         // Invoke the `VolatileMemory` test helper function.
         {
-            let bitmap = AtomicBitmap::new(buf.len(), page_size);
-            let slice = unsafe {
-                VolatileSlice::with_bitmap(buf.as_mut_ptr(), buf.len(), bitmap.slice_at(0))
-            };
+            let bitmap = AtomicBitmap::new(len, page_size);
+            let slice = unsafe { VolatileSlice::with_bitmap(buf, len, bitmap.slice_at(0)) };
             test_volatile_memory(&slice);
         }
 
-        let bitmap = AtomicBitmap::new(buf.len(), page_size);
-        let slice =
-            unsafe { VolatileSlice::with_bitmap(buf.as_mut_ptr(), buf.len(), bitmap.slice_at(0)) };
+        let bitmap = AtomicBitmap::new(len, page_size);
+        let slice = unsafe { VolatileSlice::with_bitmap(buf, len, bitmap.slice_at(0)) };
 
-        let bitmap2 = AtomicBitmap::new(buf.len(), page_size);
-        let slice2 =
-            unsafe { VolatileSlice::with_bitmap(buf.as_mut_ptr(), buf.len(), bitmap2.slice_at(0)) };
+        let bitmap2 = AtomicBitmap::new(len, page_size);
+        let slice2 = unsafe { VolatileSlice::with_bitmap(buf, len, bitmap2.slice_at(0)) };
 
-        let bitmap3 = AtomicBitmap::new(buf.len(), page_size);
-        let slice3 =
-            unsafe { VolatileSlice::with_bitmap(buf.as_mut_ptr(), buf.len(), bitmap3.slice_at(0)) };
+        let bitmap3 = AtomicBitmap::new(len, page_size);
+        let slice3 = unsafe { VolatileSlice::with_bitmap(buf, len, bitmap3.slice_at(0)) };
 
         assert!(range_is_clean(slice.bitmap(), 0, slice.len()));
         assert!(range_is_clean(slice2.bitmap(), 0, slice2.len()));
@@ -2150,6 +2147,10 @@ mod tests {
             assert!(range_is_clean(slice3.bitmap(), 0, dirty_offset));
             slice3.copy_from(&buf);
             assert!(range_is_dirty(slice3.bitmap(), 0, dirty_offset));
+        }
+
+        unsafe {
+            std::alloc::dealloc(buf, Layout::from_size_align(len, 8).unwrap());
         }
     }
 
