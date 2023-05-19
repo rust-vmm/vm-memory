@@ -296,6 +296,12 @@ impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
     ) -> volatile_memory::Result<VolatileSlice<BS<B>>> {
         let _ = self.compute_end_offset(offset, count)?;
 
+        let mmap_info = if self.mmap.mmap_in_advance() {
+            None
+        } else {
+            Some(&self.mmap)
+        };
+
         Ok(
             // SAFETY: Safe because we checked that offset + count was within our range and we only
             // ever hand out volatile accessors.
@@ -304,6 +310,7 @@ impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
                     self.as_ptr().add(offset),
                     count,
                     self.bitmap.slice_at(offset),
+                    mmap_info,
                 )
             },
         )
@@ -432,6 +439,7 @@ fn validate_file(file_offset: &Option<FileOffset>) -> Result<(i32, u64)> {
 
 // Xen Foreign memory mapping interface.
 trait MmapXenTrait: std::fmt::Debug {
+    fn mmap_slice(&self, addr: *const u8, prot: i32, len: usize) -> Result<MmapXenSlice>;
     fn addr(&self) -> *mut u8;
 }
 
@@ -459,6 +467,11 @@ impl MmapXenUnix {
 }
 
 impl MmapXenTrait for MmapXenUnix {
+    #[allow(unused_variables)]
+    fn mmap_slice(&self, addr: *const u8, prot: i32, len: usize) -> Result<MmapXenSlice> {
+        Err(Error::MappedInAdvance)
+    }
+
     fn addr(&self) -> *mut u8 {
         self.0.addr()
     }
@@ -564,6 +577,11 @@ impl MmapXenForeign {
 }
 
 impl MmapXenTrait for MmapXenForeign {
+    #[allow(unused_variables)]
+    fn mmap_slice(&self, addr: *const u8, prot: i32, len: usize) -> Result<MmapXenSlice> {
+        Err(Error::MappedInAdvance)
+    }
+
     fn addr(&self) -> *mut u8 {
         self.unix_mmap.addr()
     }
@@ -790,6 +808,11 @@ impl MmapXenGrant {
 }
 
 impl MmapXenTrait for MmapXenGrant {
+    // Maps a slice out of the entire region.
+    fn mmap_slice(&self, addr: *const u8, prot: i32, len: usize) -> Result<MmapXenSlice> {
+        MmapXenSlice::new_with(self.clone(), addr as usize, prot, len)
+    }
+
     fn addr(&self) -> *mut u8 {
         if let Some(ref unix_mmap) = self.unix_mmap {
             unix_mmap.addr()
@@ -803,6 +826,65 @@ impl Drop for MmapXenGrant {
     fn drop(&mut self) {
         if let Some(unix_mmap) = self.unix_mmap.take() {
             self.unmap_range(unix_mmap, self.size, self.index);
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct MmapXenSlice {
+    grant: Option<MmapXenGrant>,
+    unix_mmap: Option<MmapUnix>,
+    addr: *mut u8,
+    size: usize,
+    index: u64,
+}
+
+impl MmapXenSlice {
+    fn raw(addr: *mut u8) -> Self {
+        Self {
+            grant: None,
+            unix_mmap: None,
+            addr,
+            size: 0,
+            index: 0,
+        }
+    }
+
+    fn new_with(grant: MmapXenGrant, offset: usize, prot: i32, size: usize) -> Result<Self> {
+        let page_size = page_size() as usize;
+        let page_base: usize = (offset / page_size) * page_size;
+        let offset = offset - page_base;
+        let size = offset + size;
+
+        let addr = grant.guest_base.0 + page_base as u64;
+        let (unix_mmap, index) = grant.mmap_range(GuestAddress(addr), size, prot)?;
+
+        // SAFETY: We have already mapped the range including offset.
+        let addr = unsafe { unix_mmap.addr().add(offset) };
+
+        Ok(Self {
+            grant: Some(grant),
+            unix_mmap: Some(unix_mmap),
+            addr,
+            size,
+            index,
+        })
+    }
+
+    // Mapped address for the region.
+    pub(crate) fn addr(&self) -> *mut u8 {
+        self.addr
+    }
+}
+
+impl Drop for MmapXenSlice {
+    fn drop(&mut self) {
+        // Unmaps memory automatically once this instance goes out of scope.
+        if let Some(unix_mmap) = self.unix_mmap.take() {
+            self.grant
+                .as_ref()
+                .unwrap()
+                .unmap_range(unix_mmap, self.size, self.index);
         }
     }
 }
@@ -848,6 +930,22 @@ impl MmapXen {
 
     fn data(&self) -> u32 {
         self.domid
+    }
+
+    fn mmap_in_advance(&self) -> bool {
+        self.xen_flags.mmap_in_advance()
+    }
+
+    pub(crate) fn mmap(
+        mmap_xen: Option<&Self>,
+        addr: *mut u8,
+        prot: i32,
+        len: usize,
+    ) -> MmapXenSlice {
+        match mmap_xen {
+            Some(mmap_xen) => mmap_xen.mmap.mmap_slice(addr, prot, len).unwrap(),
+            None => MmapXenSlice::raw(addr),
+        }
     }
 }
 
@@ -936,21 +1034,21 @@ mod tests {
         assert_eq!(r.flags(), range.mmap_flags);
         assert_eq!(r.data(), range.mmap_data);
         assert_ne!(r.addr(), null_mut());
-        assert!(r.xen_flags.mmap_in_advance());
+        assert!(r.mmap_in_advance());
 
         range.mmap_flags = MmapXenFlags::GRANT.bits();
         let r = MmapXen::new(&range).unwrap();
         assert_eq!(r.flags(), range.mmap_flags);
         assert_eq!(r.data(), range.mmap_data);
         assert_ne!(r.addr(), null_mut());
-        assert!(r.xen_flags.mmap_in_advance());
+        assert!(r.mmap_in_advance());
 
         range.mmap_flags = MmapXenFlags::GRANT.bits() | MmapXenFlags::NO_ADVANCE_MAP.bits();
         let r = MmapXen::new(&range).unwrap();
         assert_eq!(r.flags(), range.mmap_flags);
         assert_eq!(r.data(), range.mmap_data);
         assert_eq!(r.addr(), null_mut());
-        assert!(!r.xen_flags.mmap_in_advance());
+        assert!(!r.mmap_in_advance());
     }
 
     #[test]
