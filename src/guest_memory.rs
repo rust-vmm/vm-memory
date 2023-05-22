@@ -1057,6 +1057,7 @@ mod tests {
     // has the same value (and thus it did not do a non-atomic access). The test succeeds if
     // no mismatch is detected after performing accesses for a pre-determined amount of time.
     #[cfg(feature = "backend-mmap")]
+    #[cfg(not(miri))] // This test simulates a race condition between guest and vmm
     fn non_atomic_access_helper<T>()
     where
         T: ByteValued
@@ -1074,12 +1075,15 @@ mod tests {
         #[derive(Clone, Copy, Debug, Default, PartialEq)]
         struct Data<T> {
             val: T,
-            some_bytes: [u8; 7],
+            some_bytes: [u8; 8],
         }
 
         // Some sanity checks.
         assert_eq!(mem::align_of::<T>(), mem::align_of::<Data<T>>());
         assert_eq!(mem::size_of::<T>(), mem::align_of::<T>());
+
+        // There must be no padding bytes, as otherwise implementing ByteValued is UB
+        assert_eq!(mem::size_of::<Data<T>>(), mem::size_of::<T>() + 8);
 
         unsafe impl<T: ByteValued> ByteValued for Data<T> {}
 
@@ -1099,7 +1103,7 @@ mod tests {
         // Need to clone this and move it into the new thread we create.
         let mem2 = mem.clone();
         // Just some bytes.
-        let some_bytes = [1u8, 2, 4, 16, 32, 64, 128];
+        let some_bytes = [1u8, 2, 4, 16, 32, 64, 128, 255];
 
         let mut data = Data {
             val: T::from(0u8),
@@ -1146,6 +1150,7 @@ mod tests {
 
     #[cfg(feature = "backend-mmap")]
     #[test]
+    #[cfg(not(miri))]
     fn test_non_atomic_access() {
         non_atomic_access_helper::<u16>()
     }
