@@ -26,7 +26,9 @@ use crate::volatile_memory::VolatileSlice;
 ///
 /// A type `T` is `ByteValued` if and only if it can be initialized by reading its contents from a
 /// byte array.  This is generally true for all plain-old-data structs.  It is notably not true for
-/// any type that includes a reference.
+/// any type that includes a reference. It is generally also not safe for non-packed structs, as
+/// compiler-inserted padding is considered uninitialized memory, and thus reads/writing it will
+/// cause undefined behavior.
 ///
 /// Implementing this trait guarantees that it is safe to instantiate the struct with random data.
 pub unsafe trait ByteValued: Copy + Default + Send + Sync {

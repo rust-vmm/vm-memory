@@ -911,6 +911,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(miri))] // Miri cannot mmap files
     fn mapped_file_read() {
         let mut f = TempFile::new().unwrap().into_file();
         let sample_buf = &[1, 2, 3, 4, 5];
