@@ -9,6 +9,11 @@
       "test_name": "build-musl-mmap",
       "command": "cargo build --release --features=backend-mmap --target {target_platform}-unknown-linux-musl",
       "platform": ["x86_64", "aarch64"]
+    },
+    {
+      "test_name": "miri",
+      "command": "RUST_BACKTRACE=1 MIRIFLAGS='-Zmiri-disable-isolation -Zmiri-panic-on-unsupported -Zmiri-backtrace=full' cargo +nightly miri test --features backend-mmap",
+      "platform": ["x86_64", "aarch64"]
     }
   ]
 }
