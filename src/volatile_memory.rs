@@ -24,8 +24,6 @@
 //! not reordered or elided the access.
 
 use std::cmp::min;
-use std::error;
-use std::fmt;
 use std::io::{self, Read, Write};
 use std::marker::PhantomData;
 use std::mem::{align_of, size_of};
@@ -43,53 +41,27 @@ use copy_slice_impl::copy_slice;
 
 /// `VolatileMemory` related errors.
 #[allow(missing_docs)]
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// `addr` is out of bounds of the volatile memory slice.
+    #[error("address 0x{addr:x} is out of bounds")]
     OutOfBounds { addr: usize },
     /// Taking a slice at `base` with `offset` would overflow `usize`.
+    #[error("address 0x{base:x} offset by 0x{offset:x} would overflow")]
     Overflow { base: usize, offset: usize },
     /// Taking a slice whose size overflows `usize`.
+    #[error("{nelements:?} elements of size {size:?} would overflow a usize")]
     TooBig { nelements: usize, size: usize },
     /// Trying to obtain a misaligned reference.
+    #[error("address 0x{addr:x} is not aligned to {alignment:?}")]
     Misaligned { addr: usize, alignment: usize },
     /// Writing to memory failed
+    #[error("{0}")]
     IOError(io::Error),
     /// Incomplete read or write
+    #[error("only used {completed} bytes in {expected} long buffer")]
     PartialBuffer { expected: usize, completed: usize },
 }
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::OutOfBounds { addr } => write!(f, "address 0x{:x} is out of bounds", addr),
-            Error::Overflow { base, offset } => write!(
-                f,
-                "address 0x{:x} offset by 0x{:x} would overflow",
-                base, offset
-            ),
-            Error::TooBig { nelements, size } => write!(
-                f,
-                "{:?} elements of size {:?} would overflow a usize",
-                nelements, size
-            ),
-            Error::Misaligned { addr, alignment } => {
-                write!(f, "address 0x{:x} is not aligned to {:?}", addr, alignment)
-            }
-            Error::IOError(error) => write!(f, "{}", error),
-            Error::PartialBuffer {
-                expected,
-                completed,
-            } => write!(
-                f,
-                "only used {} bytes in {} long buffer",
-                completed, expected
-            ),
-        }
-    }
-}
-
-impl error::Error for Error {}
 
 /// Result of volatile memory operations.
 pub type Result<T> = result::Result<T, Error>;

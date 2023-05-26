@@ -10,8 +10,6 @@
 
 //! Helper structure for working with mmaped memory regions in Unix.
 
-use std::error;
-use std::fmt;
 use std::io;
 use std::os::unix::io::AsRawFd;
 use std::ptr::null_mut;
@@ -23,54 +21,33 @@ use crate::mmap::{check_file_offset, NewBitmap};
 use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// The specified file offset and length cause overflow when added.
+    #[error("The specified file offset and length cause overflow when added")]
     InvalidOffsetLength,
     /// The specified pointer to the mapping is not page-aligned.
+    #[error("The specified pointer to the mapping is not page-aligned")]
     InvalidPointer,
     /// The forbidden `MAP_FIXED` flag was specified.
+    #[error("The forbidden `MAP_FIXED` flag was specified")]
     MapFixed,
     /// Mappings using the same fd overlap in terms of file offset and length.
+    #[error("Mappings using the same fd overlap in terms of file offset and length")]
     MappingOverlap,
     /// A mapping with offset + length > EOF was attempted.
+    #[error("The specified file offset and length is greater then file length")]
     MappingPastEof,
     /// The `mmap` call returned an error.
+    #[error("{0}")]
     Mmap(io::Error),
     /// Seeking the end of the file returned an error.
+    #[error("Error seeking the end of the file: {0}")]
     SeekEnd(io::Error),
     /// Seeking the start of the file returned an error.
+    #[error("Error seeking the start of the file: {0}")]
     SeekStart(io::Error),
 }
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::InvalidOffsetLength => write!(
-                f,
-                "The specified file offset and length cause overflow when added"
-            ),
-            Error::InvalidPointer => write!(
-                f,
-                "The specified pointer to the mapping is not page-aligned",
-            ),
-            Error::MapFixed => write!(f, "The forbidden `MAP_FIXED` flag was specified"),
-            Error::MappingOverlap => write!(
-                f,
-                "Mappings using the same fd overlap in terms of file offset and length"
-            ),
-            Error::MappingPastEof => write!(
-                f,
-                "The specified file offset and length is greater then file length"
-            ),
-            Error::Mmap(error) => write!(f, "{}", error),
-            Error::SeekEnd(error) => write!(f, "Error seeking the end of the file: {}", error),
-            Error::SeekStart(error) => write!(f, "Error seeking the start of the file: {}", error),
-        }
-    }
-}
-
-impl error::Error for Error {}
 
 pub type Result<T> = result::Result<T, Error>;
 

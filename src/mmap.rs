@@ -13,8 +13,6 @@
 //! This implementation is mmap-ing the memory of the guest into the current process.
 
 use std::borrow::Borrow;
-use std::error;
-use std::fmt;
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::io::{Seek, SeekFrom};
@@ -51,42 +49,25 @@ impl NewBitmap for () {
 }
 
 /// Errors that can occur when creating a memory map.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Adding the guest base address to the length of the underlying mapping resulted
     /// in an overflow.
+    #[error("Adding the guest base address to the length of the underlying mapping resulted in an overflow")]
     InvalidGuestRegion,
     /// Error creating a `MmapRegion` object.
+    #[error("{0}")]
     MmapRegion(MmapRegionError),
     /// No memory region found.
+    #[error("No memory region found")]
     NoMemoryRegion,
     /// Some of the memory regions intersect with each other.
+    #[error("Some of the memory regions intersect with each other")]
     MemoryRegionOverlap,
     /// The provided memory regions haven't been sorted.
+    #[error("The provided memory regions haven't been sorted")]
     UnsortedMemoryRegions,
 }
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::InvalidGuestRegion => write!(
-                f,
-                "Adding the guest base address to the length of the underlying mapping \
-                 resulted in an overflow"
-            ),
-            Error::MmapRegion(e) => write!(f, "{}", e),
-            Error::NoMemoryRegion => write!(f, "No memory region found"),
-            Error::MemoryRegionOverlap => {
-                write!(f, "Some of the memory regions intersect with each other")
-            }
-            Error::UnsortedMemoryRegions => {
-                write!(f, "The provided memory regions haven't been sorted")
-            }
-        }
-    }
-}
-
-impl error::Error for Error {}
 
 // TODO: use this for Windows as well after we redefine the Error type there.
 #[cfg(unix)]

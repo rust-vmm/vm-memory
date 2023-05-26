@@ -42,7 +42,6 @@
 //! `VolatileSlice`, `VolatileRef`, or `VolatileArrayRef`.
 
 use std::convert::From;
-use std::fmt::{self, Display};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::ops::{BitAnd, BitOr, Deref};
@@ -59,17 +58,22 @@ static MAX_ACCESS_CHUNK: usize = 4096;
 
 /// Errors associated with handling guest memory accesses.
 #[allow(missing_docs)]
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Failure in finding a guest address in any memory regions mapped by this guest.
+    #[error("Guest memory error: invalid guest address {}",.0.raw_value())]
     InvalidGuestAddress(GuestAddress),
     /// Couldn't read/write from the given source.
+    #[error("Guest memory error: {0}")]
     IOError(io::Error),
     /// Incomplete read or write.
+    #[error("Guest memory error: only used {completed} bytes in {expected} long buffer")]
     PartialBuffer { expected: usize, completed: usize },
     /// Requested backend address is out of range.
+    #[error("Guest memory error: invalid backend address")]
     InvalidBackendAddress,
     /// Host virtual address not available.
+    #[error("Guest memory error: host virtual address not available")]
     HostAddressNotAvailable,
 }
 
@@ -94,30 +98,6 @@ impl From<volatile_memory::Error> for Error {
 
 /// Result of guest memory operations.
 pub type Result<T> = std::result::Result<T, Error>;
-
-impl std::error::Error for Error {}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Guest memory error: ")?;
-        match self {
-            Error::InvalidGuestAddress(addr) => {
-                write!(f, "invalid guest address {}", addr.raw_value())
-            }
-            Error::IOError(error) => write!(f, "{}", error),
-            Error::PartialBuffer {
-                expected,
-                completed,
-            } => write!(
-                f,
-                "only used {} bytes in {} long buffer",
-                completed, expected,
-            ),
-            Error::InvalidBackendAddress => write!(f, "invalid backend address"),
-            Error::HostAddressNotAvailable => write!(f, "host virtual address not available"),
-        }
-    }
-}
 
 /// Represents a guest physical address (GPA).
 ///
