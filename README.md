@@ -21,6 +21,33 @@ The detailed design of the `vm-memory` crate can be found [here](DESIGN.md).
 - Arch: x86, AMD64, ARM64
 - OS: Linux/Unix/Windows
 
+### Xen support
+
+Supporting Xen requires special handling while mapping the guest memory and
+hence a separate feature is provided in the crate: `xen`. Mapping the guest
+memory for Xen requires an `ioctl()` to be issued along with `mmap()` for the
+memory area. The arguments for the `ioctl()` are received via the `vhost-user`
+protocol's memory region area.
+
+Xen allows two different mapping models: `Foreign` and `Grant`.
+
+In `Foreign` mapping model, the entire guest address space is mapped at once, in
+advance. In `Grant` mapping model, the memory for few regions, like those
+representing the virtqueues, is mapped in advance. The rest of the memory
+regions are mapped (partially) only while accessing the buffers and the same is
+immediately deallocated after the buffer is accessed. Hence, special handling
+for the same in `VolatileMemory.rs`.
+
+In order to still support standard Unix memory regions, for special regions and
+testing, the Xen specific implementation here allows a third mapping type:
+`MmapXenFlags::UNIX`. This performs standard Unix memory mapping and the same is
+used for all tests in this crate.
+
+It was decided by the `rust-vmm` maintainers to keep the interface simple and
+build the crate for either standard Unix memory mapping or Xen, and not both.
+
+Xen is only supported for Unix platforms.
+
 ## Usage
 
 Add `vm-memory` as a dependency in `Cargo.toml`
