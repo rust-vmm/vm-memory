@@ -950,7 +950,7 @@ mod tests {
         let m =
             GuestRegionMmap::from_range(&GuestMmapRange::new(GuestAddress(0), 5, None)).unwrap();
         let s = m.get_slice(MemoryRegionAddress(2), 3).unwrap();
-        assert_eq!(s.as_ptr(), unsafe { m.as_ptr().offset(2) });
+        assert_eq!(s.ptr_guard().as_ptr(), unsafe { m.as_ptr().offset(2) });
     }
 
     #[test]
