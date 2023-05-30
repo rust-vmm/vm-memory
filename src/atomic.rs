@@ -142,7 +142,10 @@ impl<M: GuestMemory> GuestMemoryExclusiveGuard<'_, M> {
 #[cfg(feature = "backend-mmap")]
 mod tests {
     use super::*;
-    use crate::{GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MmapRegion};
+    use crate::{
+        GuestAddress, GuestMemory, GuestMemoryRegion, GuestMmapRange, GuestUsize, MmapRange,
+        MmapRegion,
+    };
 
     type GuestMemoryMmap = crate::GuestMemoryMmap<()>;
     type GuestRegionMmap = crate::GuestRegionMmap<()>;
@@ -152,8 +155,8 @@ mod tests {
     fn test_atomic_memory() {
         let region_size = 0x400;
         let regions = vec![
-            (GuestAddress(0x0), region_size),
-            (GuestAddress(0x1000), region_size),
+            GuestMmapRange::new(GuestAddress(0x0), region_size, None),
+            GuestMmapRange::new(GuestAddress(0x1000), region_size, None),
         ];
         let mut iterated_regions = Vec::new();
         let gmm = GuestMemoryMmap::from_ranges(&regions).unwrap();
@@ -165,17 +168,16 @@ mod tests {
         }
 
         for region in mem.iter() {
-            iterated_regions.push((region.start_addr(), region.len() as usize));
+            iterated_regions.push(GuestMmapRange::new(
+                region.start_addr(),
+                region.len() as usize,
+                None,
+            ));
         }
         assert_eq!(regions, iterated_regions);
         assert_eq!(mem.num_regions(), 2);
         assert!(mem.find_region(GuestAddress(0x1000)).is_some());
         assert!(mem.find_region(GuestAddress(0x10000)).is_none());
-
-        assert!(regions
-            .iter()
-            .map(|x| (x.0, x.1))
-            .eq(iterated_regions.iter().copied()));
 
         let mem2 = mem.into_inner();
         for region in mem2.iter() {
@@ -184,11 +186,6 @@ mod tests {
         assert_eq!(mem2.num_regions(), 2);
         assert!(mem2.find_region(GuestAddress(0x1000)).is_some());
         assert!(mem2.find_region(GuestAddress(0x10000)).is_none());
-
-        assert!(regions
-            .iter()
-            .map(|x| (x.0, x.1))
-            .eq(iterated_regions.iter().copied()));
 
         let mem3 = mem2.memory();
         for region in mem3.iter() {
@@ -203,8 +200,8 @@ mod tests {
     fn test_clone_guard() {
         let region_size = 0x400;
         let regions = vec![
-            (GuestAddress(0x0), region_size),
-            (GuestAddress(0x1000), region_size),
+            GuestMmapRange::new(GuestAddress(0x0), region_size, None),
+            GuestMmapRange::new(GuestAddress(0x1000), region_size, None),
         ];
         let gmm = GuestMemoryMmap::from_ranges(&regions).unwrap();
         let gm = GuestMemoryMmapAtomic::new(gmm);
@@ -219,8 +216,8 @@ mod tests {
     fn test_atomic_hotplug() {
         let region_size = 0x1000;
         let regions = vec![
-            (GuestAddress(0x0), region_size),
-            (GuestAddress(0x10_0000), region_size),
+            GuestMmapRange::new(GuestAddress(0x0), region_size, None),
+            GuestMmapRange::new(GuestAddress(0x10_0000), region_size, None),
         ];
         let mut gmm = Arc::new(GuestMemoryMmap::from_ranges(&regions).unwrap());
         let gm: GuestMemoryAtomic<_> = gmm.clone().into();
@@ -228,25 +225,36 @@ mod tests {
         assert_eq!(mem_orig.num_regions(), 2);
 
         {
+            let range = MmapRange::new(0x1000);
+
             let guard = gm.lock().unwrap();
             let new_gmm = Arc::make_mut(&mut gmm);
             let mmap = Arc::new(
-                GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0x8000))
-                    .unwrap(),
+                GuestRegionMmap::new(
+                    MmapRegion::new(range.clone()).unwrap(),
+                    GuestAddress(0x8000),
+                )
+                .unwrap(),
             );
             let new_gmm = new_gmm.insert_region(mmap).unwrap();
             let mmap = Arc::new(
-                GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0x4000))
-                    .unwrap(),
+                GuestRegionMmap::new(
+                    MmapRegion::new(range.clone()).unwrap(),
+                    GuestAddress(0x4000),
+                )
+                .unwrap(),
             );
             let new_gmm = new_gmm.insert_region(mmap).unwrap();
             let mmap = Arc::new(
-                GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0xc000))
-                    .unwrap(),
+                GuestRegionMmap::new(
+                    MmapRegion::new(range.clone()).unwrap(),
+                    GuestAddress(0xc000),
+                )
+                .unwrap(),
             );
             let new_gmm = new_gmm.insert_region(mmap).unwrap();
             let mmap = Arc::new(
-                GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0xc000))
+                GuestRegionMmap::new(MmapRegion::new(range).unwrap(), GuestAddress(0xc000))
                     .unwrap(),
             );
             new_gmm.insert_region(mmap).unwrap_err();

@@ -14,7 +14,7 @@ use winapi::um::errhandlingapi::GetLastError;
 
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::FileOffset;
-use crate::mmap::NewBitmap;
+use crate::mmap::{GuestMmapRange, NewBitmap};
 use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
 
 #[allow(non_snake_case)]
@@ -61,6 +61,34 @@ pub const INVALID_HANDLE_VALUE: RawHandle = (-1isize) as RawHandle;
 #[allow(dead_code)]
 pub const ERROR_INVALID_PARAMETER: i32 = 87;
 
+/// `MmapRange` represents a range of arguments required to create Mmap regions.
+#[derive(Clone, Debug)]
+pub struct MmapRange {
+    size: usize,
+    file: Option<FileOffset>,
+}
+
+impl MmapRange {
+    /// Creates instance of the range with `size`.
+    pub fn new(size: usize) -> Self {
+        Self::with_file(size, None)
+    }
+
+    /// Creates instance of the range with multiple arguments.
+    pub fn with_file(size: usize, file: Option<FileOffset>) -> Self {
+        Self { size, file }
+    }
+}
+
+impl From<GuestMmapRange> for MmapRange {
+    fn from(r: GuestMmapRange) -> Self {
+        Self {
+            size: r.size,
+            file: r.file,
+        }
+    }
+}
+
 /// Helper structure for working with mmaped memory regions in Unix.
 ///
 /// The structure is used for accessing the guest's physical memory by mmapping it into
@@ -89,8 +117,14 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// Creates a shared anonymous mapping of `size` bytes.
     ///
     /// # Arguments
-    /// * `size` - The size of the memory region in bytes.
-    pub fn new(size: usize) -> io::Result<Self> {
+    /// * `range` - An instance of type `MmapRange`.
+    pub fn new(range: MmapRange) -> io::Result<Self> {
+        let size = range.size;
+
+        if let Some(file) = range.file {
+            return Self::from_file(file, size);
+        }
+
         if (size == 0) || (size > MM_HIGHEST_VAD_ADDRESS as usize) {
             return Err(io::Error::from_raw_os_error(libc::EINVAL));
         }
@@ -108,13 +142,8 @@ impl<B: NewBitmap> MmapRegion<B> {
         })
     }
 
-    /// Creates a shared file mapping of `size` bytes.
-    ///
-    /// # Arguments
-    /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
-    ///                   referred to by `file_offset.file`.
-    /// * `size` - The size of the memory region in bytes.
-    pub fn from_file(file_offset: FileOffset, size: usize) -> io::Result<Self> {
+    // Creates a shared file mapping of `size` bytes.
+    fn from_file(file_offset: FileOffset, size: usize) -> io::Result<Self> {
         let handle = file_offset.file().as_raw_handle();
         if handle == INVALID_HANDLE_VALUE {
             return Err(io::Error::from_raw_os_error(libc::EBADF));
@@ -241,6 +270,7 @@ impl<B> Drop for MmapRegion<B> {
 mod tests {
     use std::os::windows::io::FromRawHandle;
 
+    use super::MmapRange;
     use crate::bitmap::AtomicBitmap;
     use crate::guest_memory::FileOffset;
     use crate::mmap_windows::INVALID_HANDLE_VALUE;
@@ -259,7 +289,7 @@ mod tests {
     fn test_dirty_tracking() {
         // Using the `crate` prefix because we aliased `MmapRegion` to `MmapRegion<()>` for
         // the rest of the unit tests above.
-        let m = crate::MmapRegion::<AtomicBitmap>::new(0x1_0000).unwrap();
+        let m = crate::MmapRegion::<AtomicBitmap>::new(MmapRange::new(0x1_0000)).unwrap();
         crate::bitmap::tests::test_volatile_memory(&m);
     }
 }

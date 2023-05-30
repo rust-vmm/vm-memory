@@ -17,7 +17,7 @@ use std::result;
 
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::FileOffset;
-use crate::mmap::{check_file_offset, NewBitmap};
+use crate::mmap::{check_file_offset, GuestMmapRange, NewBitmap};
 use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
@@ -47,9 +47,60 @@ pub enum Error {
     /// Seeking the start of the file returned an error.
     #[error("Error seeking the start of the file: {0}")]
     SeekStart(io::Error),
+    /// Missing prot.
+    #[error("Missing prot")]
+    MissingProt,
+    /// Missing flags.
+    #[error("Missing flags")]
+    MissingFlags,
+    /// Invalid file offset.
+    #[error("Invalid file offset")]
+    InvalidFileOffset,
 }
 
 pub type Result<T> = result::Result<T, Error>;
+
+/// `MmapRange` represents a range of arguments required to create Mmap regions.
+#[derive(Clone, Debug)]
+pub struct MmapRange {
+    size: usize,
+    file: Option<FileOffset>,
+    prot: Option<i32>,
+    flags: Option<i32>,
+}
+
+impl MmapRange {
+    /// Creates instance of the range with `size`.
+    pub fn new(size: usize) -> Self {
+        Self::with_file(size, None, None, None)
+    }
+
+    /// Creates instance of the range with multiple arguments.
+    pub fn with_file(
+        size: usize,
+        file: Option<FileOffset>,
+        prot: Option<i32>,
+        flags: Option<i32>,
+    ) -> Self {
+        Self {
+            size,
+            file,
+            prot,
+            flags,
+        }
+    }
+}
+
+impl From<GuestMmapRange> for MmapRange {
+    fn from(r: GuestMmapRange) -> Self {
+        Self {
+            size: r.size,
+            file: r.file,
+            prot: None,
+            flags: None,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Mmap {
@@ -262,6 +313,23 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
     }
 }
 
+impl<B: NewBitmap> MmapRegionBuilder<B> {
+    fn from_range(range: MmapRange) -> Result<Self> {
+        let prot = range.prot.ok_or(Error::MissingProt)?;
+        let flags = range.flags.ok_or(Error::MissingFlags)?;
+
+        let mut builder = Self::new_with_bitmap(range.size, B::with_len(range.size))
+            .with_mmap_prot(prot)
+            .with_mmap_flags(flags);
+
+        if let Some(f_off) = range.file {
+            builder = builder.with_file_offset(f_off);
+        }
+
+        Ok(builder)
+    }
+}
+
 /// Helper structure for working with mmaped memory regions in Unix.
 ///
 /// The structure is used for accessing the guest's physical memory by mmapping it into
@@ -294,51 +362,21 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// Creates a shared anonymous mapping of `size` bytes.
     ///
     /// # Arguments
-    /// * `size` - The size of the memory region in bytes.
-    pub fn new(size: usize) -> Result<Self> {
-        MmapRegionBuilder::new_with_bitmap(size, B::with_len(size))
-            .with_mmap_prot(libc::PROT_READ | libc::PROT_WRITE)
-            .with_mmap_flags(libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE)
-            .build()
-    }
-
-    /// Creates a shared file mapping of `size` bytes.
-    ///
-    /// # Arguments
-    /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
-    ///                   referred to by `file_offset.file`.
-    /// * `size` - The size of the memory region in bytes.
-    pub fn from_file(file_offset: FileOffset, size: usize) -> Result<Self> {
-        MmapRegionBuilder::new_with_bitmap(size, B::with_len(size))
-            .with_file_offset(file_offset)
-            .with_mmap_prot(libc::PROT_READ | libc::PROT_WRITE)
-            .with_mmap_flags(libc::MAP_NORESERVE | libc::MAP_SHARED)
-            .build()
-    }
-
-    /// Creates a mapping based on the provided arguments.
-    ///
-    /// # Arguments
-    /// * `file_offset` - if provided, the method will create a file mapping at offset
-    ///                   `file_offset.start` in the file referred to by `file_offset.file`.
-    /// * `size` - The size of the memory region in bytes.
-    /// * `prot` - The desired memory protection of the mapping.
-    /// * `flags` - This argument determines whether updates to the mapping are visible to other
-    ///             processes mapping the same region, and whether updates are carried through to
-    ///             the underlying file.
-    pub fn build(
-        file_offset: Option<FileOffset>,
-        size: usize,
-        prot: i32,
-        flags: i32,
-    ) -> Result<Self> {
-        let mut builder = MmapRegionBuilder::new_with_bitmap(size, B::with_len(size))
-            .with_mmap_prot(prot)
-            .with_mmap_flags(flags);
-        if let Some(v) = file_offset {
-            builder = builder.with_file_offset(v);
+    /// * `range` - An instance of type `MmapRange`.
+    pub fn new(mut range: MmapRange) -> Result<Self> {
+        if range.prot.is_none() {
+            range.prot = Some(libc::PROT_READ | libc::PROT_WRITE);
         }
-        builder.build()
+
+        if range.flags.is_none() {
+            range.flags = Some(if range.file.is_some() {
+                libc::MAP_NORESERVE | libc::MAP_SHARED
+            } else {
+                libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE
+            });
+        }
+
+        MmapRegionBuilder::from_range(range)?.build()
     }
 
     /// Creates a `MmapRegion` instance for an externally managed mapping.
@@ -358,11 +396,13 @@ impl<B: NewBitmap> MmapRegion<B> {
     ///
     /// To use this safely, the caller must guarantee that `addr` and `size` define a region within
     /// a valid mapping that is already present in the process.
-    pub unsafe fn build_raw(addr: *mut u8, size: usize, prot: i32, flags: i32) -> Result<Self> {
-        MmapRegionBuilder::new_with_bitmap(size, B::with_len(size))
+    pub unsafe fn build_raw(addr: *mut u8, range: MmapRange) -> Result<Self> {
+        if range.file.is_some() {
+            return Err(Error::InvalidFileOffset);
+        }
+
+        MmapRegionBuilder::from_range(range)?
             .with_raw_mmap_pointer(addr)
-            .with_mmap_prot(prot)
-            .with_mmap_flags(flags)
             .build()
     }
 }
@@ -499,11 +539,11 @@ mod tests {
 
     #[test]
     fn test_mmap_region_new() {
-        assert!(MmapRegion::new(0).is_err());
+        assert!(MmapRegion::new(MmapRange::new(0)).is_err());
 
         let size = 4096;
 
-        let r = MmapRegion::new(4096).unwrap();
+        let r = MmapRegion::new(MmapRange::new(4096)).unwrap();
         assert_eq!(r.size(), size);
         assert!(r.file_offset().is_none());
         assert_eq!(r.prot(), libc::PROT_READ | libc::PROT_WRITE);
@@ -515,11 +555,12 @@ mod tests {
 
     #[test]
     fn test_mmap_region_set_hugetlbfs() {
-        assert!(MmapRegion::new(0).is_err());
+        assert!(MmapRegion::new(MmapRange::new(0)).is_err());
 
         let size = 4096;
+        let range = MmapRange::new(size);
 
-        let r = MmapRegion::new(size).unwrap();
+        let r = MmapRegion::new(range.clone()).unwrap();
         assert_eq!(r.size(), size);
         assert!(r.file_offset().is_none());
         assert_eq!(r.prot(), libc::PROT_READ | libc::PROT_WRITE);
@@ -529,7 +570,7 @@ mod tests {
         );
         assert_eq!(r.is_hugetlbfs(), None);
 
-        let mut r = MmapRegion::new(size).unwrap();
+        let mut r = MmapRegion::new(range.clone()).unwrap();
         r.set_hugetlbfs(false);
         assert_eq!(r.size(), size);
         assert!(r.file_offset().is_none());
@@ -540,7 +581,7 @@ mod tests {
         );
         assert_eq!(r.is_hugetlbfs(), Some(false));
 
-        let mut r = MmapRegion::new(size).unwrap();
+        let mut r = MmapRegion::new(range).unwrap();
         r.set_hugetlbfs(true);
         assert_eq!(r.size(), size);
         assert!(r.file_offset().is_none());
@@ -560,7 +601,13 @@ mod tests {
         let buf1 = [1u8, 2, 3, 4, 5];
 
         f.write_all(buf1.as_ref()).unwrap();
-        let r = MmapRegion::from_file(FileOffset::new(f, offset as u64), buf1.len()).unwrap();
+        let range = MmapRange::with_file(
+            buf1.len(),
+            Some(FileOffset::new(f, offset as u64)),
+            None,
+            None,
+        );
+        let r = MmapRegion::new(range).unwrap();
 
         assert_eq!(r.size(), buf1.len() - offset);
         assert_eq!(r.file_offset().unwrap().start(), offset as u64);
@@ -582,47 +629,52 @@ mod tests {
         let size = 1000;
 
         // Offset + size will overflow.
-        let r = MmapRegion::build(
-            Some(FileOffset::from_arc(a.clone(), std::u64::MAX)),
+        let r = MmapRegion::new(MmapRange::with_file(
             size,
-            prot,
-            flags,
-        );
+            Some(FileOffset::from_arc(a.clone(), std::u64::MAX)),
+            Some(prot),
+            Some(flags),
+        ));
         assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidOffsetLength");
 
         // Offset + size is greater than the size of the file (which is 0 at this point).
-        let r = MmapRegion::build(
-            Some(FileOffset::from_arc(a.clone(), offset)),
+        let r = MmapRegion::new(MmapRange::with_file(
             size,
-            prot,
-            flags,
-        );
+            Some(FileOffset::from_arc(a.clone(), offset)),
+            Some(prot),
+            Some(flags),
+        ));
         assert_eq!(format!("{:?}", r.unwrap_err()), "MappingPastEof");
 
         // MAP_FIXED was specified among the flags.
-        let r = MmapRegion::build(
-            Some(FileOffset::from_arc(a.clone(), offset)),
+        let r = MmapRegion::new(MmapRange::with_file(
             size,
-            prot,
-            flags | libc::MAP_FIXED,
-        );
+            Some(FileOffset::from_arc(a.clone(), offset)),
+            Some(prot),
+            Some(flags | libc::MAP_FIXED),
+        ));
         assert_eq!(format!("{:?}", r.unwrap_err()), "MapFixed");
 
         // Let's resize the file.
         assert_eq!(unsafe { libc::ftruncate(a.as_raw_fd(), 1024 * 10) }, 0);
 
         // The offset is not properly aligned.
-        let r = MmapRegion::build(
-            Some(FileOffset::from_arc(a.clone(), offset - 1)),
+        let r = MmapRegion::new(MmapRange::with_file(
             size,
-            prot,
-            flags,
-        );
+            Some(FileOffset::from_arc(a.clone(), offset - 1)),
+            Some(prot),
+            Some(flags),
+        ));
         assert_eq!(r.unwrap_err().raw_os_error(), libc::EINVAL);
 
         // The build should be successful now.
-        let r =
-            MmapRegion::build(Some(FileOffset::from_arc(a, offset)), size, prot, flags).unwrap();
+        let r = MmapRegion::new(MmapRange::with_file(
+            size,
+            Some(FileOffset::from_arc(a, offset)),
+            Some(prot),
+            Some(flags),
+        ))
+        .unwrap();
 
         assert_eq!(r.size(), size);
         assert_eq!(r.file_offset().unwrap().start(), offset);
@@ -650,10 +702,11 @@ mod tests {
         let prot = libc::PROT_READ | libc::PROT_WRITE;
         let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
 
-        let r = unsafe { MmapRegion::build_raw((addr + 1) as *mut u8, size, prot, flags) };
+        let range = MmapRange::with_file(size, None, Some(prot), Some(flags));
+        let r = unsafe { MmapRegion::build_raw((addr + 1) as *mut u8, range.clone()) };
         assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidPointer");
 
-        let r = unsafe { MmapRegion::build_raw(addr as *mut u8, size, prot, flags).unwrap() };
+        let r = unsafe { MmapRegion::build_raw(addr as *mut u8, range).unwrap() };
 
         assert_eq!(r.size(), size);
         assert_eq!(r.prot(), libc::PROT_READ | libc::PROT_WRITE);
@@ -667,14 +720,26 @@ mod tests {
         let a = Arc::new(TempFile::new().unwrap().into_file());
         assert_eq!(unsafe { libc::ftruncate(a.as_raw_fd(), 1024 * 10) }, 0);
 
-        let r1 = MmapRegion::from_file(FileOffset::from_arc(a.clone(), 0), 4096).unwrap();
-        let r2 = MmapRegion::from_file(FileOffset::from_arc(a.clone(), 4096), 4096).unwrap();
+        let range =
+            MmapRange::with_file(4096, Some(FileOffset::from_arc(a.clone(), 0)), None, None);
+        let r1 = MmapRegion::new(range).unwrap();
+
+        let range = MmapRange::with_file(
+            4096,
+            Some(FileOffset::from_arc(a.clone(), 4096)),
+            None,
+            None,
+        );
+        let r2 = MmapRegion::new(range).unwrap();
         assert!(!r1.fds_overlap(&r2));
 
-        let r1 = MmapRegion::from_file(FileOffset::from_arc(a.clone(), 0), 5000).unwrap();
+        let range =
+            MmapRange::with_file(5000, Some(FileOffset::from_arc(a.clone(), 0)), None, None);
+        let r1 = MmapRegion::new(range).unwrap();
         assert!(r1.fds_overlap(&r2));
 
-        let r2 = MmapRegion::from_file(FileOffset::from_arc(a, 0), 1000).unwrap();
+        let range = MmapRange::with_file(1000, Some(FileOffset::from_arc(a, 0)), None, None);
+        let r2 = MmapRegion::new(range).unwrap();
         assert!(r1.fds_overlap(&r2));
 
         // Different files, so there's not overlap.
@@ -684,11 +749,12 @@ mod tests {
             unsafe { libc::ftruncate(new_file.as_raw_fd(), 1024 * 10) },
             0
         );
-        let r2 = MmapRegion::from_file(FileOffset::new(new_file, 0), 5000).unwrap();
+        let range = MmapRange::with_file(5000, Some(FileOffset::new(new_file, 0)), None, None);
+        let r2 = MmapRegion::new(range).unwrap();
         assert!(!r1.fds_overlap(&r2));
 
         // R2 is not file backed, so no overlap.
-        let r2 = MmapRegion::new(5000).unwrap();
+        let r2 = MmapRegion::new(MmapRange::new(5000)).unwrap();
         assert!(!r1.fds_overlap(&r2));
     }
 
@@ -696,7 +762,7 @@ mod tests {
     fn test_dirty_tracking() {
         // Using the `crate` prefix because we aliased `MmapRegion` to `MmapRegion<()>` for
         // the rest of the unit tests above.
-        let m = crate::MmapRegion::<AtomicBitmap>::new(0x1_0000).unwrap();
+        let m = crate::MmapRegion::<AtomicBitmap>::new(MmapRange::new(0x1_0000)).unwrap();
         crate::bitmap::tests::test_volatile_memory(&m);
     }
 }

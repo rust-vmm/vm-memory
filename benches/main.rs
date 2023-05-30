@@ -6,7 +6,7 @@ extern crate criterion;
 
 pub use criterion::{black_box, criterion_group, criterion_main, Criterion};
 #[cfg(feature = "backend-mmap")]
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+use vm_memory::{GuestAddress, GuestMemoryMmap, GuestMmapRange};
 
 mod guest_memory;
 mod mmap;
@@ -18,9 +18,13 @@ use volatile::benchmark_for_volatile;
 // Use this function with caution. It does not check against overflows
 // and `GuestMemoryMmap::from_ranges` errors.
 fn create_guest_memory_mmap(size: usize, count: u64) -> GuestMemoryMmap<()> {
-    let mut regions: Vec<(GuestAddress, usize)> = Vec::new();
+    let mut regions = Vec::new();
     for i in 0..count {
-        regions.push((GuestAddress(i * size as u64), size));
+        regions.push(GuestMmapRange::new(
+            GuestAddress(i * size as u64),
+            size,
+            None,
+        ));
     }
 
     GuestMemoryMmap::from_ranges(regions.as_slice()).unwrap()
