@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased 
+
+### Added 
+
+- [[#237]](https://github.com/rust-vmm/vm-memory/pull/237) Implement `ByteValued` for `i/u128`.
+
 ## [v0.11.0]
 
 ### Added
