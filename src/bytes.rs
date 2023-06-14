@@ -155,11 +155,13 @@ byte_valued_type!(u8);
 byte_valued_type!(u16);
 byte_valued_type!(u32);
 byte_valued_type!(u64);
+byte_valued_type!(u128);
 byte_valued_type!(usize);
 byte_valued_type!(i8);
 byte_valued_type!(i16);
 byte_valued_type!(i32);
 byte_valued_type!(i64);
+byte_valued_type!(i128);
 byte_valued_type!(isize);
 
 /// A trait used to identify types which can be accessed atomically by proxy.
@@ -362,7 +364,7 @@ pub(crate) mod tests {
     where
         T: ByteValued + PartialEq + Debug + Default,
     {
-        let mut data = [0u8; 32];
+        let mut data = [0u8; 48];
         let pre_len = {
             let (pre, _, _) = unsafe { data.align_to::<T>() };
             pre.len()
@@ -377,7 +379,7 @@ pub(crate) mod tests {
                 assert_eq!(val.as_mut_slice(), aligned_data);
             }
         }
-        for i in 1..size_of::<T>() {
+        for i in 1..size_of::<T>().min(align_of::<T>()) {
             let begin = pre_len + i;
             let end = begin + size_of::<T>();
             let unaligned_data = &mut data[begin..end];
@@ -401,11 +403,13 @@ pub(crate) mod tests {
         check_byte_valued_type::<u16>();
         check_byte_valued_type::<u32>();
         check_byte_valued_type::<u64>();
+        check_byte_valued_type::<u128>();
         check_byte_valued_type::<usize>();
         check_byte_valued_type::<i8>();
         check_byte_valued_type::<i16>();
         check_byte_valued_type::<i32>();
         check_byte_valued_type::<i64>();
+        check_byte_valued_type::<i128>();
         check_byte_valued_type::<isize>();
     }
 
