@@ -272,9 +272,8 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// # use vm_memory::{GuestAddress, MmapRegion, GuestRegionMmap, GuestMemoryRegion};
     /// # use vm_memory::volatile_memory::{VolatileMemory, VolatileSlice, VolatileRef};
     /// #
-    /// let region = MmapRegion::<()>::new(0x400).expect("Could not create mmap region");
-    /// let region =
-    ///     GuestRegionMmap::new(region, GuestAddress(0x0)).expect("Could not create guest memory");
+    /// let region = GuestRegionMmap::<()>::from_range(GuestAddress(0x0), 0x400, None)
+    ///     .expect("Could not create guest memory");
     /// let slice = region
     ///     .as_volatile_slice()
     ///     .expect("Could not get volatile slice");
