@@ -191,6 +191,7 @@ mod tests {
         assert!(b.is_addr_set(256));
         assert!(!b.is_addr_set(384));
 
+        #[allow(clippy::redundant_clone)]
         let copy_b = b.clone();
         assert!(copy_b.is_addr_set(256));
         assert!(!copy_b.is_addr_set(384));
