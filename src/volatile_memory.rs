@@ -1420,7 +1420,6 @@ mod tests {
 
     use std::fs::File;
     use std::io::Cursor;
-    use std::mem;
     use std::mem::size_of_val;
     use std::path::Path;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1968,7 +1967,7 @@ mod tests {
         // Trying to read more bytes than we have available in the cursor should
         // make the read_from function return maximum cursor size (i.e. 20).
         let mut bytes_to_read = BytesToRead::default();
-        let size_of_bytes = mem::size_of_val(&bytes_to_read);
+        let size_of_bytes = size_of_val(&bytes_to_read);
         assert_eq!(
             bytes_to_read
                 .as_bytes()
@@ -2192,7 +2191,7 @@ mod tests {
     where
         T: ByteValued + From<u8>,
     {
-        let bitmap = AtomicBitmap::new(buf.len() * size_of::<T>(), page_size);
+        let bitmap = AtomicBitmap::new(size_of_val(buf), page_size);
         let arr = unsafe {
             VolatileArrayRef::with_bitmap(
                 buf.as_mut_ptr() as *mut u8,
@@ -2206,7 +2205,7 @@ mod tests {
 
         assert!(range_is_clean(arr.bitmap(), 0, arr.len() * size_of::<T>()));
         arr.copy_from(copy_buf.as_slice());
-        assert!(range_is_dirty(arr.bitmap(), 0, buf.len() * size_of::<T>()));
+        assert!(range_is_dirty(arr.bitmap(), 0, size_of_val(buf)));
     }
 
     #[test]
