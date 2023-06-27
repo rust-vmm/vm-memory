@@ -171,6 +171,79 @@ impl<B: NewBitmap> MmapRegion<B> {
     ///
     /// # Arguments
     /// * `range` - An instance of type `MmapRange`.
+    ///
+    /// # Examples
+    /// * Write a slice at guest address 0x1200 with Xen's Grant mapping.
+    ///
+    /// ```
+    /// use std::fs::File;
+    /// use std::path::Path;
+    /// use vm_memory::{
+    ///     Bytes, FileOffset, GuestAddress, GuestMemoryMmap, GuestRegionMmap, MmapRange, MmapRegion,
+    ///     MmapXenFlags,
+    /// };
+    /// # use vmm_sys_util::tempfile::TempFile;
+    ///
+    /// let addr = GuestAddress(0x1000);
+    /// # if false {
+    /// let file = Some(FileOffset::new(
+    ///     File::open(Path::new("/dev/xen/gntdev")).expect("Could not open file"),
+    ///     0,
+    /// ));
+    ///
+    /// let range = MmapRange::new(0x400, file, addr, MmapXenFlags::GRANT.bits(), 0);
+    /// # }
+    /// # // We need a UNIX mapping for tests to succeed.
+    /// # let range = MmapRange::new_unix(0x400, None, addr);
+    ///
+    /// let r = GuestRegionMmap::new(
+    ///     MmapRegion::<()>::from_range(range).expect("Could not create mmap region"),
+    ///     addr,
+    /// )
+    /// .expect("Could not create guest region");
+    ///
+    /// let mut gm = GuestMemoryMmap::from_regions(vec![r]).expect("Could not create guest memory");
+    /// let res = gm
+    ///     .write(&[1, 2, 3, 4, 5], GuestAddress(0x1200))
+    ///     .expect("Could not write to guest memory");
+    /// assert_eq!(5, res);
+    /// ```
+    ///
+    /// * Write a slice at guest address 0x1200 with Xen's Foreign mapping.
+    ///
+    /// ```
+    /// use std::fs::File;
+    /// use std::path::Path;
+    /// use vm_memory::{
+    ///     Bytes, FileOffset, GuestAddress, GuestMemoryMmap, GuestRegionMmap, MmapRange, MmapRegion,
+    ///     MmapXenFlags,
+    /// };
+    /// # use vmm_sys_util::tempfile::TempFile;
+    ///
+    /// let addr = GuestAddress(0x1000);
+    /// # if false {
+    /// let file = Some(FileOffset::new(
+    ///     File::open(Path::new("/dev/xen/privcmd")).expect("Could not open file"),
+    ///     0,
+    /// ));
+    ///
+    /// let range = MmapRange::new(0x400, file, addr, MmapXenFlags::FOREIGN.bits(), 0);
+    /// # }
+    /// # // We need a UNIX mapping for tests to succeed.
+    /// # let range = MmapRange::new_unix(0x400, None, addr);
+    ///
+    /// let r = GuestRegionMmap::new(
+    ///     MmapRegion::<()>::from_range(range).expect("Could not create mmap region"),
+    ///     addr,
+    /// )
+    /// .expect("Could not create guest region");
+    ///
+    /// let mut gm = GuestMemoryMmap::from_regions(vec![r]).expect("Could not create guest memory");
+    /// let res = gm
+    ///     .write(&[1, 2, 3, 4, 5], GuestAddress(0x1200))
+    ///     .expect("Could not write to guest memory");
+    /// assert_eq!(5, res);
+    /// ```
     pub fn from_range(mut range: MmapRange) -> Result<Self> {
         if range.prot.is_none() {
             range.prot = Some(libc::PROT_READ | libc::PROT_WRITE);
