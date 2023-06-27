@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- [[#241]](https://github.com/rust-vmm/vm-memory/pull/241) Add Xen memory
+  mapping support: Foreign and Grant. Add new API for accessing pointers to
+  volatile slices, as `as_ptr()` can't be used with Xen's Grant mapping.
+
 ## [v0.11.0]
 
 ### Added
