@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v0.12.0]
 
 ### Added
 - [[#241]](https://github.com/rust-vmm/vm-memory/pull/241) Add Xen memory
