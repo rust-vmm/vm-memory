@@ -355,6 +355,10 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
     /// Returns a pointer to the beginning of the slice. Mutable accesses performed
     /// using the resulting pointer are not automatically accounted for by the dirty bitmap
     /// tracking functionality.
+    #[deprecated(
+        since = "0.12.1",
+        note = "Use `.ptr_guard()` or `.ptr_guard_mut()` instead"
+    )]
     #[cfg(not(all(feature = "xen", unix)))]
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr
@@ -1028,6 +1032,10 @@ where
     /// Returns a pointer to the underlying memory. Mutable accesses performed
     /// using the resulting pointer are not automatically accounted for by the dirty bitmap
     /// tracking functionality.
+    #[deprecated(
+        since = "0.12.1",
+        note = "Use `.ptr_guard()` or `.ptr_guard_mut()` instead"
+    )]
     #[cfg(not(all(feature = "xen", unix)))]
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr as *mut u8
@@ -1217,6 +1225,10 @@ where
     /// Returns a pointer to the underlying memory. Mutable accesses performed
     /// using the resulting pointer are not automatically accounted for by the dirty bitmap
     /// tracking functionality.
+    #[deprecated(
+        since = "0.12.1",
+        note = "Use `.ptr_guard()` or `.ptr_guard_mut()` instead"
+    )]
     #[cfg(not(all(feature = "xen", unix)))]
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr
