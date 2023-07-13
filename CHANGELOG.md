@@ -1,4 +1,19 @@
 # Changelog
+## [Unreleased]
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Deprecated
+
+## [v0.12.1]
+
+### Fixed
+- [[#241]](https://github.com/rust-vmm/vm-memory/pull/245) mmap_xen: Don't drop
+  the FileOffset while in use #245
 
 ## [v0.12.0]
 
