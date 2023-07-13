@@ -787,12 +787,12 @@ fn ioctl_gntdev_unmap_grant_ref() -> c_ulong {
 }
 
 // Xen grant memory specific implementation.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 struct MmapXenGrant {
     guest_base: GuestAddress,
     unix_mmap: Option<MmapUnix>,
+    file_offset: FileOffset,
     flags: i32,
-    fd: i32,
     size: usize,
     index: u64,
     domid: u32,
@@ -800,19 +800,19 @@ struct MmapXenGrant {
 
 impl AsRawFd for MmapXenGrant {
     fn as_raw_fd(&self) -> i32 {
-        self.fd
+        self.file_offset.file().as_raw_fd()
     }
 }
 
 impl MmapXenGrant {
     fn new(range: &MmapRange, mmap_flags: MmapXenFlags) -> Result<Self> {
-        let (fd, _) = validate_file(&range.file_offset)?;
+        validate_file(&range.file_offset)?;
 
         let mut grant = Self {
             guest_base: range.addr,
             unix_mmap: None,
+            file_offset: range.file_offset.as_ref().unwrap().clone(),
             flags: range.flags.ok_or(Error::UnexpectedError)?,
-            fd,
             size: 0,
             index: 0,
             domid: range.mmap_data,
@@ -838,7 +838,7 @@ impl MmapXenGrant {
     fn mmap_range(&self, addr: GuestAddress, size: usize, prot: i32) -> Result<(MmapUnix, u64)> {
         let (count, size) = pages(size);
         let index = self.mmap_ioctl(addr, count)?;
-        let unix_mmap = MmapUnix::new(size, prot, self.flags, self.fd, index)?;
+        let unix_mmap = MmapUnix::new(size, prot, self.flags, self.as_raw_fd(), index)?;
 
         Ok((unix_mmap, index))
     }
