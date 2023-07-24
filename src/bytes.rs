@@ -280,6 +280,9 @@ pub trait Bytes<A> {
     /// * `addr` - Begin writing at this address.
     /// * `src` - Copy from `src` into the container.
     /// * `count` - Copy `count` bytes from `src` into the container.
+    #[deprecated(
+        note = "Use `.read_from_volatile` or the functions of the `ReadVolatile` trait instead"
+    )]
     fn read_from<F>(&self, addr: A, src: &mut F, count: usize) -> Result<usize, Self::E>
     where
         F: Read;
@@ -295,6 +298,9 @@ pub trait Bytes<A> {
     /// * `addr` - Begin writing at this address.
     /// * `src` - Copy from `src` into the container.
     /// * `count` - Copy exactly `count` bytes from `src` into the container.
+    #[deprecated(
+        note = "Use `.read_exact_from_volatile` or the functions of the `ReadVolatile` trait instead"
+    )]
     fn read_exact_from<F>(&self, addr: A, src: &mut F, count: usize) -> Result<(), Self::E>
     where
         F: Read;
@@ -307,6 +313,9 @@ pub trait Bytes<A> {
     /// * `addr` - Begin reading from this address.
     /// * `dst` - Copy from the container to `dst`.
     /// * `count` - Copy `count` bytes from the container to `dst`.
+    #[deprecated(
+        note = "Use `.write_to_volatile` or the functions of the `WriteVolatile` trait instead"
+    )]
     fn write_to<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<usize, Self::E>
     where
         F: Write;
@@ -322,6 +331,9 @@ pub trait Bytes<A> {
     /// * `addr` - Begin reading from this address.
     /// * `dst` - Copy from the container to `dst`.
     /// * `count` - Copy exactly `count` bytes from the container to `dst`.
+    #[deprecated(
+        note = "Use `.write_all_to_volatile` or the functions of the `WriteVolatile` trait instead"
+    )]
     fn write_all_to<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<(), Self::E>
     where
         F: Write;

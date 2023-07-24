@@ -45,6 +45,9 @@ pub use guest_memory::{
     GuestMemoryRegion, GuestUsize, MemoryRegionAddress, Result as GuestMemoryResult,
 };
 
+pub mod io;
+pub use io::{ReadVolatile, WriteVolatile};
+
 #[cfg(all(feature = "backend-mmap", not(feature = "xen"), unix))]
 mod mmap_unix;
 

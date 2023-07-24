@@ -43,6 +43,7 @@ use crate::mmap_xen::{MmapXen as MmapInfo, MmapXenSlice};
 #[cfg(not(feature = "xen"))]
 type MmapInfo = std::marker::PhantomData<()>;
 
+use crate::io::{ReadVolatile, WriteVolatile};
 use copy_slice_impl::{copy_from_volatile_slice, copy_to_volatile_slice};
 
 /// `VolatileMemory` related errors.
@@ -682,7 +683,7 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// assert!(res.is_ok());
     /// assert_eq!(res.unwrap(), 4);
     /// ```
-    fn write(&self, buf: &[u8], addr: usize) -> Result<usize> {
+    fn write(&self, mut buf: &[u8], addr: usize) -> Result<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -691,18 +692,10 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
             return Err(Error::OutOfBounds { addr });
         }
 
-        let total = buf.len().min(self.len() - addr);
-        let dst = self.subslice(addr, total)?;
-
-        // SAFETY:
-        // We check above that `addr` is a valid offset within this volatile slice, and by
-        // the invariants of `VolatileSlice::new`, this volatile slice points to contiguous
-        // memory of length self.len(). Furthermore, both src and dst of the call to
-        // copy_to_volatile_slice are valid for reads and writes respectively of length `total`
-        // since total is the minimum of lengths of the memory areas pointed to. The areas do not
-        // overlap, since `dst` is inside guest memory, and buf is a slice (no slices to guest
-        // memory are possible without violating rust's aliasing rules).
-        Ok(unsafe { copy_to_volatile_slice(&dst, buf.as_ptr(), total) })
+        // NOTE: the duality of read <-> write here is correct. This is because we translate a call
+        // "volatile_slice.write(buf)" (e.g. "write to volatile_slice from buf") into
+        // "buf.read_volatile(volatile_slice)" (e.g. read from buf into volatile_slice)
+        buf.read_volatile(&mut self.offset(addr)?)
     }
 
     /// # Examples
@@ -719,7 +712,7 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
     /// assert!(res.is_ok());
     /// assert_eq!(res.unwrap(), 14);
     /// ```
-    fn read(&self, buf: &mut [u8], addr: usize) -> Result<usize> {
+    fn read(&self, mut buf: &mut [u8], addr: usize) -> Result<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -728,18 +721,11 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
             return Err(Error::OutOfBounds { addr });
         }
 
-        let total = buf.len().min(self.len() - addr);
-        let src = self.subslice(addr, total)?;
-
-        // SAFETY:
-        // We check above that `addr` is a valid offset within this volatile slice, and by
-        // the invariants of `VolatileSlice::new`, this volatile slice points to contiguous
-        // memory of length self.len(). Furthermore, both src and dst of the call to
-        // copy_from_volatile_slice are valid for reads and writes respectively of length `total`
-        // since total is the minimum of lengths of the memory areas pointed to. The areas do not
-        // overlap, since `dst` is inside guest memory, and buf is a slice (no slices to guest
-        // memory are possible without violating rust's aliasing rules).
-        unsafe { Ok(copy_from_volatile_slice(buf.as_mut_ptr(), &src, total)) }
+        // NOTE: The duality of read <-> write here is correct. This is because we translate a call
+        // volatile_slice.read(buf) (e.g. read from volatile_slice into buf) into
+        // "buf.write_volatile(volatile_slice)" (e.g. write into buf from volatile_slice)
+        // Both express data transfer from volatile_slice to buf.
+        buf.write_volatile(&self.offset(addr)?)
     }
 
     /// # Examples
@@ -1512,7 +1498,7 @@ fn alignment(addr: usize) -> usize {
     addr & (!addr + 1)
 }
 
-mod copy_slice_impl {
+pub(crate) mod copy_slice_impl {
     use super::*;
 
     // SAFETY: Has the same safety requirements as `read_volatile` + `write_volatile`, namely:
@@ -1610,7 +1596,7 @@ mod copy_slice_impl {
     ///
     /// SAFETY: `slice` and `dst` must be point to a contiguously allocated memory region of at
     /// least length `total`. The regions must not overlap.
-    pub(super) unsafe fn copy_from_volatile_slice<B: BitmapSlice>(
+    pub(crate) unsafe fn copy_from_volatile_slice<B: BitmapSlice>(
         dst: *mut u8,
         slice: &VolatileSlice<'_, B>,
         total: usize,
@@ -1625,7 +1611,7 @@ mod copy_slice_impl {
     ///
     /// SAFETY: `slice` and `src` must be point to a contiguously allocated memory region of at
     /// least length `total`. The regions must not overlap.
-    pub(super) unsafe fn copy_to_volatile_slice<B: BitmapSlice>(
+    pub(crate) unsafe fn copy_to_volatile_slice<B: BitmapSlice>(
         slice: &VolatileSlice<'_, B>,
         src: *const u8,
         total: usize,
