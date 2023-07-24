@@ -1633,7 +1633,6 @@ mod tests {
     use std::alloc::Layout;
 
     use std::fs::File;
-    use std::io::Cursor;
     use std::mem::size_of_val;
     use std::path::Path;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2118,16 +2117,15 @@ mod tests {
         } else {
             File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
         };
-        assert!(s.read_exact_from(2, &mut file, size_of::<u32>()).is_err());
-        assert!(s
-            .read_exact_from(core::usize::MAX, &mut file, size_of::<u32>())
-            .is_err());
 
-        assert!(s.read_exact_from(1, &mut file, size_of::<u32>()).is_ok());
+        assert!(file
+            .read_exact_volatile(&mut s.get_slice(1, size_of::<u32>()).unwrap())
+            .is_ok());
 
         let mut f = TempFile::new().unwrap().into_file();
-        assert!(s.read_exact_from(1, &mut f, size_of::<u32>()).is_err());
-        format!("{:?}", s.read_exact_from(1, &mut f, size_of::<u32>()));
+        assert!(f
+            .read_exact_volatile(&mut s.get_slice(1, size_of::<u32>()).unwrap())
+            .is_err());
 
         let value = s.read_obj::<u32>(1).unwrap();
         if cfg!(unix) {
@@ -2136,13 +2134,12 @@ mod tests {
             assert_eq!(value, 0x0090_5a4d);
         }
 
-        let mut sink = Vec::new();
-        assert!(s.write_all_to(1, &mut sink, size_of::<u32>()).is_ok());
-        assert!(s.write_all_to(2, &mut sink, size_of::<u32>()).is_err());
-        assert!(s
-            .write_all_to(core::usize::MAX, &mut sink, size_of::<u32>())
-            .is_err());
-        format!("{:?}", s.write_all_to(2, &mut sink, size_of::<u32>()));
+        let mut sink = vec![0; size_of::<u32>()];
+        assert!(sink
+            .as_mut_slice()
+            .write_all_volatile(&s.get_slice(1, size_of::<u32>()).unwrap())
+            .is_ok());
+
         if cfg!(unix) {
             assert_eq!(sink, vec![0; size_of::<u32>()]);
         } else {
@@ -2176,16 +2173,15 @@ mod tests {
         }
         unsafe impl ByteValued for BytesToRead {}
         let cursor_size = 20;
-        let mut image = Cursor::new(vec![1u8; cursor_size]);
+        let image = vec![1u8; cursor_size];
 
-        // Trying to read more bytes than we have available in the cursor should
-        // make the read_from function return maximum cursor size (i.e. 20).
+        // Trying to read more bytes than we have space for in image
+        // make the read_from function return maximum vec size (i.e. 20).
         let mut bytes_to_read = BytesToRead::default();
-        let size_of_bytes = size_of_val(&bytes_to_read);
         assert_eq!(
-            bytes_to_read
-                .as_bytes()
-                .read_from(0, &mut image, size_of_bytes)
+            image
+                .as_slice()
+                .read_volatile(&mut bytes_to_read.as_bytes())
                 .unwrap(),
             cursor_size
         );
