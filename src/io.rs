@@ -270,3 +270,175 @@ impl ReadVolatile for &[u8] {
         self.read_volatile(buf).map(|_| ())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::io::{ReadVolatile, WriteVolatile};
+    use crate::{VolatileMemoryError, VolatileSlice};
+    use std::io::{ErrorKind, Read, Seek, Write};
+    use vmm_sys_util::tempfile::TempFile;
+
+    // ---- Test ReadVolatile for &[u8] ----
+    fn read_4_bytes_to_5_byte_memory(source: Vec<u8>, expected_output: [u8; 5]) {
+        // Test read_volatile for &[u8] works
+        let mut memory = vec![0u8; 5];
+
+        assert_eq!(
+            (&source[..])
+                .read_volatile(&mut VolatileSlice::from(&mut memory[..4]))
+                .unwrap(),
+            source.len().min(4)
+        );
+        assert_eq!(&memory, &expected_output);
+
+        // Test read_exact_volatile for &[u8] works
+        let mut memory = vec![0u8; 5];
+        let result = (&source[..]).read_exact_volatile(&mut VolatileSlice::from(&mut memory[..4]));
+
+        // read_exact fails if there are not enough bytes in input to completely fill
+        // memory[..4]
+        if source.len() < 4 {
+            match result.unwrap_err() {
+                VolatileMemoryError::IOError(ioe) => {
+                    assert_eq!(ioe.kind(), ErrorKind::UnexpectedEof)
+                }
+                err => panic!("{:?}", err),
+            }
+            assert_eq!(memory, vec![0u8; 5]);
+        } else {
+            result.unwrap();
+            assert_eq!(&memory, &expected_output);
+        }
+    }
+
+    // ---- Test ReadVolatile for File ----
+    fn read_4_bytes_from_file(source: Vec<u8>, expected_output: [u8; 5]) {
+        let mut temp_file = TempFile::new().unwrap().into_file();
+        temp_file.write_all(source.as_ref()).unwrap();
+        temp_file.rewind().unwrap();
+
+        // Test read_volatile for File works
+        let mut memory = vec![0u8; 5];
+
+        assert_eq!(
+            temp_file
+                .read_volatile(&mut VolatileSlice::from(&mut memory[..4]))
+                .unwrap(),
+            source.len().min(4)
+        );
+        assert_eq!(&memory, &expected_output);
+
+        temp_file.rewind().unwrap();
+
+        // Test read_exact_volatile for File works
+        let mut memory = vec![0u8; 5];
+
+        let read_exact_result =
+            temp_file.read_exact_volatile(&mut VolatileSlice::from(&mut memory[..4]));
+
+        if source.len() < 4 {
+            read_exact_result.unwrap_err();
+        } else {
+            read_exact_result.unwrap();
+        }
+        assert_eq!(&memory, &expected_output);
+    }
+
+    #[test]
+    fn test_read_volatile() {
+        let test_cases = [
+            (vec![1u8, 2], [1u8, 2, 0, 0, 0]),
+            (vec![1, 2, 3, 4], [1, 2, 3, 4, 0]),
+            // ensure we don't have a buffer overrun
+            (vec![5, 6, 7, 8, 9], [5, 6, 7, 8, 0]),
+        ];
+
+        for (input, output) in test_cases {
+            read_4_bytes_to_5_byte_memory(input.clone(), output);
+            read_4_bytes_from_file(input, output);
+        }
+    }
+
+    // ---- Test WriteVolatile for &mut [u8] ----
+    fn write_4_bytes_to_5_byte_vec(mut source: Vec<u8>, expected_result: [u8; 5]) {
+        let mut memory = vec![0u8; 5];
+
+        // Test write_volatile for &mut [u8] works
+        assert_eq!(
+            (&mut memory[..4])
+                .write_volatile(&VolatileSlice::from(source.as_mut_slice()))
+                .unwrap(),
+            source.len().min(4)
+        );
+        assert_eq!(&memory, &expected_result);
+
+        // Test write_all_volatile for &mut [u8] works
+        let mut memory = vec![0u8; 5];
+
+        let result =
+            (&mut memory[..4]).write_all_volatile(&VolatileSlice::from(source.as_mut_slice()));
+
+        if source.len() > 4 {
+            match result.unwrap_err() {
+                VolatileMemoryError::IOError(ioe) => {
+                    assert_eq!(ioe.kind(), ErrorKind::WriteZero)
+                }
+                err => panic!("{:?}", err),
+            }
+            // This quirky behavior of writing to the slice even in the case of failure is also
+            // exhibited by the stdlib
+            assert_eq!(&memory, &expected_result);
+        } else {
+            result.unwrap();
+            assert_eq!(&memory, &expected_result);
+        }
+    }
+
+    // ---- Test ẂriteVolatile for File works ----
+    fn write_5_bytes_to_file(mut source: Vec<u8>) {
+        // Test write_volatile for File works
+        let mut temp_file = TempFile::new().unwrap().into_file();
+
+        temp_file
+            .write_volatile(&VolatileSlice::from(source.as_mut_slice()))
+            .unwrap();
+        temp_file.rewind().unwrap();
+
+        let mut written = vec![0u8; source.len()];
+        temp_file.read_exact(written.as_mut_slice()).unwrap();
+
+        assert_eq!(source, written);
+        // check no excess bytes were written to the file
+        assert_eq!(temp_file.read(&mut [0u8]).unwrap(), 0);
+
+        // Test write_all_volatile for File works
+        let mut temp_file = TempFile::new().unwrap().into_file();
+
+        temp_file
+            .write_all_volatile(&VolatileSlice::from(source.as_mut_slice()))
+            .unwrap();
+        temp_file.rewind().unwrap();
+
+        let mut written = vec![0u8; source.len()];
+        temp_file.read_exact(written.as_mut_slice()).unwrap();
+
+        assert_eq!(source, written);
+        // check no excess bytes were written to the file
+        assert_eq!(temp_file.read(&mut [0u8]).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_write_volatile() {
+        let test_cases = [
+            (vec![1u8, 2], [1u8, 2, 0, 0, 0]),
+            (vec![1, 2, 3, 4], [1, 2, 3, 4, 0]),
+            // ensure we don't have a buffer overrun
+            (vec![5, 6, 7, 8, 9], [5, 6, 7, 8, 0]),
+        ];
+
+        for (input, output) in test_cases {
+            write_4_bytes_to_5_byte_vec(input.clone(), output);
+            write_5_bytes_to_file(input);
+        }
+    }
+}
