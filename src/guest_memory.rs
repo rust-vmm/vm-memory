@@ -856,6 +856,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: Read,
     {
+        #[allow(deprecated)] // this function itself is deprecated
         let res = self.read_from(addr, src, count)?;
         if res != count {
             return Err(Error::PartialBuffer {
@@ -949,6 +950,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: Write,
     {
+        #[allow(deprecated)] // this function itself is deprecated
         let res = self.write_to(addr, dst, count)?;
         if res != count {
             return Err(Error::PartialBuffer {
