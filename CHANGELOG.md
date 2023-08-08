@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- [[#247]](https://github.com/rust-vmm/vm-memory/pull/247) Add `ReadVolatile` and
+  `WriteVolatile` traits which are equivalents of `Read`/`Write` with volatile
+  access semantics.
+
+### Changed
+
+- [[#247]](https://github.com/rust-vmm/vm-memory/pull/247) Deprecate
+  `Bytes::{read_from, read_exact_from, write_to, write_all_to}`. Instead use
+  `ReadVolatile`/`WriteVolatile`, which do not incur the performance penalty
+  of copying to hypervisor memory due to `Read`/`Write` being incompatible
+  with volatile semantics (see also #217).
+
+
 ## [v0.12.2]
 
 ### Fixed
