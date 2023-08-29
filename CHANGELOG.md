@@ -1,27 +1,22 @@
 # Changelog
-## [Unreleased]
 
-### Added
-
-### Changed
+## [v0.12.2]
 
 ### Fixed
+- [[#251]](https://github.com/rust-vmm/vm-memory/pull/251): Inserted checks
+  that verify that the value returned by `VolatileMemory::get_slice` is of
+  the correct length.
 
 ### Deprecated
+- [[#244]](https://github.com/rust-vmm/vm-memory/pull/241) Deprecate volatile
+  memory's `as_ptr()` interfaces. The new interfaces to be used instead are:
+  `ptr_guard()` and `ptr_guard_mut()`.
 
 ## [v0.12.1]
 
 ### Fixed
 - [[#241]](https://github.com/rust-vmm/vm-memory/pull/245) mmap_xen: Don't drop
   the FileOffset while in use #245
-
-## [Unreleased]
-
-### Deprecated
-
-- [[#244]](https://github.com/rust-vmm/vm-memory/pull/241) Deprecate volatile
-  memory's `as_ptr()` interfaces. The new interfaces to be used instead are:
-  `ptr_guard()` and `ptr_guard_mut()`.
 
 ## [v0.12.0]
 
