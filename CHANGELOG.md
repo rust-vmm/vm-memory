@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [v0.13.0]
+
 ### Added
 - [[#247]](https://github.com/rust-vmm/vm-memory/pull/247) Add `ReadVolatile` and
   `WriteVolatile` traits which are equivalents of `Read`/`Write` with volatile
