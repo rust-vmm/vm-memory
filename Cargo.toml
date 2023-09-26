@@ -16,6 +16,7 @@ default = []
 backend-bitmap = []
 backend-mmap = []
 backend-atomic = ["arc-swap"]
+backend-bitmap-mmap = ["backend-bitmap", "backend-mmap"]
 xen = ["backend-mmap", "bitflags", "vmm-sys-util"]
 
 [dependencies]

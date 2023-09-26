@@ -10,11 +10,22 @@
 mod backend;
 
 use std::fmt::Debug;
+#[cfg(all(feature = "backend-bitmap-mmap", unix))]
+use std::os::fd::BorrowedFd;
 
 use crate::{GuestMemory, GuestMemoryRegion};
 
 #[cfg(any(test, feature = "backend-bitmap"))]
 pub use backend::{ArcSlice, AtomicBitmap, RefSlice};
+
+#[cfg(all(feature = "backend-bitmap-mmap", unix))]
+use crate::mmap::BitmapMmap;
+#[cfg(all(feature = "backend-bitmap-mmap", unix))]
+use crate::mmap::BitmapReplace;
+#[cfg(all(feature = "backend-bitmap-mmap", unix))]
+use crate::{GuestAddress, GuestUsize};
+#[cfg(all(feature = "backend-bitmap-mmap", unix))]
+pub use backend::BitmapRegion;
 
 /// Trait implemented by types that support creating `BitmapSlice` objects.
 pub trait WithBitmapSlice<'a> {
@@ -64,6 +75,26 @@ impl Bitmap for () {
     }
 
     fn slice_at(&self, _offset: usize) -> Self {}
+}
+
+#[cfg(all(feature = "backend-bitmap-mmap", unix))]
+impl BitmapMmap for () {
+    fn from_file(
+        _region_start_addr: GuestAddress,
+        _region_len: GuestUsize,
+        _fd: BorrowedFd,
+        _offset: u64,
+        _len: u64,
+    ) -> std::io::Result<Self> {
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "backend-bitmap-mmap", unix))]
+impl BitmapReplace for () {
+    type InnerBitmap = ();
+
+    fn replace(&self, _bitmap: ()) {}
 }
 
 /// A `Bitmap` and `BitmapSlice` implementation for `Option<B>`.

@@ -17,6 +17,8 @@ use std::io::{Read, Write};
 #[cfg(unix)]
 use std::io::{Seek, SeekFrom};
 use std::ops::Deref;
+#[cfg(all(feature = "backend-bitmap-mmap", unix))]
+use std::os::fd::BorrowedFd;
 use std::result;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -49,6 +51,31 @@ pub trait NewBitmap: Bitmap + Default {
 
 impl NewBitmap for () {
     fn with_len(_len: usize) -> Self {}
+}
+
+#[cfg(all(feature = "backend-bitmap-mmap", unix))]
+/// A `Bitmap` that can be memory-mapped at runtime
+pub trait BitmapMmap: Sized {
+    /// Creates a new memory-mapped bit map for the region of size `region_len` starting at
+    /// the `region_start_addr` memory address. This bit map must fit within the mapped
+    /// memory of size `size` bytes starting at offset `offset` in the file referred to by
+    /// the file descriptor `fd`.
+    fn from_file(
+        region_start_addr: GuestAddress,
+        region_len: GuestUsize,
+        fd: BorrowedFd,
+        offset: u64,
+        len: u64,
+    ) -> std::io::Result<Self>;
+}
+#[cfg(all(feature = "backend-bitmap-mmap", unix))]
+/// A `Bitmap` with an internal `Bitmap` that can be replaced at runtime
+pub trait BitmapReplace: Bitmap {
+    /// Type of the internal `Bitmap`
+    type InnerBitmap: BitmapMmap;
+
+    /// Replace the internal `Bitmap`
+    fn replace(&self, bitmap: Self::InnerBitmap);
 }
 
 /// Errors that can occur when creating a memory map.
