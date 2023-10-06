@@ -6,7 +6,7 @@
 use crate::bitmap::BitmapSlice;
 use crate::volatile_memory::copy_slice_impl::{copy_from_volatile_slice, copy_to_volatile_slice};
 use crate::{VolatileMemoryError, VolatileSlice};
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Stdout};
 use std::os::fd::AsRawFd;
 
 /// A version of the standard library's [`Read`] trait that operates on volatile memory instead of
@@ -132,6 +132,15 @@ macro_rules! impl_read_write_volatile_for_raw_fd {
             }
         }
     };
+}
+
+impl WriteVolatile for Stdout {
+    fn write_volatile<B: BitmapSlice>(
+        &mut self,
+        buf: &VolatileSlice<B>,
+    ) -> Result<usize, VolatileMemoryError> {
+        write_volatile_raw_fd(self, buf)
+    }
 }
 
 impl_read_write_volatile_for_raw_fd!(std::fs::File);
