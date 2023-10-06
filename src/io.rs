@@ -6,7 +6,7 @@
 use crate::bitmap::BitmapSlice;
 use crate::volatile_memory::copy_slice_impl::{copy_from_volatile_slice, copy_to_volatile_slice};
 use crate::{VolatileMemoryError, VolatileSlice};
-use std::io::{ErrorKind, Stdout};
+use std::io::{Cursor, ErrorKind, Stdout};
 use std::os::fd::AsRawFd;
 
 /// A version of the standard library's [`Read`] trait that operates on volatile memory instead of
@@ -280,11 +280,56 @@ impl ReadVolatile for &[u8] {
     }
 }
 
+// ReadVolatile and WriteVolatile implementations for Cursor<T> is modelled after the standard
+// library's implementation (modulo having to inline `Cursor::remaining_slice`, as that's nightly only)
+impl<T> ReadVolatile for Cursor<T>
+where
+    T: AsRef<[u8]>,
+{
+    fn read_volatile<B: BitmapSlice>(
+        &mut self,
+        buf: &mut VolatileSlice<B>,
+    ) -> Result<usize, VolatileMemoryError> {
+        let inner = self.get_ref().as_ref();
+        let len = self.position().min(inner.len() as u64);
+        let n = ReadVolatile::read_volatile(&mut &inner[(len as usize)..], buf)?;
+        self.set_position(self.position() + n as u64);
+        Ok(n)
+    }
+
+    fn read_exact_volatile<B: BitmapSlice>(
+        &mut self,
+        buf: &mut VolatileSlice<B>,
+    ) -> Result<(), VolatileMemoryError> {
+        let inner = self.get_ref().as_ref();
+        let n = buf.len();
+        let len = self.position().min(inner.len() as u64);
+        ReadVolatile::read_exact_volatile(&mut &inner[(len as usize)..], buf)?;
+        self.set_position(self.position() + n as u64);
+        Ok(())
+    }
+}
+
+impl WriteVolatile for Cursor<&mut [u8]> {
+    fn write_volatile<B: BitmapSlice>(
+        &mut self,
+        buf: &VolatileSlice<B>,
+    ) -> Result<usize, VolatileMemoryError> {
+        let pos = self.position().min(self.get_ref().len() as u64);
+        let n = WriteVolatile::write_volatile(&mut &mut self.get_mut()[(pos as usize)..], buf)?;
+        self.set_position(self.position() + n as u64);
+        Ok(n)
+    }
+
+    // no write_all provided in standard library, since our default for write_all is based on the
+    // standard library's write_all, omitting it here as well will correctly mimic stdlib behavior.
+}
+
 #[cfg(test)]
 mod tests {
     use crate::io::{ReadVolatile, WriteVolatile};
     use crate::{VolatileMemoryError, VolatileSlice};
-    use std::io::{ErrorKind, Read, Seek, Write};
+    use std::io::{Cursor, ErrorKind, Read, Seek, Write};
     use vmm_sys_util::tempfile::TempFile;
 
     // ---- Test ReadVolatile for &[u8] ----
@@ -449,5 +494,71 @@ mod tests {
             write_4_bytes_to_5_byte_vec(input.clone(), output);
             write_5_bytes_to_file(input);
         }
+    }
+
+    #[test]
+    fn test_read_volatile_for_cursor() {
+        let read_buffer = [1, 2, 3, 4, 5, 6, 7];
+        let mut output = vec![0u8; 5];
+
+        let mut cursor = Cursor::new(read_buffer);
+
+        // Read 4 bytes from cursor to volatile slice (amount read limited by volatile slice length)
+        assert_eq!(
+            cursor
+                .read_volatile(&mut VolatileSlice::from(&mut output[..4]))
+                .unwrap(),
+            4
+        );
+        assert_eq!(output, vec![1, 2, 3, 4, 0]);
+
+        // Read next 3 bytes from cursor to volatile slice (amount read limited by length of remaining data in cursor)
+        assert_eq!(
+            cursor
+                .read_volatile(&mut VolatileSlice::from(&mut output[..4]))
+                .unwrap(),
+            3
+        );
+        assert_eq!(output, vec![5, 6, 7, 4, 0]);
+
+        cursor.set_position(0);
+        // Same as first test above, but with read_exact
+        cursor
+            .read_exact_volatile(&mut VolatileSlice::from(&mut output[..4]))
+            .unwrap();
+        assert_eq!(output, vec![1, 2, 3, 4, 0]);
+
+        // Same as above, but with read_exact. Should fail now, because we cannot fill a 4 byte buffer
+        // with whats remaining in the cursor (3 bytes). Output should remain unchanged.
+        assert!(cursor
+            .read_exact_volatile(&mut VolatileSlice::from(&mut output[..4]))
+            .is_err());
+        assert_eq!(output, vec![1, 2, 3, 4, 0]);
+    }
+
+    #[test]
+    fn test_write_volatile_for_cursor() {
+        let mut write_buffer = vec![0u8; 7];
+        let mut input = [1, 2, 3, 4];
+
+        let mut cursor = Cursor::new(write_buffer.as_mut_slice());
+
+        // Write 4 bytes from volatile slice to cursor (amount written limited by volatile slice length)
+        assert_eq!(
+            cursor
+                .write_volatile(&VolatileSlice::from(input.as_mut_slice()))
+                .unwrap(),
+            4
+        );
+        assert_eq!(cursor.get_ref(), &[1, 2, 3, 4, 0, 0, 0]);
+
+        // Write 3 bytes from volatile slice to cursor (amount written limited by remaining space in cursor)
+        assert_eq!(
+            cursor
+                .write_volatile(&VolatileSlice::from(input.as_mut_slice()))
+                .unwrap(),
+            3
+        );
+        assert_eq!(cursor.get_ref(), &[1, 2, 3, 4, 1, 2, 3]);
     }
 }
