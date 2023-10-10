@@ -280,6 +280,37 @@ impl ReadVolatile for &[u8] {
     }
 }
 
+// WriteVolatile implementation for Vec<u8> is based upon the Write impl for Vec, which
+// defers to Vec::append_elements, after which the below functionality is modelled.
+impl WriteVolatile for Vec<u8> {
+    fn write_volatile<B: BitmapSlice>(
+        &mut self,
+        buf: &VolatileSlice<B>,
+    ) -> Result<usize, VolatileMemoryError> {
+        let count = buf.len();
+        self.reserve(count);
+        let len = self.len();
+
+        // SAFETY: Calling Vec::reserve() above guarantees the the backing storage of the Vec has
+        // length at least `len + count`. This means that self.as_mut_ptr().add(len) remains within
+        // the same allocated object, the offset does not exceed isize (as otherwise reserve would
+        // have panicked), and does not rely on address space wrapping around.
+        // In particular, the entire `count` bytes after `self.as_mut_ptr().add(count)` is
+        // contiguously allocated and valid for writes.
+        // Lastly, `copy_to_volatile_slice` correctly initialized `copied_len` additional bytes
+        // in the Vec's backing storage, and we assert this to be equal to `count`. Additionally,
+        // `len + count` is at most the reserved capacity of the vector. Thus the call to `set_len`
+        // is safe.
+        unsafe {
+            let copied_len = copy_from_volatile_slice(self.as_mut_ptr().add(len), buf, count);
+
+            assert_eq!(copied_len, count);
+            self.set_len(len + count);
+        }
+        Ok(count)
+    }
+}
+
 // ReadVolatile and WriteVolatile implementations for Cursor<T> is modelled after the standard
 // library's implementation (modulo having to inline `Cursor::remaining_slice`, as that's nightly only)
 impl<T> ReadVolatile for Cursor<T>
@@ -560,5 +591,20 @@ mod tests {
             3
         );
         assert_eq!(cursor.get_ref(), &[1, 2, 3, 4, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_write_volatile_for_vec() {
+        let mut write_buffer = Vec::new();
+        let mut input = [1, 2, 3, 4];
+
+        assert_eq!(
+            write_buffer
+                .write_volatile(&VolatileSlice::from(input.as_mut_slice()))
+                .unwrap(),
+            4
+        );
+
+        assert_eq!(&write_buffer, &input);
     }
 }
