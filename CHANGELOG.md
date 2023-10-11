@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- [[#256](https://github.com/rust-vmm/vm-memory/pull/256)] Implement `WriteVolatile`
+  for `std::io::Stdout`.
+- [[#256](https://github.com/rust-vmm/vm-memory/pull/256)] Implement `WriteVolatile`
+  for `std::vec::Vec`.
+- [[#256](https://github.com/rust-vmm/vm-memory/pull/256)] Implement `WriteVolatile`
+  for `Cursor<&mut [u8]>`.
+- [[#256](https://github.com/rust-vmm/vm-memory/pull/256)] Implement `ReadVolatile`
+  for `Cursor<T: AsRef[u8]>`.
+
 ## [v0.13.0]
 
 ### Added
