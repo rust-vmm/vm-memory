@@ -432,7 +432,7 @@ impl Drop for MmapUnix {
 // Bit mask for the vhost-user xen mmap message.
 bitflags! {
     /// Flags for the Xen mmap message.
-    #[derive(Copy, Clone, Debug)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct MmapXenFlags: u32 {
         /// Standard Unix memory mapping.
         const UNIX = 0x0;
