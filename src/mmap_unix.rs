@@ -445,6 +445,7 @@ mod tests {
     use super::*;
 
     use std::io::Write;
+    use std::num::NonZeroUsize;
     use std::slice;
     use std::sync::Arc;
     use vmm_sys_util::tempfile::TempFile;
@@ -598,7 +599,7 @@ mod tests {
         assert!(r.owned());
 
         let region_size = 0x10_0000;
-        let bitmap = AtomicBitmap::new(region_size, 0x1000);
+        let bitmap = AtomicBitmap::new(region_size, unsafe { NonZeroUsize::new_unchecked(0x1000) });
         let builder = MmapRegionBuilder::new_with_bitmap(region_size, bitmap)
             .with_hugetlbfs(true)
             .with_mmap_prot(libc::PROT_READ | libc::PROT_WRITE);
