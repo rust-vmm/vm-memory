@@ -1642,12 +1642,15 @@ mod tests {
     use std::thread::spawn;
 
     use matches::assert_matches;
+    use std::num::NonZeroUsize;
     use vmm_sys_util::tempfile::TempFile;
 
     use crate::bitmap::tests::{
         check_range, range_is_clean, range_is_dirty, test_bytes, test_volatile_memory,
     };
     use crate::bitmap::{AtomicBitmap, RefSlice};
+
+    const DEFAULT_PAGE_SIZE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(0x1000) };
 
     #[test]
     fn test_display_error() {
@@ -2298,14 +2301,13 @@ mod tests {
         let val = 123u64;
         let dirty_offset = 0x1000;
         let dirty_len = size_of_val(&val);
-        let page_size = 0x1000;
 
         let len = 0x10000;
         let buf = unsafe { std::alloc::alloc_zeroed(Layout::from_size_align(len, 8).unwrap()) };
 
         // Invoke the `Bytes` test helper function.
         {
-            let bitmap = AtomicBitmap::new(len, page_size);
+            let bitmap = AtomicBitmap::new(len, DEFAULT_PAGE_SIZE);
             let slice = unsafe { VolatileSlice::with_bitmap(buf, len, bitmap.slice_at(0), None) };
 
             test_bytes(
@@ -2321,18 +2323,18 @@ mod tests {
 
         // Invoke the `VolatileMemory` test helper function.
         {
-            let bitmap = AtomicBitmap::new(len, page_size);
+            let bitmap = AtomicBitmap::new(len, DEFAULT_PAGE_SIZE);
             let slice = unsafe { VolatileSlice::with_bitmap(buf, len, bitmap.slice_at(0), None) };
             test_volatile_memory(&slice);
         }
 
-        let bitmap = AtomicBitmap::new(len, page_size);
+        let bitmap = AtomicBitmap::new(len, DEFAULT_PAGE_SIZE);
         let slice = unsafe { VolatileSlice::with_bitmap(buf, len, bitmap.slice_at(0), None) };
 
-        let bitmap2 = AtomicBitmap::new(len, page_size);
+        let bitmap2 = AtomicBitmap::new(len, DEFAULT_PAGE_SIZE);
         let slice2 = unsafe { VolatileSlice::with_bitmap(buf, len, bitmap2.slice_at(0), None) };
 
-        let bitmap3 = AtomicBitmap::new(len, page_size);
+        let bitmap3 = AtomicBitmap::new(len, DEFAULT_PAGE_SIZE);
         let slice3 = unsafe { VolatileSlice::with_bitmap(buf, len, bitmap3.slice_at(0), None) };
 
         assert!(range_is_clean(slice.bitmap(), 0, slice.len()));
@@ -2388,9 +2390,8 @@ mod tests {
     fn test_volatile_ref_dirty_tracking() {
         let val = 123u64;
         let mut buf = vec![val];
-        let page_size = 0x1000;
 
-        let bitmap = AtomicBitmap::new(size_of_val(&val), page_size);
+        let bitmap = AtomicBitmap::new(size_of_val(&val), DEFAULT_PAGE_SIZE);
         let vref = unsafe {
             VolatileRef::with_bitmap(buf.as_mut_ptr() as *mut u8, bitmap.slice_at(0), None)
         };
@@ -2400,8 +2401,11 @@ mod tests {
         assert!(range_is_dirty(vref.bitmap(), 0, vref.len()));
     }
 
-    fn test_volatile_array_ref_copy_from_tracking<T>(buf: &mut [T], index: usize, page_size: usize)
-    where
+    fn test_volatile_array_ref_copy_from_tracking<T>(
+        buf: &mut [T],
+        index: usize,
+        page_size: NonZeroUsize,
+    ) where
         T: ByteValued + From<u8>,
     {
         let bitmap = AtomicBitmap::new(size_of_val(buf), page_size);
@@ -2428,14 +2432,13 @@ mod tests {
         let dirty_len = size_of_val(&val);
         let index = 0x1000;
         let dirty_offset = dirty_len * index;
-        let page_size = 0x1000;
 
         let mut buf = vec![0u64; index + 1];
         let mut byte_buf = vec![0u8; index + 1];
 
         // Test `ref_at`.
         {
-            let bitmap = AtomicBitmap::new(buf.len() * size_of_val(&val), page_size);
+            let bitmap = AtomicBitmap::new(buf.len() * size_of_val(&val), DEFAULT_PAGE_SIZE);
             let arr = unsafe {
                 VolatileArrayRef::with_bitmap(
                     buf.as_mut_ptr() as *mut u8,
@@ -2452,7 +2455,7 @@ mod tests {
 
         // Test `store`.
         {
-            let bitmap = AtomicBitmap::new(buf.len() * size_of_val(&val), page_size);
+            let bitmap = AtomicBitmap::new(buf.len() * size_of_val(&val), DEFAULT_PAGE_SIZE);
             let arr = unsafe {
                 VolatileArrayRef::with_bitmap(
                     buf.as_mut_ptr() as *mut u8,
@@ -2469,8 +2472,8 @@ mod tests {
         }
 
         // Test `copy_from` when size_of::<T>() == 1.
-        test_volatile_array_ref_copy_from_tracking(&mut byte_buf, index, page_size);
+        test_volatile_array_ref_copy_from_tracking(&mut byte_buf, index, DEFAULT_PAGE_SIZE);
         // Test `copy_from` when size_of::<T>() > 1.
-        test_volatile_array_ref_copy_from_tracking(&mut buf, index, page_size);
+        test_volatile_array_ref_copy_from_tracking(&mut buf, index, DEFAULT_PAGE_SIZE);
     }
 }
