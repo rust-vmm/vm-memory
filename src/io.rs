@@ -1,7 +1,7 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-//! Module containing versions of the standard library's [`Read`] and [`Write`] traits compatible
-//! with volatile memory accesses.
+//! Module containing versions of the standard library's [`Read`](std::io::Read) and
+//! [`Write`](std::io::Write) traits compatible with volatile memory accesses.
 
 use crate::bitmap::BitmapSlice;
 use crate::volatile_memory::copy_slice_impl::{copy_from_volatile_slice, copy_to_volatile_slice};
@@ -9,8 +9,8 @@ use crate::{VolatileMemoryError, VolatileSlice};
 use std::io::{Cursor, ErrorKind, Stdout};
 use std::os::fd::AsRawFd;
 
-/// A version of the standard library's [`Read`] trait that operates on volatile memory instead of
-/// slices
+/// A version of the standard library's [`Read`](std::io::Read) trait that operates on volatile
+/// memory instead of slices
 ///
 /// This trait is needed as rust slices (`&[u8]` and `&mut [u8]`) cannot be used when operating on
 /// guest memory [1].
@@ -20,7 +20,7 @@ pub trait ReadVolatile {
     /// Tries to read some bytes into the given [`VolatileSlice`] buffer, returning how many bytes
     /// were read.
     ///
-    /// The behavior of implementations should be identical to [`Read::read`]
+    /// The behavior of implementations should be identical to [`Read::read`](std::io::Read::read)
     fn read_volatile<B: BitmapSlice>(
         &mut self,
         buf: &mut VolatileSlice<B>,
@@ -29,7 +29,7 @@ pub trait ReadVolatile {
     /// Tries to fill the given [`VolatileSlice`] buffer by reading from `self` returning an error
     /// if insufficient bytes could be read.
     ///
-    /// The default implementation is identical to that of [`Read::read_exact`]
+    /// The default implementation is identical to that of [`Read::read_exact`](std::io::Read::read_exact)
     fn read_exact_volatile<B: BitmapSlice>(
         &mut self,
         buf: &mut VolatileSlice<B>,
@@ -58,8 +58,8 @@ pub trait ReadVolatile {
     }
 }
 
-/// A version of the standard library's [`Write`] trait that operates on volatile memory instead of
-/// slices
+/// A version of the standard library's [`Write`](std::io::Write) trait that operates on volatile
+/// memory instead of slices.
 ///
 /// This trait is needed as rust slices (`&[u8]` and `&mut [u8]`) cannot be used when operating on
 /// guest memory [1].
@@ -69,7 +69,7 @@ pub trait WriteVolatile {
     /// Tries to write some bytes from the given [`VolatileSlice`] buffer, returning how many bytes
     /// were written.
     ///
-    /// The behavior of implementations should be identical to [`Write::write`]
+    /// The behavior of implementations should be identical to [`Write::write`](std::io::Write::write)
     fn write_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
@@ -78,7 +78,7 @@ pub trait WriteVolatile {
     /// Tries write the entire content of the given [`VolatileSlice`] buffer to `self` returning an
     /// error if not all bytes could be written.
     ///
-    /// The default implementation is identical to that of [`Write::write_all`]
+    /// The default implementation is identical to that of [`Write::write_all`](std::io::Write::write_all)
     fn write_all_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,

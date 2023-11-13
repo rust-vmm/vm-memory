@@ -512,7 +512,7 @@ impl<B: NewBitmap> GuestMemoryMmap<B> {
 
     /// Creates a container and allocates anonymous memory for guest memory regions.
     ///
-    /// Valid memory regions are specified as a sequence of (Address, Size, Option<FileOffset>)
+    /// Valid memory regions are specified as a sequence of (Address, Size, [`Option<FileOffset>`])
     /// tuples sorted by Address.
     pub fn from_ranges_with_files<A, T>(ranges: T) -> result::Result<Self, Error>
     where
