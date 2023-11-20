@@ -52,6 +52,7 @@ pub enum Error {
 pub type Result<T> = result::Result<T, Error>;
 
 /// A factory struct to build `MmapRegion` objects.
+#[derive(Debug)]
 pub struct MmapRegionBuilder<B = ()> {
     size: usize,
     prot: i32,
