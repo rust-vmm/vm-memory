@@ -18,6 +18,7 @@
 
 #![deny(clippy::doc_markdown)]
 #![deny(missing_docs)]
+#![deny(missing_debug_implementations)]
 
 #[macro_use]
 pub mod address;

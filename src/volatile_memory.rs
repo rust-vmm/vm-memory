@@ -302,6 +302,7 @@ impl<'a> From<&'a mut [u8]> for VolatileSlice<'a, ()> {
 struct Packed<T>(T);
 
 /// A guard to perform mapping and protect unmapping of the memory.
+#[derive(Debug)]
 pub struct PtrGuard {
     addr: *mut u8,
     len: usize,
@@ -347,6 +348,7 @@ impl PtrGuard {
 }
 
 /// A mutable guard to perform mapping and protect unmapping of the memory.
+#[derive(Debug)]
 pub struct PtrGuardMut(PtrGuard);
 
 #[allow(clippy::len_without_is_empty)]

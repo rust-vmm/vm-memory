@@ -512,7 +512,7 @@ impl<B: NewBitmap> GuestMemoryMmap<B> {
 
     /// Creates a container and allocates anonymous memory for guest memory regions.
     ///
-    /// Valid memory regions are specified as a sequence of (Address, Size, Option<FileOffset>)
+    /// Valid memory regions are specified as a sequence of (Address, Size, [`Option<FileOffset>`])
     /// tuples sorted by Address.
     pub fn from_ranges_with_files<A, T>(ranges: T) -> result::Result<Self, Error>
     where
@@ -616,6 +616,7 @@ impl<B: Bitmap> GuestMemoryMmap<B> {
 /// An iterator over the elements of `GuestMemoryMmap`.
 ///
 /// This struct is created by `GuestMemory::iter()`. See its documentation for more.
+#[derive(Debug)]
 pub struct Iter<'a, B>(std::slice::Iter<'a, Arc<GuestRegionMmap<B>>>);
 
 impl<'a, B> Iterator for Iter<'a, B> {
