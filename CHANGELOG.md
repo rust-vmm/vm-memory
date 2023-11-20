@@ -1,5 +1,10 @@
 # Changelog
 
+## Upcoming version
+
+- [[#266](https://github.com/rust-vmm/vm-memory/pull/266)] Derive `Debug` for several
+  types that were missing it.
+
 ## [v0.13.1]
 
 ### Added

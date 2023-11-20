@@ -616,6 +616,7 @@ impl<B: Bitmap> GuestMemoryMmap<B> {
 /// An iterator over the elements of `GuestMemoryMmap`.
 ///
 /// This struct is created by `GuestMemory::iter()`. See its documentation for more.
+#[derive(Debug)]
 pub struct Iter<'a, B>(std::slice::Iter<'a, Arc<GuestRegionMmap<B>>>);
 
 impl<'a, B> Iterator for Iter<'a, B> {
