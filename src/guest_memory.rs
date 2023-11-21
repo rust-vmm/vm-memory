@@ -725,9 +725,9 @@ pub trait GuestMemory {
         })
     }
 
-    /// Reads up to `count` bytes from the container at `addr` and writes them it into guest memory.
+    /// Reads up to `count` bytes from guest memory at `addr` and writes them it into an object.
     ///
-    /// Returns the number of bytes written into guest memory.
+    /// Returns the number of bytes copied from guest memory.
     ///
     /// # Arguments
     /// * `addr` - Begin reading from this address.
@@ -782,7 +782,7 @@ pub trait GuestMemory {
         Ok(())
     }
 
-    /// Reads exactly `count` bytes from the container at `addr` and writes them into guest memory.
+    /// Reads exactly `count` bytes from guest memory at `addr` and writes them into an object.
     ///
     /// # Errors
     ///

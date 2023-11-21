@@ -124,6 +124,7 @@ impl<M: GuestMemory> Deref for GuestMemoryLoadGuard<M> {
 /// this structure is dropped (falls out of scope) the lock will be unlocked,
 /// possibly after updating the memory map represented by the
 /// `GuestMemoryAtomic` that created the guard.
+#[derive(Debug)]
 pub struct GuestMemoryExclusiveGuard<'a, M: GuestMemory> {
     parent: &'a GuestMemoryAtomic<M>,
     _guard: MutexGuard<'a, ()>,
