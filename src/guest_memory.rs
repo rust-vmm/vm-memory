@@ -77,6 +77,14 @@ pub enum Error {
     /// Host virtual address not available.
     #[error("Guest memory error: host virtual address not available")]
     HostAddressNotAvailable,
+    /// The length returned by the callback passed to `try_access` is outside the address range.
+    #[error(
+        "The length returned by the callback passed to `try_access` is outside the address range."
+    )]
+    CallbackOutOfRange,
+    /// The address to be read by `try_access` is outside the address range.
+    #[error("The address to be read by `try_access` is outside the address range")]
+    GuestAddressOverflow,
 }
 
 impl From<volatile_memory::Error> for Error {
@@ -646,15 +654,15 @@ pub trait GuestMemory {
                 Ok(0) => return Ok(total),
                 // made some progress
                 Ok(len) => {
-                    total += len;
-                    if total == count {
-                        break;
-                    }
+                    total = match total.checked_add(len) {
+                        Some(x) if x < count => x,
+                        Some(x) if x == count => return Ok(x),
+                        _ => return Err(Error::CallbackOutOfRange),
+                    };
                     cur = match cur.overflowing_add(len as GuestUsize) {
-                        (GuestAddress(0), _) => GuestAddress(0),
-                        (result, false) => result,
-                        (_, true) => panic!("guest address overflow"),
-                    }
+                        (x @ GuestAddress(0), _) | (x, false) => x,
+                        (_, true) => return Err(Error::GuestAddressOverflow),
+                    };
                 }
                 // error happened
                 e => return e,
