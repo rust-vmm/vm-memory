@@ -98,6 +98,11 @@
   the dependencies are pulled such that we don't end up with incompatible
   versions.
 
+### Added
+
+- [[192]](https://github.com/rust-vmm/vm-memory/pull/192): Add new method
+  as_any() to GuestAddressSpace
+
 ## [v0.8.0]
 
 ### Fixed

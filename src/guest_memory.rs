@@ -41,6 +41,7 @@
 //! via pointers, references, or slices returned by methods of `GuestMemory`,`GuestMemoryRegion`,
 //! `VolatileSlice`, `VolatileRef`, or `VolatileArrayRef`.
 
+use std::any::Any;
 use std::convert::From;
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -393,32 +394,47 @@ pub trait GuestAddressSpace {
     /// to access memory through this address space.  The object provides
     /// a consistent snapshot of the memory map.
     fn memory(&self) -> Self::T;
+
+    /// Cast `self` to a dynamic trait object of `std::any::Any`.
+    fn as_any(&self) -> &dyn Any;
 }
 
-impl<M: GuestMemory> GuestAddressSpace for &M {
+impl<M: GuestMemory + 'static> GuestAddressSpace for &M {
     type M = M;
     type T = Self;
 
     fn memory(&self) -> Self {
         self
     }
+
+    fn as_any(&self) -> &dyn Any {
+        *self
+    }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
+impl<M: GuestMemory + 'static> GuestAddressSpace for Rc<M> {
     type M = M;
     type T = Self;
 
     fn memory(&self) -> Self {
         self.clone()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for Arc<M> {
+impl<M: GuestMemory + 'static> GuestAddressSpace for Arc<M> {
     type M = M;
     type T = Self;
 
     fn memory(&self) -> Self {
         self.clone()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -1368,5 +1384,15 @@ mod tests {
         let mem = GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
         let r = mem.find_region(addr).unwrap();
         assert_eq!(r.is_hugetlbfs(), None);
+    }
+
+    #[cfg(feature = "backend-mmap")]
+    #[test]
+    fn test_as_any() {
+        let addr = GuestAddress(0x1000);
+        let mem = &GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
+
+        assert!(mem.as_any().downcast_ref::<GuestMemoryMmap>().is_some());
+        assert!(mem.as_any().downcast_ref::<String>().is_none());
     }
 }
