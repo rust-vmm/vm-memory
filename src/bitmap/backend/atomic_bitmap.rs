@@ -3,6 +3,7 @@
 
 //! Bitmap backend implementation based on atomic integers.
 
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::bitmap::{Bitmap, RefSlice, WithBitmapSlice};
@@ -17,14 +18,14 @@ use crate::mmap::NewBitmap;
 pub struct AtomicBitmap {
     map: Vec<AtomicU64>,
     size: usize,
-    page_size: usize,
+    page_size: NonZeroUsize,
 }
 
 #[allow(clippy::len_without_is_empty)]
 impl AtomicBitmap {
     /// Create a new bitmap of `byte_size`, with one bit per page. This is effectively
     /// rounded up, and we get a new vector of the next multiple of 64 bigger than `bit_size`.
-    pub fn new(byte_size: usize, page_size: usize) -> Self {
+    pub fn new(byte_size: usize, page_size: NonZeroUsize) -> Self {
         let mut num_pages = byte_size / page_size;
         if byte_size % page_size > 0 {
             num_pages += 1;
@@ -136,38 +137,35 @@ impl Bitmap for AtomicBitmap {
 
 impl Default for AtomicBitmap {
     fn default() -> Self {
-        AtomicBitmap::new(0, 0x1000)
+        // SAFETY: Safe as `0x1000` is non-zero.
+        AtomicBitmap::new(0, unsafe { NonZeroUsize::new_unchecked(0x1000) })
     }
 }
 
 #[cfg(feature = "backend-mmap")]
 impl NewBitmap for AtomicBitmap {
     fn with_len(len: usize) -> Self {
-        let page_size;
-
         #[cfg(unix)]
-        {
-            // SAFETY: There's no unsafe potential in calling this function.
-            page_size = unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) };
-        }
+        // SAFETY: There's no unsafe potential in calling this function.
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) };
 
         #[cfg(windows)]
-        {
+        let page_size = {
             use winapi::um::sysinfoapi::{GetSystemInfo, LPSYSTEM_INFO, SYSTEM_INFO};
-
-            // It's safe to initialize this object from a zeroed memory region.
-            let mut sysinfo: SYSTEM_INFO = unsafe { std::mem::zeroed() };
-
-            // It's safe to call this method as the pointer is based on the address
-            // of the previously initialized `sysinfo` object.
-            unsafe { GetSystemInfo(&mut sysinfo as LPSYSTEM_INFO) };
-
-            page_size = sysinfo.dwPageSize;
-        }
+            let mut sysinfo = MaybeUninit::zeroed();
+            // SAFETY: It's safe to call `GetSystemInfo` as `sysinfo` is rightly sized
+            // allocated memory.
+            unsafe { GetSystemInfo(sysinfo.as_mut_ptr()) };
+            // SAFETY: It's safe to call `assume_init` as `GetSystemInfo` initializes `sysinfo`.
+            unsafe { sysinfo.assume_init().dwPageSize }
+        };
 
         // The `unwrap` is safe to use because the above call should always succeed on the
         // supported platforms, and the size of a page will always fit within a `usize`.
-        AtomicBitmap::new(len, usize::try_from(page_size).unwrap())
+        AtomicBitmap::new(
+            len,
+            NonZeroUsize::try_from(usize::try_from(page_size).unwrap()).unwrap(),
+        )
     }
 }
 
@@ -177,13 +175,16 @@ mod tests {
 
     use crate::bitmap::tests::test_bitmap;
 
+    #[allow(clippy::undocumented_unsafe_blocks)]
+    const DEFAULT_PAGE_SIZE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(128) };
+
     #[test]
     fn test_bitmap_basic() {
         // Test that bitmap size is properly rounded up.
-        let a = AtomicBitmap::new(1025, 128);
+        let a = AtomicBitmap::new(1025, DEFAULT_PAGE_SIZE);
         assert_eq!(a.len(), 9);
 
-        let b = AtomicBitmap::new(1024, 128);
+        let b = AtomicBitmap::new(1024, DEFAULT_PAGE_SIZE);
         assert_eq!(b.len(), 8);
         b.set_addr_range(128, 129);
         assert!(!b.is_addr_set(0));
@@ -214,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_bitmap_out_of_range() {
-        let b = AtomicBitmap::new(1024, 1);
+        let b = AtomicBitmap::new(1024, NonZeroUsize::MIN);
         // Set a partial range that goes beyond the end of the bitmap
         b.set_addr_range(768, 512);
         assert!(b.is_addr_set(768));
@@ -225,7 +226,7 @@ mod tests {
 
     #[test]
     fn test_bitmap_impl() {
-        let b = AtomicBitmap::new(0x2000, 128);
+        let b = AtomicBitmap::new(0x2000, DEFAULT_PAGE_SIZE);
         test_bitmap(&b);
     }
 }
