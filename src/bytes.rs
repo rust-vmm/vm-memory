@@ -12,7 +12,7 @@
 //! data.
 
 use std::io::{Read, Write};
-use std::mem::size_of;
+use std::mem::{size_of, MaybeUninit};
 use std::result::Result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::sync::atomic::Ordering;
@@ -31,7 +31,7 @@ use crate::volatile_memory::VolatileSlice;
 /// cause undefined behavior.
 ///
 /// Implementing this trait guarantees that it is safe to instantiate the struct with random data.
-pub unsafe trait ByteValued: Copy + Default + Send + Sync {
+pub unsafe trait ByteValued: Copy + Send + Sync {
     /// Converts a slice of raw data into a reference of `Self`.
     ///
     /// The value of `data` is not copied. Instead a reference is made from the given slice. The
@@ -268,7 +268,10 @@ pub trait Bytes<A> {
     ///
     /// Returns an error if there's not enough data inside the container.
     fn read_obj<T: ByteValued>(&self, addr: A) -> Result<T, Self::E> {
-        let mut result: T = Default::default();
+        // SAFETY: ByteValued objects must be assignable from a arbitrary byte
+        // sequence and are mandated to be packed.
+        // Hence, zeroed memory is a fine initialization.
+        let mut result: T = unsafe { MaybeUninit::<T>::zeroed().assume_init() };
         self.read_slice(result.as_mut_slice(), addr).map(|_| result)
     }
 
