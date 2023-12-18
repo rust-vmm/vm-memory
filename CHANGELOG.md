@@ -4,6 +4,7 @@
 
 ### Added
 ### Changed
+- [[#275](https://github.com/rust-vmm/vm-memory/pull/275)] Fail builds on non 64-bit platforms.
 ### Fixed
 ### Removed
 ### Deprecated
