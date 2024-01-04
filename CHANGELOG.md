@@ -2,9 +2,20 @@
 
 ## Upcoming version
 
+### Added
+### Changed
+### Fixed
+### Removed
+### Deprecated
+
+## [v0.14.0]
+
+### Added
 - [[#266](https://github.com/rust-vmm/vm-memory/pull/266)] Derive `Debug` for several
   types that were missing it.
-- [[#274]] Drop `Default` as requirement for `ByteValued`.
+
+### Changed
+- [[#274](https://github.com/rust-vmm/vm-memory/pull/274)] Drop `Default` as requirement for `ByteValued`.
 
 ## [v0.13.1]
 
