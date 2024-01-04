@@ -2,6 +2,11 @@
 
 ## Upcoming version
 
+### Changed
+
+- [[#278](https://github.com/rust-vmm/vm-memory/pull/278) Remove `GuestMemoryIterator` trait,
+  and instead have GuestMemory::iter() return `impl Iterator`.
+
 ## [v0.15.0]
 
 ### Added
