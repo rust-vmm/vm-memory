@@ -6,5 +6,4 @@ mod atomic_bitmap_arc;
 mod slice;
 
 pub use atomic_bitmap::AtomicBitmap;
-pub use atomic_bitmap_arc::AtomicBitmapArc;
 pub use slice::{ArcSlice, RefSlice};
