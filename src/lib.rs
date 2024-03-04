@@ -20,6 +20,10 @@
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 
+// We only support 64bit. Fail build when attempting to build other targets
+#[cfg(not(target_pointer_width = "64"))]
+compile_error!("vm-memory only supports 64-bit targets!");
+
 #[macro_use]
 pub mod address;
 pub use address::{Address, AddressValue};
