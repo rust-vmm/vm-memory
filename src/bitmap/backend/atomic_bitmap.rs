@@ -26,13 +26,8 @@ impl AtomicBitmap {
     /// Create a new bitmap of `byte_size`, with one bit per page. This is effectively
     /// rounded up, and we get a new vector of the next multiple of 64 bigger than `bit_size`.
     pub fn new(byte_size: usize, page_size: NonZeroUsize) -> Self {
-        let mut num_pages = byte_size / page_size;
-        if byte_size % page_size > 0 {
-            num_pages += 1;
-        }
-
-        // Adding one entry element more just in case `num_pages` is not a multiple of `64`.
-        let map_size = num_pages / 64 + 1;
+        let num_pages = byte_size.div_ceil(page_size.get());
+        let map_size = num_pages.div_ceil(u64::BITS as usize);
         let map: Vec<AtomicU64> = (0..map_size).map(|_| AtomicU64::new(0)).collect();
 
         AtomicBitmap {
