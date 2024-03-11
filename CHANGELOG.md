@@ -5,11 +5,14 @@
 ### Added
 ### Changed
 ### Fixed
-- [[#279](https://github.com/rust-vmm/vm-memory/pull/279)] Remove restriction from `read_volatile_from` and `write_volatile_into`
-  that made it copy data it chunks of 4096.
-
 ### Removed
 ### Deprecated
+
+## [v0.14.1]
+
+### Fixed
+- [[#279](https://github.com/rust-vmm/vm-memory/pull/279)] Remove restriction from `read_volatile_from` and `write_volatile_into`
+  that made it copy data it chunks of 4096.
 
 ## [v0.14.0]
 
