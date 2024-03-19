@@ -44,4 +44,4 @@ codegen-units = 1
 
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs", "--cfg", "feature=\"backend-mmap\"", "--cfg", "feature=\"backend-atomic\""]
+rustdoc-args = ["--cfg", "docsrs"]
