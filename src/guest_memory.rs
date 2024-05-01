@@ -724,8 +724,6 @@ pub trait GuestMemory {
             // Check if something bad happened before doing unsafe things.
             assert!(offset <= count);
 
-            let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
-
             let mut vslice = region.get_slice(caddr, len)?;
 
             src.read_volatile(&mut vslice)
@@ -749,7 +747,6 @@ pub trait GuestMemory {
             // Check if something bad happened before doing unsafe things.
             assert!(offset <= count);
 
-            let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
             let vslice = region.get_slice(caddr, len)?;
 
             // For a non-RAM region, reading could have side effects, so we
