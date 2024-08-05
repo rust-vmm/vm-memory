@@ -15,10 +15,10 @@
 //! without knowing the implementation details of the VM memory provider. Thus hypervisor
 //! components, such as boot loader, virtual device drivers, virtio backend drivers and vhost
 //! drivers etc, could be shared and reused by multiple hypervisors.
-
 #![deny(clippy::doc_markdown)]
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 // We only support 64bit. Fail build when attempting to build other targets
 #[cfg(not(target_pointer_width = "64"))]
@@ -64,6 +64,7 @@ mod mmap_windows;
 
 #[cfg(feature = "backend-mmap")]
 pub mod mmap;
+
 #[cfg(feature = "backend-mmap")]
 pub use mmap::{Error, GuestMemoryMmap, GuestRegionMmap, MmapRegion};
 #[cfg(all(feature = "backend-mmap", feature = "xen", unix))]

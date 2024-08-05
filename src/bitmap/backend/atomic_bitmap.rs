@@ -56,6 +56,14 @@ impl AtomicBitmap {
     /// is for the page corresponding to `start_addr`, and the last bit that we set corresponds
     /// to address `start_addr + len - 1`.
     pub fn set_addr_range(&self, start_addr: usize, len: usize) {
+        self.set_reset_addr_range(start_addr, len, true);
+    }
+
+    // Set/Reset a range of `len` bytes starting at `start_addr`
+    // reset parameter determines whether bit will be set/reset
+    // if set is true then the range of bits will be set to one,
+    // otherwise zero
+    fn set_reset_addr_range(&self, start_addr: usize, len: usize, set: bool) {
         // Return early in the unlikely event that `len == 0` so the `len - 1` computation
         // below does not underflow.
         if len == 0 {
@@ -71,8 +79,37 @@ impl AtomicBitmap {
                 // Attempts to set bits beyond the end of the bitmap are simply ignored.
                 break;
             }
-            self.map[n >> 6].fetch_or(1 << (n & 63), Ordering::SeqCst);
+            if set {
+                self.map[n >> 6].fetch_or(1 << (n & 63), Ordering::SeqCst);
+            } else {
+                self.map[n >> 6].fetch_and(!(1 << (n & 63)), Ordering::SeqCst);
+            }
         }
+    }
+
+    /// Reset a range of `len` bytes starting at `start_addr`. The first bit set in the bitmap
+    /// is for the page corresponding to `start_addr`, and the last bit that we set corresponds
+    /// to address `start_addr + len - 1`.
+    pub fn reset_addr_range(&self, start_addr: usize, len: usize) {
+        self.set_reset_addr_range(start_addr, len, false);
+    }
+
+    /// Set bit to corresponding index
+    pub fn set_bit(&self, index: usize) {
+        if index >= self.size {
+            // Attempts to set bits beyond the end of the bitmap are simply ignored.
+            return;
+        }
+        self.map[index >> 6].fetch_or(1 << (index & 63), Ordering::SeqCst);
+    }
+
+    /// Reset bit to corresponding index
+    pub fn reset_bit(&self, index: usize) {
+        if index >= self.size {
+            // Attempts to reset bits beyond the end of the bitmap are simply ignored.
+            return;
+        }
+        self.map[index >> 6].fetch_and(!(1 << (index & 63)), Ordering::SeqCst);
     }
 
     /// Get the length of the bitmap in bits (i.e. in how many pages it can represent).
@@ -206,6 +243,23 @@ mod tests {
 
         assert_eq!(v.len(), 1);
         assert_eq!(v[0], 0b110);
+    }
+
+    #[test]
+    fn test_bitmap_reset() {
+        let b = AtomicBitmap::new(1024, DEFAULT_PAGE_SIZE);
+        assert_eq!(b.len(), 8);
+        b.set_addr_range(128, 129);
+        assert!(!b.is_addr_set(0));
+        assert!(b.is_addr_set(128));
+        assert!(b.is_addr_set(256));
+        assert!(!b.is_addr_set(384));
+
+        b.reset_addr_range(128, 129);
+        assert!(!b.is_addr_set(0));
+        assert!(!b.is_addr_set(128));
+        assert!(!b.is_addr_set(256));
+        assert!(!b.is_addr_set(384));
     }
 
     #[test]
