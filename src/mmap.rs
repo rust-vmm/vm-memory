@@ -24,8 +24,7 @@ use std::sync::Arc;
 use crate::address::Address;
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::{
-    self, FileOffset, GuestAddress, GuestMemory, GuestMemoryIterator, GuestMemoryRegion,
-    GuestUsize, MemoryRegionAddress,
+    self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
 };
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
 use crate::{AtomicAccess, Bytes};
@@ -613,27 +612,8 @@ impl<B: Bitmap> GuestMemoryMmap<B> {
     }
 }
 
-/// An iterator over the elements of `GuestMemoryMmap`.
-///
-/// This struct is created by `GuestMemory::iter()`. See its documentation for more.
-#[derive(Debug)]
-pub struct Iter<'a, B>(std::slice::Iter<'a, Arc<GuestRegionMmap<B>>>);
-
-impl<'a, B> Iterator for Iter<'a, B> {
-    type Item = &'a GuestRegionMmap<B>;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(AsRef::as_ref)
-    }
-}
-
-impl<'a, B: 'a> GuestMemoryIterator<'a, GuestRegionMmap<B>> for GuestMemoryMmap<B> {
-    type Iter = Iter<'a, B>;
-}
-
 impl<B: Bitmap + 'static> GuestMemory for GuestMemoryMmap<B> {
     type R = GuestRegionMmap<B>;
-
-    type I = Self;
 
     fn num_regions(&self) -> usize {
         self.regions.len()
@@ -649,8 +629,8 @@ impl<B: Bitmap + 'static> GuestMemory for GuestMemoryMmap<B> {
         index.map(|x| self.regions[x].as_ref())
     }
 
-    fn iter(&self) -> Iter<B> {
-        Iter(self.regions.iter())
+    fn iter(&self) -> impl Iterator<Item = &Self::R> {
+        self.regions.iter().map(AsRef::as_ref)
     }
 }
 
