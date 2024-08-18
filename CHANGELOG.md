@@ -3,6 +3,7 @@
 ## Upcoming version
 
 ### Added
+- [[#293](https://github.com/rust-vmm/vm-memory/pull/293)] Implement `find_arc_region` and `IntoIterator` for `GuestMemoryMmap`.
 ### Changed
 - [[#275](https://github.com/rust-vmm/vm-memory/pull/275)] Fail builds on non 64-bit platforms.
 ### Fixed

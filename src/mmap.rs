@@ -611,6 +611,26 @@ impl<B: Bitmap> GuestMemoryMmap<B> {
 
         Err(Error::InvalidGuestRegion)
     }
+
+    /// Find the region containing the specified address.
+    pub fn find_arc_region(&self, addr: GuestAddress) -> Option<Arc<GuestRegionMmap<B>>> {
+        let index = match self.regions.binary_search_by_key(&addr, |x| x.start_addr()) {
+            Ok(x) => Some(x),
+            // Within the closest region with starting address < addr
+            Err(x) if (x > 0 && addr <= self.regions[x - 1].last_addr()) => Some(x - 1),
+            _ => None,
+        };
+        index.map(|x| self.regions[x].clone())
+    }
+}
+
+impl<B> IntoIterator for GuestMemoryMmap<B> {
+    type Item = Arc<GuestRegionMmap<B>>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.regions.into_iter()
+    }
 }
 
 /// An iterator over the elements of `GuestMemoryMmap`.
@@ -704,6 +724,7 @@ mod tests {
             assert_eq!(region_size, &mmap.mapping.size());
 
             assert!(guest_mem.find_region(*region_addr).is_some());
+            assert!(guest_mem.find_arc_region(*region_addr).is_some());
         }
     }
 
@@ -951,7 +972,7 @@ mod tests {
         ])
         .unwrap();
 
-        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        let guest_mem_list = [guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
             assert!(guest_mem.address_in_range(GuestAddress(0x200)));
             assert!(!guest_mem.address_in_range(GuestAddress(0x600)));
@@ -977,7 +998,7 @@ mod tests {
         ])
         .unwrap();
 
-        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        let guest_mem_list = [guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
             assert_eq!(
                 guest_mem.check_address(GuestAddress(0x200)),
@@ -1009,7 +1030,7 @@ mod tests {
         ])
         .unwrap();
 
-        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        let guest_mem_list = [guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
             assert!(guest_mem.to_region_addr(GuestAddress(0x600)).is_none());
             let (r0, addr0) = guest_mem.to_region_addr(GuestAddress(0x800)).unwrap();
@@ -1037,7 +1058,7 @@ mod tests {
         ])
         .unwrap();
 
-        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        let guest_mem_list = [guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
             assert!(guest_mem.get_host_address(GuestAddress(0x600)).is_err());
             let ptr0 = guest_mem.get_host_address(GuestAddress(0x800)).unwrap();
@@ -1045,6 +1066,13 @@ mod tests {
             assert_eq!(
                 ptr0,
                 guest_mem.find_region(GuestAddress(0x800)).unwrap().as_ptr()
+            );
+            assert_eq!(
+                ptr0,
+                guest_mem
+                    .find_arc_region(GuestAddress(0x800))
+                    .unwrap()
+                    .as_ptr()
             );
             assert_eq!(unsafe { ptr0.offset(0x200) }, ptr1);
         }
@@ -1064,7 +1092,7 @@ mod tests {
         )])
         .unwrap();
 
-        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        let guest_mem_list = [guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
             let sample_buf = &[1, 2, 3, 4, 5];
 
@@ -1102,7 +1130,7 @@ mod tests {
         ])
         .unwrap();
 
-        let gm_list = vec![gm, gm_backed_by_file];
+        let gm_list = [gm, gm_backed_by_file];
         for gm in gm_list.iter() {
             let val1: u64 = 0xaa55_aa55_aa55_aa55;
             let val2: u64 = 0x55aa_55aa_55aa_55aa;
@@ -1142,7 +1170,7 @@ mod tests {
         )])
         .unwrap();
 
-        let gm_list = vec![gm, gm_backed_by_file];
+        let gm_list = [gm, gm_backed_by_file];
         for gm in gm_list.iter() {
             let sample_buf = &[1, 2, 3, 4, 5];
 
@@ -1173,7 +1201,7 @@ mod tests {
         )])
         .unwrap();
 
-        let gm_list = vec![gm, gm_backed_by_file];
+        let gm_list = [gm, gm_backed_by_file];
         for gm in gm_list.iter() {
             let addr = GuestAddress(0x1010);
             let mut file = if cfg!(unix) {
@@ -1257,6 +1285,11 @@ mod tests {
 
         assert_eq!(gm.regions[0].guest_base, regions[0].0);
         assert_eq!(gm.regions[1].guest_base, regions[1].0);
+        GuestMemoryMmap::from_ranges(&regions)
+            .unwrap()
+            .into_iter()
+            .zip(iterated_regions)
+            .all(|(x, y)| x.guest_base == y.0);
     }
 
     #[test]
@@ -1276,7 +1309,7 @@ mod tests {
         ])
         .unwrap();
 
-        let gm_list = vec![gm, gm_backed_by_file];
+        let gm_list = [gm, gm_backed_by_file];
         for gm in gm_list.iter() {
             let sample_buf = &[1, 2, 3, 4, 5];
             assert_eq!(gm.write(sample_buf, GuestAddress(0xffc)).unwrap(), 5);
