@@ -2,7 +2,13 @@
 
 ## Upcoming version
 
+## [v0.15.0]
+
 ### Added
+- [[#270](https://github.com/rust-vmm/vm-memory/pull/270)] atomic_bitmap: add capability to reset bits range
+- [[#285](https://github.com/rust-vmm/vm-memory/pull/285)] Annotated modules in lib.rs to indicate their feature
+  dependencies such that it is reflected in the docs, enhancing documentation clarity for users.
+
 ### Changed
 - [[#275](https://github.com/rust-vmm/vm-memory/pull/275)] Fail builds on non 64-bit platforms.
 ### Fixed
