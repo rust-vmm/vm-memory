@@ -39,6 +39,15 @@ impl AtomicBitmap {
         }
     }
 
+    /// Enlarge this bitmap with enough bits to track `additional_size` additional bytes at page granularity.
+    /// New bits are initialized to zero.
+    pub fn enlarge(&mut self, additional_size: usize) {
+        self.byte_size += additional_size;
+        self.size = self.byte_size.div_ceil(self.page_size.get());
+        let map_size = self.size.div_ceil(u64::BITS as usize);
+        self.map.resize_with(map_size, Default::default);
+    }
+
     /// Is bit `n` set? Bits outside the range of the bitmap are always unset.
     pub fn is_bit_set(&self, index: usize) -> bool {
         if index < self.size {
