@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_bitmap_impl() {
-        let b = AtomicBitmap::new(0x2000, DEFAULT_PAGE_SIZE);
+        let b = AtomicBitmap::new(0x800, DEFAULT_PAGE_SIZE);
         test_bitmap(&b);
     }
 }
