@@ -455,9 +455,10 @@ mod tests {
 
     type MmapRegion = super::MmapRegion<()>;
 
-    // Adding a helper method to extract the errno within an Error::Mmap(e), or return a
-    // distinctive value when the error is represented by another variant.
     impl Error {
+        /// Helper method to extract the errno within an
+        /// `Error::Mmap(e)`. Returns `i32::MIN` if `self` is any
+        /// other variant.
         pub fn raw_os_error(&self) -> i32 {
             match self {
                 Error::Mmap(e) => e.raw_os_error().unwrap(),

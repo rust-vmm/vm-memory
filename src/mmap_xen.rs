@@ -1063,6 +1063,7 @@ mod tests {
     }
 
     impl MmapRegion {
+        /// Create an `MmapRegion` with specified `size` at GuestAdress(0)
         pub fn new(size: usize) -> Result<Self> {
             let range = MmapRange::new_unix(size, None, GuestAddress(0));
             Self::from_range(range)
