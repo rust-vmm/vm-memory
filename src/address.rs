@@ -12,11 +12,11 @@
 //!
 //! Two traits are defined to represent an address within an address space:
 //! - [`AddressValue`](trait.AddressValue.html): stores the raw value of an address. Typically
-//! `u32`,`u64` or `usize` is used to store the raw value. But pointers, such as `*u8`, can't be used
-//! because they don't implement the [`Add`](https://doc.rust-lang.org/std/ops/trait.Add.html) and
-//! [`Sub`](https://doc.rust-lang.org/std/ops/trait.Sub.html) traits.
+//!   `u32`,`u64` or `usize` is used to store the raw value. But pointers, such as `*u8`, can't be used
+//!   because they don't implement the [`Add`](https://doc.rust-lang.org/std/ops/trait.Add.html) and
+//!   [`Sub`](https://doc.rust-lang.org/std/ops/trait.Sub.html) traits.
 //! - [Address](trait.Address.html): encapsulates an [`AddressValue`](trait.AddressValue.html)
-//! object and defines methods to access and manipulate it.
+//!   object and defines methods to access and manipulate it.
 
 use std::cmp::{Eq, Ord, PartialEq, PartialOrd};
 use std::fmt::Debug;
@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn test_new() {
         assert_eq!(MockAddress::new(0), MockAddress(0));
-        assert_eq!(MockAddress::new(std::u64::MAX), MockAddress(std::u64::MAX));
+        assert_eq!(MockAddress::new(u64::MAX), MockAddress(u64::MAX));
     }
 
     #[test]
@@ -285,7 +285,7 @@ mod tests {
             Some(MockAddress(0x130))
         );
         assert_eq!(
-            MockAddress::new(std::u64::MAX - 0x3fff).checked_align_up(0x10000),
+            MockAddress::new(u64::MAX - 0x3fff).checked_align_up(0x10000),
             None
         );
     }
@@ -343,10 +343,10 @@ mod tests {
         // normal case
         check_add(10, 10, false, 20);
         // edge case
-        check_add(std::u64::MAX - 1, 1, false, std::u64::MAX);
+        check_add(u64::MAX - 1, 1, false, u64::MAX);
 
         // with overflow
-        check_add(std::u64::MAX, 1, true, 0);
+        check_add(u64::MAX, 1, true, 0);
     }
 
     fn check_sub(a: u64, b: u64, expected_overflow: bool, expected_result: u64) {
@@ -384,7 +384,7 @@ mod tests {
         check_sub(1, 1, false, 0);
 
         // with underflow
-        check_sub(0, 1, true, std::u64::MAX);
+        check_sub(0, 1, true, u64::MAX);
     }
 
     #[test]

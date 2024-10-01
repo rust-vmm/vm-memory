@@ -461,7 +461,7 @@ mod tests {
         pub fn raw_os_error(&self) -> i32 {
             match self {
                 Error::Mmap(e) => e.raw_os_error().unwrap(),
-                _ => std::i32::MIN,
+                _ => i32::MIN,
             }
         }
     }
@@ -552,7 +552,7 @@ mod tests {
 
         // Offset + size will overflow.
         let r = MmapRegion::build(
-            Some(FileOffset::from_arc(a.clone(), std::u64::MAX)),
+            Some(FileOffset::from_arc(a.clone(), u64::MAX)),
             size,
             prot,
             flags,

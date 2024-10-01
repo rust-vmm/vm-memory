@@ -19,12 +19,12 @@
 //! Traits and Structs
 //! - [`GuestAddress`](struct.GuestAddress.html): represents a guest physical address (GPA).
 //! - [`MemoryRegionAddress`](struct.MemoryRegionAddress.html): represents an offset inside a
-//! region.
+//!   region.
 //! - [`GuestMemoryRegion`](trait.GuestMemoryRegion.html): represent a continuous region of guest's
-//! physical memory.
+//!   physical memory.
 //! - [`GuestMemory`](trait.GuestMemory.html): represent a collection of `GuestMemoryRegion`
-//! objects.
-//! The main responsibilities of the `GuestMemory` trait are:
+//!   objects.
+//!   The main responsibilities of the `GuestMemory` trait are:
 //!     - hide the detail of accessing guest's physical address.
 //!     - map a request address to a `GuestMemoryRegion` object and relay the request to it.
 //!     - handle cases where an access request spanning two or more `GuestMemoryRegion` objects.
@@ -514,7 +514,7 @@ pub trait GuestMemory {
     ///
     /// * Compute the total size of all memory mappings in KB by iterating over the memory regions
     ///   and dividing their sizes to 1024, then summing up the values in an accumulator. (uses the
-    ///  `backend-mmap` feature)
+    ///   `backend-mmap` feature)
     ///
     /// ```
     /// # #[cfg(feature = "backend-mmap")]
@@ -550,7 +550,7 @@ pub trait GuestMemory {
     ///
     /// * Compute the total size of all memory mappings in KB by iterating over the memory regions
     ///   and dividing their sizes to 1024, then summing up the values in an accumulator. (uses the
-    ///  `backend-mmap` feature)
+    ///   `backend-mmap` feature)
     ///
     /// ```
     /// # #[cfg(feature = "backend-mmap")]

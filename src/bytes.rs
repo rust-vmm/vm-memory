@@ -527,11 +527,11 @@ pub(crate) mod tests {
     fn test_bytes() {
         let bytes = MockBytesContainer::new();
 
-        assert!(bytes.write_obj(std::u64::MAX, 0).is_ok());
-        assert_eq!(bytes.read_obj::<u64>(0).unwrap(), std::u64::MAX);
+        assert!(bytes.write_obj(u64::MAX, 0).is_ok());
+        assert_eq!(bytes.read_obj::<u64>(0).unwrap(), u64::MAX);
 
         assert!(bytes
-            .write_obj(std::u64::MAX, MOCK_BYTES_CONTAINER_SIZE)
+            .write_obj(u64::MAX, MOCK_BYTES_CONTAINER_SIZE)
             .is_err());
         assert!(bytes.read_obj::<u64>(MOCK_BYTES_CONTAINER_SIZE).is_err());
     }

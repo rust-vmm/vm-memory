@@ -18,10 +18,10 @@
 //! For the purposes of maintaining safety, volatile memory has some rules of its own:
 //! 1. No references or slices to volatile memory (`&` or `&mut`).
 //! 2. Access should always been done with a volatile read or write.
-//! The First rule is because having references of any kind to memory considered volatile would
-//! violate pointer aliasing. The second is because unvolatile accesses are inherently undefined if
-//! done concurrently without synchronization. With volatile access we know that the compiler has
-//! not reordered or elided the access.
+//!    The First rule is because having references of any kind to memory considered volatile would
+//!    violate pointer aliasing. The second is because unvolatile accesses are inherently undefined if
+//!    done concurrently without synchronization. With volatile access we know that the compiler has
+//!    not reordered or elided the access.
 
 use std::cmp::min;
 use std::io::{self, Read, Write};
@@ -31,7 +31,6 @@ use std::ptr::copy;
 use std::ptr::{read_volatile, write_volatile};
 use std::result;
 use std::sync::atomic::Ordering;
-use std::usize;
 
 use crate::atomic_integer::AtomicInteger;
 use crate::bitmap::{Bitmap, BitmapSlice, BS};
@@ -1889,8 +1888,8 @@ mod tests {
         assert!(slice.subslice(101, 0).is_err());
         assert!(slice.subslice(101, 1).is_err());
 
-        assert!(slice.subslice(std::usize::MAX, 2).is_err());
-        assert!(slice.subslice(2, std::usize::MAX).is_err());
+        assert!(slice.subslice(usize::MAX, 2).is_err());
+        assert!(slice.subslice(2, usize::MAX).is_err());
 
         let maybe_offset_slice = slice.subslice(10, 80);
         assert!(maybe_offset_slice.is_ok());
@@ -1998,14 +1997,13 @@ mod tests {
 
     #[test]
     fn slice_overflow_error() {
-        use std::usize::MAX;
         let mut backing = vec![0u8];
         let a = VolatileSlice::from(backing.as_mut_slice());
-        let res = a.get_slice(MAX, 1).unwrap_err();
+        let res = a.get_slice(usize::MAX, 1).unwrap_err();
         assert_matches!(
             res,
             Error::Overflow {
-                base: MAX,
+                base: usize::MAX,
                 offset: 1,
             }
         );
@@ -2022,14 +2020,13 @@ mod tests {
 
     #[test]
     fn ref_overflow_error() {
-        use std::usize::MAX;
         let mut backing = vec![0u8];
         let a = VolatileSlice::from(backing.as_mut_slice());
-        let res = a.get_ref::<u8>(MAX).unwrap_err();
+        let res = a.get_ref::<u8>(usize::MAX).unwrap_err();
         assert_matches!(
             res,
             Error::Overflow {
-                base: MAX,
+                base: usize::MAX,
                 offset: 1,
             }
         );
@@ -2104,11 +2101,11 @@ mod tests {
         let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
         assert!(s.write_obj(55u16, 4).is_err());
-        assert!(s.write_obj(55u16, core::usize::MAX).is_err());
+        assert!(s.write_obj(55u16, usize::MAX).is_err());
         assert!(s.write_obj(55u16, 2).is_ok());
         assert_eq!(s.read_obj::<u16>(2).unwrap(), 55u16);
         assert!(s.read_obj::<u16>(4).is_err());
-        assert!(s.read_obj::<u16>(core::usize::MAX).is_err());
+        assert!(s.read_obj::<u16>(usize::MAX).is_err());
     }
 
     #[test]
