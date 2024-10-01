@@ -295,4 +295,44 @@ mod tests {
         let b = AtomicBitmap::new(0x800, DEFAULT_PAGE_SIZE);
         test_bitmap(&b);
     }
+
+    #[test]
+    fn test_bitmap_enlarge() {
+        let mut b = AtomicBitmap::new(8 * 1024, DEFAULT_PAGE_SIZE);
+        assert_eq!(b.len(), 64);
+        b.set_addr_range(128, 129);
+        assert!(!b.is_addr_set(0));
+        assert!(b.is_addr_set(128));
+        assert!(b.is_addr_set(256));
+        assert!(!b.is_addr_set(384));
+
+        b.reset_addr_range(128, 129);
+        assert!(!b.is_addr_set(0));
+        assert!(!b.is_addr_set(128));
+        assert!(!b.is_addr_set(256));
+        assert!(!b.is_addr_set(384));
+        b.set_addr_range(128, 129);
+        b.enlarge(8 * 1024);
+        for i in 65..128 {
+            assert!(!b.is_bit_set(i));
+        }
+        assert_eq!(b.len(), 128);
+        assert!(!b.is_addr_set(0));
+        assert!(b.is_addr_set(128));
+        assert!(b.is_addr_set(256));
+        assert!(!b.is_addr_set(384));
+
+        b.set_bit(55);
+        assert!(b.is_bit_set(55));
+        for i in 65..128 {
+            b.set_bit(i);
+        }
+        for i in 65..128 {
+            assert!(b.is_bit_set(i));
+        }
+        b.reset_addr_range(0, 16 * 1024);
+        for i in 0..128 {
+            assert!(!b.is_bit_set(i));
+        }
+    }
 }
