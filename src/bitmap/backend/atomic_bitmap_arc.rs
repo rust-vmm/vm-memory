@@ -82,7 +82,7 @@ mod tests {
     #[test]
     fn test_bitmap_impl() {
         // SAFETY: `128` is non-zero.
-        let b = AtomicBitmapArc::new(AtomicBitmap::new(0x2000, unsafe {
+        let b = AtomicBitmapArc::new(AtomicBitmap::new(0x800, unsafe {
             NonZeroUsize::new_unchecked(128)
         }));
         test_bitmap(&b);
