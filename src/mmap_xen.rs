@@ -1036,7 +1036,7 @@ mod tests {
         fn raw_os_error(&self) -> i32 {
             match self {
                 Error::Mmap(e) => e.raw_os_error().unwrap(),
-                _ => std::i32::MIN,
+                _ => i32::MIN,
             }
         }
     }

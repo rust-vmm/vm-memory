@@ -951,7 +951,7 @@ mod tests {
         ])
         .unwrap();
 
-        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        let guest_mem_list = [guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
             assert!(guest_mem.address_in_range(GuestAddress(0x200)));
             assert!(!guest_mem.address_in_range(GuestAddress(0x600)));
@@ -977,7 +977,7 @@ mod tests {
         ])
         .unwrap();
 
-        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        let guest_mem_list = [guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
             assert_eq!(
                 guest_mem.check_address(GuestAddress(0x200)),
@@ -1009,7 +1009,7 @@ mod tests {
         ])
         .unwrap();
 
-        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        let guest_mem_list = [guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
             assert!(guest_mem.to_region_addr(GuestAddress(0x600)).is_none());
             let (r0, addr0) = guest_mem.to_region_addr(GuestAddress(0x800)).unwrap();
@@ -1037,7 +1037,7 @@ mod tests {
         ])
         .unwrap();
 
-        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        let guest_mem_list = [guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
             assert!(guest_mem.get_host_address(GuestAddress(0x600)).is_err());
             let ptr0 = guest_mem.get_host_address(GuestAddress(0x800)).unwrap();
@@ -1064,7 +1064,7 @@ mod tests {
         )])
         .unwrap();
 
-        let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
+        let guest_mem_list = [guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
             let sample_buf = &[1, 2, 3, 4, 5];
 
@@ -1102,7 +1102,7 @@ mod tests {
         ])
         .unwrap();
 
-        let gm_list = vec![gm, gm_backed_by_file];
+        let gm_list = [gm, gm_backed_by_file];
         for gm in gm_list.iter() {
             let val1: u64 = 0xaa55_aa55_aa55_aa55;
             let val2: u64 = 0x55aa_55aa_55aa_55aa;
@@ -1142,7 +1142,7 @@ mod tests {
         )])
         .unwrap();
 
-        let gm_list = vec![gm, gm_backed_by_file];
+        let gm_list = [gm, gm_backed_by_file];
         for gm in gm_list.iter() {
             let sample_buf = &[1, 2, 3, 4, 5];
 
@@ -1173,7 +1173,7 @@ mod tests {
         )])
         .unwrap();
 
-        let gm_list = vec![gm, gm_backed_by_file];
+        let gm_list = [gm, gm_backed_by_file];
         for gm in gm_list.iter() {
             let addr = GuestAddress(0x1010);
             let mut file = if cfg!(unix) {
@@ -1276,7 +1276,7 @@ mod tests {
         ])
         .unwrap();
 
-        let gm_list = vec![gm, gm_backed_by_file];
+        let gm_list = [gm, gm_backed_by_file];
         for gm in gm_list.iter() {
             let sample_buf = &[1, 2, 3, 4, 5];
             assert_eq!(gm.write(sample_buf, GuestAddress(0xffc)).unwrap(), 5);
@@ -1489,7 +1489,7 @@ mod tests {
             Some(GuestAddress(0xfff))
         );
         assert_eq!(guest_mem.checked_offset(start_addr2, 0xc00), None);
-        assert_eq!(guest_mem.checked_offset(start_addr1, std::usize::MAX), None);
+        assert_eq!(guest_mem.checked_offset(start_addr1, usize::MAX), None);
 
         assert_eq!(guest_mem.checked_offset(start_addr1, 0x400), None);
         assert_eq!(
@@ -1518,7 +1518,7 @@ mod tests {
         assert!(guest_mem.check_range(start_addr2, 0x800));
         assert!(!guest_mem.check_range(start_addr2, 0x801));
         assert!(!guest_mem.check_range(start_addr2, 0xc00));
-        assert!(!guest_mem.check_range(start_addr1, std::usize::MAX));
+        assert!(!guest_mem.check_range(start_addr1, usize::MAX));
     }
 
     #[test]
