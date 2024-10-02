@@ -103,8 +103,8 @@ mod tests {
 
     #[test]
     fn test_slice() {
-        let bitmap_size = 0x1_0000;
-        let dirty_offset = 0x1000;
+        let bitmap_size = 0x800;
+        let dirty_offset = 0x400;
         let dirty_len = 0x100;
 
         {

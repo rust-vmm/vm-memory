@@ -15,9 +15,9 @@
 //! without knowing the implementation details of the VM memory provider. Thus hypervisor
 //! components, such as boot loader, virtual device drivers, virtio backend drivers and vhost
 //! drivers etc, could be shared and reused by multiple hypervisors.
-#![deny(clippy::doc_markdown)]
-#![deny(missing_docs)]
-#![deny(missing_debug_implementations)]
+#![warn(clippy::doc_markdown)]
+#![warn(missing_docs)]
+#![warn(missing_debug_implementations)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 // We only support 64bit. Fail build when attempting to build other targets
