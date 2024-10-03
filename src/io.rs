@@ -220,16 +220,16 @@ impl WriteVolatile for &mut [u8] {
         buf: &VolatileSlice<B>,
     ) -> Result<usize, VolatileMemoryError> {
         let total = buf.len().min(self.len());
-        let src = buf.subslice(0, total)?;
 
         // SAFETY:
-        // We check above that `src` is contiguously allocated memory of length `total <= self.len())`.
-        // Furthermore, both src and dst of the call to
-        // copy_from_volatile_slice are valid for reads and writes respectively of length `total`
-        // since total is the minimum of lengths of the memory areas pointed to. The areas do not
-        // overlap, since `dst` is inside guest memory, and buf is a slice (no slices to guest
-        // memory are possible without violating rust's aliasing rules).
-        let written = unsafe { copy_from_volatile_slice(self.as_mut_ptr(), &src, total) };
+        // `buf` is contiguously allocated memory of length `total <= buf.len())` by the invariants
+        // of `VolatileSlice`.
+        // Furthermore, both source and destination of the call to copy_from_volatile_slice are valid
+        // for reads and writes respectively of length `total` since total is the minimum of lengths
+        // of the memory areas pointed to. The areas do not overlap, since the source is inside guest
+        // memory, and the destination is a pointer derived from a slice (no slices to guest memory
+        // are possible without violating rust's aliasing rules).
+        let written = unsafe { copy_from_volatile_slice(self.as_mut_ptr(), buf, total) };
 
         // Advance the slice, just like the stdlib: https://doc.rust-lang.org/src/std/io/impls.rs.html#335
         *self = std::mem::take(self).split_at_mut(written).1;
@@ -259,15 +259,16 @@ impl ReadVolatile for &[u8] {
         buf: &mut VolatileSlice<B>,
     ) -> Result<usize, VolatileMemoryError> {
         let total = buf.len().min(self.len());
-        let dst = buf.subslice(0, total)?;
 
         // SAFETY:
-        // We check above that `dst` is contiguously allocated memory of length `total <= self.len())`.
-        // Furthermore, both src and dst of the call to copy_to_volatile_slice are valid for reads
-        // and writes respectively of length `total` since total is the minimum of lengths of the
-        // memory areas pointed to. The areas do not overlap, since `dst` is inside guest memory,
-        // and buf is a slice (no slices to guest memory are possible without violating rust's aliasing rules).
-        let read = unsafe { copy_to_volatile_slice(&dst, self.as_ptr(), total) };
+        // `buf` is contiguously allocated memory of length `total <= buf.len())` by the invariants
+        // of `VolatileSlice`.
+        // Furthermore, both source and destination of the call to copy_to_volatile_slice are valid
+        // for reads and writes respectively of length `total` since total is the minimum of lengths
+        // of the memory areas pointed to. The areas do not overlap, since the destination is inside
+        // guest memory, and the source is a pointer derived from a slice (no slices to guest memory
+        // are possible without violating rust's aliasing rules).
+        let read = unsafe { copy_to_volatile_slice(buf, self.as_ptr(), total) };
 
         // Advance the slice, just like the stdlib: https://doc.rust-lang.org/src/std/io/impls.rs.html#232-310
         *self = self.split_at(read).1;
