@@ -43,7 +43,7 @@
 
 use std::convert::From;
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io;
 use std::ops::{BitAnd, BitOr, Deref};
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
@@ -55,8 +55,6 @@ use crate::bytes::{AtomicAccess, Bytes};
 use crate::io::{ReadVolatile, WriteVolatile};
 use crate::volatile_memory::{self, VolatileSlice};
 use crate::GuestMemoryError;
-
-static MAX_ACCESS_CHUNK: usize = 4096;
 
 /// Errors associated with handling guest memory accesses.
 #[allow(missing_docs)]
@@ -230,34 +228,6 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
 
     /// Returns information regarding the file and offset backing this memory region.
     fn file_offset(&self) -> Option<&FileOffset> {
-        None
-    }
-
-    /// Returns a slice corresponding to the data in the region.
-    ///
-    /// Returns `None` if the region does not support slice-based access.
-    ///
-    /// # Safety
-    ///
-    /// Unsafe because of possible aliasing.
-    #[deprecated = "It is impossible to use this function for accessing memory of a running virtual \
-    machine without violating aliasing rules "]
-    unsafe fn as_slice(&self) -> Option<&[u8]> {
-        None
-    }
-
-    /// Returns a mutable slice corresponding to the data in the region.
-    ///
-    /// Returns `None` if the region does not support slice-based access.
-    ///
-    /// # Safety
-    ///
-    /// Unsafe because of possible aliasing. Mutable accesses performed through the
-    /// returned slice are not visible to the dirty bitmap tracking functionality of
-    /// the region, and must be manually recorded using the associated bitmap object.
-    #[deprecated = "It is impossible to use this function for accessing memory of a running virtual \
-    machine without violating aliasing rules "]
-    unsafe fn as_mut_slice(&self) -> Option<&mut [u8]> {
         None
     }
 
@@ -441,34 +411,6 @@ pub trait GuestMemory {
     /// Returns the region containing the specified address or `None`.
     fn find_region(&self, addr: GuestAddress) -> Option<&Self::R>;
 
-    /// Perform the specified action on each region.
-    ///
-    /// It only walks children of current region and does not step into sub regions.
-    #[deprecated(since = "0.6.0", note = "Use `.iter()` instead")]
-    fn with_regions<F, E>(&self, cb: F) -> std::result::Result<(), E>
-    where
-        F: Fn(usize, &Self::R) -> std::result::Result<(), E>,
-    {
-        for (index, region) in self.iter().enumerate() {
-            cb(index, region)?;
-        }
-        Ok(())
-    }
-
-    /// Perform the specified action on each region mutably.
-    ///
-    /// It only walks children of current region and does not step into sub regions.
-    #[deprecated(since = "0.6.0", note = "Use `.iter()` instead")]
-    fn with_regions_mut<F, E>(&self, mut cb: F) -> std::result::Result<(), E>
-    where
-        F: FnMut(usize, &Self::R) -> std::result::Result<(), E>,
-    {
-        for (index, region) in self.iter().enumerate() {
-            cb(index, region)?;
-        }
-        Ok(())
-    }
-
     /// Gets an iterator over the entries in the collection.
     ///
     /// # Examples
@@ -495,46 +437,6 @@ pub trait GuestMemory {
     /// # }
     /// ```
     fn iter(&self) -> impl Iterator<Item = &Self::R>;
-
-    /// Applies two functions, specified as callbacks, on the inner memory regions.
-    ///
-    /// # Arguments
-    /// * `init` - Starting value of the accumulator for the `foldf` function.
-    /// * `mapf` - "Map" function, applied to all the inner memory regions. It returns an array of
-    ///            the same size as the memory regions array, containing the function's results
-    ///            for each region.
-    /// * `foldf` - "Fold" function, applied to the array returned by `mapf`. It acts as an
-    ///             operator, applying itself to the `init` value and to each subsequent elemnent
-    ///             in the array returned by `mapf`.
-    ///
-    /// # Examples
-    ///
-    /// * Compute the total size of all memory mappings in KB by iterating over the memory regions
-    ///   and dividing their sizes to 1024, then summing up the values in an accumulator. (uses the
-    ///   `backend-mmap` feature)
-    ///
-    /// ```
-    /// # #[cfg(feature = "backend-mmap")]
-    /// # {
-    /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryRegion, GuestMemoryMmap};
-    /// #
-    /// let start_addr1 = GuestAddress(0x0);
-    /// let start_addr2 = GuestAddress(0x400);
-    /// let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr1, 1024), (start_addr2, 2048)])
-    ///     .expect("Could not create guest memory");
-    ///
-    /// let total_size = gm.map_and_fold(0, |(_, region)| region.len() / 1024, |acc, size| acc + size);
-    /// assert_eq!(3, total_size)
-    /// # }
-    /// ```
-    #[deprecated(since = "0.6.0", note = "Use `.iter()` instead")]
-    fn map_and_fold<F, G, T>(&self, init: T, mapf: F, foldf: G) -> T
-    where
-        F: Fn((usize, &Self::R)) -> T,
-        G: Fn(T, T) -> T,
-    {
-        self.iter().enumerate().map(mapf).fold(init, foldf)
-    }
 
     /// Returns the maximum (inclusive) address managed by the
     /// [`GuestMemory`](trait.GuestMemory.html).
@@ -888,175 +790,6 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
         if res != buf.len() {
             return Err(Error::PartialBuffer {
                 expected: buf.len(),
-                completed: res,
-            });
-        }
-        Ok(())
-    }
-
-    /// # Examples
-    ///
-    /// * Read bytes from /dev/urandom (uses the `backend-mmap` feature)
-    ///
-    /// ```
-    /// # #[cfg(feature = "backend-mmap")]
-    /// # {
-    /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// #
-    /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
-    /// #    .expect("Could not create guest memory");
-    /// # let addr = GuestAddress(0x1010);
-    /// # let mut file = if cfg!(unix) {
-    /// let mut file = File::open(Path::new("/dev/urandom")).expect("Could not open /dev/urandom");
-    /// #   file
-    /// # } else {
-    /// #   File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe"))
-    /// #       .expect("Could not open c:\\Windows\\system32\\ntoskrnl.exe")
-    /// # };
-    ///
-    /// gm.read_from(addr, &mut file, 128)
-    ///     .expect("Could not read from /dev/urandom into guest memory");
-    ///
-    /// let read_addr = addr.checked_add(8).expect("Could not compute read address");
-    /// let rand_val: u32 = gm
-    ///     .read_obj(read_addr)
-    ///     .expect("Could not read u32 val from /dev/urandom");
-    /// # }
-    /// ```
-    fn read_from<F>(&self, addr: GuestAddress, src: &mut F, count: usize) -> Result<usize>
-    where
-        F: Read,
-    {
-        self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
-            // Check if something bad happened before doing unsafe things.
-            assert!(offset <= count);
-
-            let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
-            let mut buf = vec![0u8; len].into_boxed_slice();
-
-            loop {
-                match src.read(&mut buf[..]) {
-                    Ok(bytes_read) => {
-                        // We don't need to update the dirty bitmap manually here because it's
-                        // expected to be handled by the logic within the `Bytes`
-                        // implementation for the region object.
-                        let bytes_written = region.write(&buf[0..bytes_read], caddr)?;
-                        assert_eq!(bytes_written, bytes_read);
-                        break Ok(bytes_read);
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(e) => break Err(Error::IOError(e)),
-                }
-            }
-        })
-    }
-
-    fn read_exact_from<F>(&self, addr: GuestAddress, src: &mut F, count: usize) -> Result<()>
-    where
-        F: Read,
-    {
-        #[allow(deprecated)] // this function itself is deprecated
-        let res = self.read_from(addr, src, count)?;
-        if res != count {
-            return Err(Error::PartialBuffer {
-                expected: count,
-                completed: res,
-            });
-        }
-        Ok(())
-    }
-
-    /// # Examples
-    ///
-    /// * Write 128 bytes to /dev/null (uses the `backend-mmap` feature)
-    ///
-    /// ```
-    /// # #[cfg(not(unix))]
-    /// # extern crate vmm_sys_util;
-    /// # #[cfg(feature = "backend-mmap")]
-    /// # {
-    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
-    /// #
-    /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 1024)])
-    /// #    .expect("Could not create guest memory");
-    /// # let mut file = if cfg!(unix) {
-    /// # use std::fs::OpenOptions;
-    /// let mut file = OpenOptions::new()
-    ///     .write(true)
-    ///     .open("/dev/null")
-    ///     .expect("Could not open /dev/null");
-    /// #   file
-    /// # } else {
-    /// #   use vmm_sys_util::tempfile::TempFile;
-    /// #   TempFile::new().unwrap().into_file()
-    /// # };
-    ///
-    /// gm.write_to(start_addr, &mut file, 128)
-    ///     .expect("Could not write 128 bytes to the provided address");
-    /// # }
-    /// ```
-    fn write_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<usize>
-    where
-        F: Write,
-    {
-        self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
-            // Check if something bad happened before doing unsafe things.
-            assert!(offset <= count);
-
-            let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
-            let mut buf = vec![0u8; len].into_boxed_slice();
-            let bytes_read = region.read(&mut buf, caddr)?;
-            assert_eq!(bytes_read, len);
-            // For a non-RAM region, reading could have side effects, so we
-            // must use write_all().
-            dst.write_all(&buf).map_err(Error::IOError)?;
-            Ok(len)
-        })
-    }
-
-    /// # Examples
-    ///
-    /// * Write 128 bytes to /dev/null (uses the `backend-mmap` feature)
-    ///
-    /// ```
-    /// # #[cfg(not(unix))]
-    /// # extern crate vmm_sys_util;
-    /// # #[cfg(feature = "backend-mmap")]
-    /// # {
-    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
-    /// #
-    /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 1024)])
-    /// #    .expect("Could not create guest memory");
-    /// # let mut file = if cfg!(unix) {
-    /// # use std::fs::OpenOptions;
-    /// let mut file = OpenOptions::new()
-    ///     .write(true)
-    ///     .open("/dev/null")
-    ///     .expect("Could not open /dev/null");
-    /// #   file
-    /// # } else {
-    /// #   use vmm_sys_util::tempfile::TempFile;
-    /// #   TempFile::new().unwrap().into_file()
-    /// # };
-    ///
-    /// gm.write_all_to(start_addr, &mut file, 128)
-    ///     .expect("Could not write 128 bytes to the provided address");
-    /// # }
-    /// ```
-    fn write_all_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<()>
-    where
-        F: Write,
-    {
-        #[allow(deprecated)] // this function itself is deprecated
-        let res = self.write_to(addr, dst, count)?;
-        if res != count {
-            return Err(Error::PartialBuffer {
-                expected: count,
                 completed: res,
             });
         }
