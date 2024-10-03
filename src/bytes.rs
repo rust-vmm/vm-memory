@@ -11,7 +11,6 @@
 //! Define the `ByteValued` trait to mark that it is safe to instantiate the struct with random
 //! data.
 
-use std::io::{Read, Write};
 use std::mem::{size_of, MaybeUninit};
 use std::result::Result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
@@ -277,72 +276,6 @@ pub trait Bytes<A> {
         self.read_slice(result.as_mut_slice(), addr).map(|_| result)
     }
 
-    /// Reads up to `count` bytes from an object and writes them into the container at `addr`.
-    ///
-    /// Returns the number of bytes written into the container.
-    ///
-    /// # Arguments
-    /// * `addr` - Begin writing at this address.
-    /// * `src` - Copy from `src` into the container.
-    /// * `count` - Copy `count` bytes from `src` into the container.
-    #[deprecated(
-        note = "Use `.read_volatile_from` or the functions of the `ReadVolatile` trait instead"
-    )]
-    fn read_from<F>(&self, addr: A, src: &mut F, count: usize) -> Result<usize, Self::E>
-    where
-        F: Read;
-
-    /// Reads exactly `count` bytes from an object and writes them into the container at `addr`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `count` bytes couldn't have been copied from `src` to the container.
-    /// Part of the data may have been copied nevertheless.
-    ///
-    /// # Arguments
-    /// * `addr` - Begin writing at this address.
-    /// * `src` - Copy from `src` into the container.
-    /// * `count` - Copy exactly `count` bytes from `src` into the container.
-    #[deprecated(
-        note = "Use `.read_exact_volatile_from` or the functions of the `ReadVolatile` trait instead"
-    )]
-    fn read_exact_from<F>(&self, addr: A, src: &mut F, count: usize) -> Result<(), Self::E>
-    where
-        F: Read;
-
-    /// Reads up to `count` bytes from the container at `addr` and writes them it into an object.
-    ///
-    /// Returns the number of bytes written into the object.
-    ///
-    /// # Arguments
-    /// * `addr` - Begin reading from this address.
-    /// * `dst` - Copy from the container to `dst`.
-    /// * `count` - Copy `count` bytes from the container to `dst`.
-    #[deprecated(
-        note = "Use `.write_volatile_to` or the functions of the `WriteVolatile` trait instead"
-    )]
-    fn write_to<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<usize, Self::E>
-    where
-        F: Write;
-
-    /// Reads exactly `count` bytes from the container at `addr` and writes them into an object.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `count` bytes couldn't have been copied from the container to `dst`.
-    /// Part of the data may have been copied nevertheless.
-    ///
-    /// # Arguments
-    /// * `addr` - Begin reading from this address.
-    /// * `dst` - Copy from the container to `dst`.
-    /// * `count` - Copy exactly `count` bytes from the container to `dst`.
-    #[deprecated(
-        note = "Use `.write_all_volatile_to` or the functions of the `WriteVolatile` trait instead"
-    )]
-    fn write_all_to<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<(), Self::E>
-    where
-        F: Write;
-
     /// Atomically store a value at the specified address.
     fn store<T: AtomicAccess>(&self, val: T, addr: A, order: Ordering) -> Result<(), Self::E>;
 
@@ -479,34 +412,6 @@ pub(crate) mod tests {
             buf.copy_from_slice(&container[addr..addr + buf.len()]);
 
             Ok(())
-        }
-
-        fn read_from<F>(&self, _: usize, _: &mut F, _: usize) -> Result<usize, Self::E>
-        where
-            F: Read,
-        {
-            unimplemented!()
-        }
-
-        fn read_exact_from<F>(&self, _: usize, _: &mut F, _: usize) -> Result<(), Self::E>
-        where
-            F: Read,
-        {
-            unimplemented!()
-        }
-
-        fn write_to<F>(&self, _: usize, _: &mut F, _: usize) -> Result<usize, Self::E>
-        where
-            F: Write,
-        {
-            unimplemented!()
-        }
-
-        fn write_all_to<F>(&self, _: usize, _: &mut F, _: usize) -> Result<(), Self::E>
-        where
-            F: Write,
-        {
-            unimplemented!()
         }
 
         fn store<T: AtomicAccess>(
