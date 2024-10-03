@@ -26,7 +26,7 @@ use crate::guest_memory::{
     self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
 };
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
-use crate::{AtomicAccess, Bytes};
+use crate::{AtomicAccess, Bytes, ReadVolatile, WriteVolatile};
 
 #[cfg(all(not(feature = "xen"), unix))]
 pub use crate::mmap_unix::{Error as MmapRegionError, MmapRegion, MmapRegionBuilder};
@@ -229,6 +229,66 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionMmap<B> {
         self.as_volatile_slice()
             .unwrap()
             .read_slice(buf, maddr)
+            .map_err(Into::into)
+    }
+
+    fn read_volatile_from<F>(
+        &self,
+        addr: MemoryRegionAddress,
+        src: &mut F,
+        count: usize,
+    ) -> Result<usize, Self::E>
+    where
+        F: ReadVolatile,
+    {
+        self.as_volatile_slice()
+            .unwrap()
+            .read_volatile_from(addr.0 as usize, src, count)
+            .map_err(Into::into)
+    }
+
+    fn read_exact_volatile_from<F>(
+        &self,
+        addr: MemoryRegionAddress,
+        src: &mut F,
+        count: usize,
+    ) -> Result<(), Self::E>
+    where
+        F: ReadVolatile,
+    {
+        self.as_volatile_slice()
+            .unwrap()
+            .read_exact_volatile_from(addr.0 as usize, src, count)
+            .map_err(Into::into)
+    }
+
+    fn write_volatile_to<F>(
+        &self,
+        addr: MemoryRegionAddress,
+        dst: &mut F,
+        count: usize,
+    ) -> Result<usize, Self::E>
+    where
+        F: WriteVolatile,
+    {
+        self.as_volatile_slice()
+            .unwrap()
+            .write_volatile_to(addr.0 as usize, dst, count)
+            .map_err(Into::into)
+    }
+
+    fn write_all_volatile_to<F>(
+        &self,
+        addr: MemoryRegionAddress,
+        dst: &mut F,
+        count: usize,
+    ) -> Result<(), Self::E>
+    where
+        F: WriteVolatile,
+    {
+        self.as_volatile_slice()
+            .unwrap()
+            .write_all_volatile_to(addr.0 as usize, dst, count)
             .map_err(Into::into)
     }
 
@@ -460,10 +520,10 @@ mod tests {
     use crate::bitmap::AtomicBitmap;
     use crate::GuestAddressSpace;
 
+    use std::io::Write;
     use std::mem;
     #[cfg(feature = "rawfd")]
     use std::{fs::File, path::Path};
-    use std::io::Write;
     use vmm_sys_util::tempfile::TempFile;
 
     type GuestMemoryMmap = super::GuestMemoryMmap<()>;
