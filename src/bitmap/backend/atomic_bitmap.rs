@@ -18,6 +18,7 @@ use crate::mmap::NewBitmap;
 pub struct AtomicBitmap {
     map: Vec<AtomicU64>,
     size: usize,
+    byte_size: usize,
     page_size: NonZeroUsize,
 }
 
@@ -33,6 +34,7 @@ impl AtomicBitmap {
         AtomicBitmap {
             map,
             size: num_pages,
+            byte_size,
             page_size,
         }
     }
@@ -117,6 +119,11 @@ impl AtomicBitmap {
         self.size
     }
 
+    /// Get the size in bytes i.e how many bytes the bitmap can represent, one bit per page.
+    pub fn byte_size(&self) -> usize {
+        self.byte_size
+    }
+
     /// Atomically get and reset the dirty page bitmap.
     pub fn get_and_reset(&self) -> Vec<u64> {
         self.map
@@ -144,6 +151,7 @@ impl Clone for AtomicBitmap {
         AtomicBitmap {
             map,
             size: self.size,
+            byte_size: self.byte_size,
             page_size: self.page_size,
         }
     }
