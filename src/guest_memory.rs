@@ -54,7 +54,6 @@ use crate::bitmap::{Bitmap, BS, MS};
 use crate::bytes::{AtomicAccess, Bytes};
 use crate::io::{ReadVolatile, WriteVolatile};
 use crate::volatile_memory::{self, VolatileSlice};
-use crate::GuestMemoryError;
 
 /// Errors associated with handling guest memory accesses.
 #[allow(missing_docs)]
@@ -538,137 +537,6 @@ pub trait GuestMemory {
         }
     }
 
-    /// Reads up to `count` bytes from an object and writes them into guest memory at `addr`.
-    ///
-    /// Returns the number of bytes written into guest memory.
-    ///
-    /// # Arguments
-    /// * `addr` - Begin writing at this address.
-    /// * `src` - Copy from `src` into the container.
-    /// * `count` - Copy `count` bytes from `src` into the container.
-    ///
-    /// # Examples
-    ///
-    /// * Read bytes from /dev/urandom (uses the `backend-mmap` feature)
-    ///
-    /// ```
-    /// # #[cfg(feature = "backend-mmap")]
-    /// # {
-    /// # use vm_memory::{Address, GuestMemory, Bytes, GuestAddress, GuestMemoryMmap};
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// #
-    /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
-    /// #    .expect("Could not create guest memory");
-    /// # let addr = GuestAddress(0x1010);
-    /// # let mut file = if cfg!(unix) {
-    /// let mut file = File::open(Path::new("/dev/urandom")).expect("Could not open /dev/urandom");
-    /// #   file
-    /// # } else {
-    /// #   File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe"))
-    /// #       .expect("Could not open c:\\Windows\\system32\\ntoskrnl.exe")
-    /// # };
-    ///
-    /// gm.read_volatile_from(addr, &mut file, 128)
-    ///     .expect("Could not read from /dev/urandom into guest memory");
-    ///
-    /// let read_addr = addr.checked_add(8).expect("Could not compute read address");
-    /// let rand_val: u32 = gm
-    ///     .read_obj(read_addr)
-    ///     .expect("Could not read u32 val from /dev/urandom");
-    /// # }
-    /// ```
-    fn read_volatile_from<F>(&self, addr: GuestAddress, src: &mut F, count: usize) -> Result<usize>
-    where
-        F: ReadVolatile,
-    {
-        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
-            let mut vslice = region.get_slice(caddr, len)?;
-
-            src.read_volatile(&mut vslice)
-                .map_err(GuestMemoryError::from)
-        })
-    }
-
-    /// Reads up to `count` bytes from guest memory at `addr` and writes them it into an object.
-    ///
-    /// Returns the number of bytes copied from guest memory.
-    ///
-    /// # Arguments
-    /// * `addr` - Begin reading from this address.
-    /// * `dst` - Copy from guest memory to `dst`.
-    /// * `count` - Copy `count` bytes from guest memory to `dst`.
-    fn write_volatile_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<usize>
-    where
-        F: WriteVolatile,
-    {
-        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
-            let vslice = region.get_slice(caddr, len)?;
-
-            // For a non-RAM region, reading could have side effects, so we
-            // must use write_all().
-            dst.write_all_volatile(&vslice)?;
-
-            Ok(len)
-        })
-    }
-
-    /// Reads exactly `count` bytes from an object and writes them into guest memory at `addr`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `count` bytes couldn't have been copied from `src` to guest memory.
-    /// Part of the data may have been copied nevertheless.
-    ///
-    /// # Arguments
-    /// * `addr` - Begin writing at this address.
-    /// * `src` - Copy from `src` into guest memory.
-    /// * `count` - Copy exactly `count` bytes from `src` into guest memory.
-    fn read_exact_volatile_from<F>(
-        &self,
-        addr: GuestAddress,
-        src: &mut F,
-        count: usize,
-    ) -> Result<()>
-    where
-        F: ReadVolatile,
-    {
-        let res = self.read_volatile_from(addr, src, count)?;
-        if res != count {
-            return Err(Error::PartialBuffer {
-                expected: count,
-                completed: res,
-            });
-        }
-        Ok(())
-    }
-
-    /// Reads exactly `count` bytes from guest memory at `addr` and writes them into an object.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `count` bytes couldn't have been copied from guest memory to `dst`.
-    /// Part of the data may have been copied nevertheless.
-    ///
-    /// # Arguments
-    /// * `addr` - Begin reading from this address.
-    /// * `dst` - Copy from guest memory to `dst`.
-    /// * `count` - Copy exactly `count` bytes from guest memory to `dst`.
-    fn write_all_volatile_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<()>
-    where
-        F: WriteVolatile,
-    {
-        let res = self.write_volatile_to(addr, dst, count)?;
-        if res != count {
-            return Err(Error::PartialBuffer {
-                expected: count,
-                completed: res,
-            });
-        }
-        Ok(())
-    }
-
     /// Get the host virtual address corresponding to the guest address.
     ///
     /// Some [`GuestMemory`](trait.GuestMemory.html) implementations, like `GuestMemoryMmap`,
@@ -790,6 +658,59 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
         if res != buf.len() {
             return Err(Error::PartialBuffer {
                 expected: buf.len(),
+                completed: res,
+            });
+        }
+        Ok(())
+    }
+
+    fn read_volatile_from<F>(&self, addr: GuestAddress, src: &mut F, count: usize) -> Result<usize>
+    where
+        F: ReadVolatile,
+    {
+        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
+            region.read_volatile_from(caddr, src, len)
+        })
+    }
+
+    fn read_exact_volatile_from<F>(
+        &self,
+        addr: GuestAddress,
+        src: &mut F,
+        count: usize,
+    ) -> Result<()>
+    where
+        F: ReadVolatile,
+    {
+        let res = self.read_volatile_from(addr, src, count)?;
+        if res != count {
+            return Err(Error::PartialBuffer {
+                expected: count,
+                completed: res,
+            });
+        }
+        Ok(())
+    }
+
+    fn write_volatile_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<usize>
+    where
+        F: WriteVolatile,
+    {
+        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
+            // For a non-RAM region, reading could have side effects, so we
+            // must use write_all().
+            region.write_all_volatile_to(caddr, dst, len).map(|()| len)
+        })
+    }
+
+    fn write_all_volatile_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<()>
+    where
+        F: WriteVolatile,
+    {
+        let res = self.write_volatile_to(addr, dst, count)?;
+        if res != count {
+            return Err(Error::PartialBuffer {
+                expected: count,
                 completed: res,
             });
         }

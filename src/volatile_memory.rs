@@ -42,7 +42,7 @@ use crate::mmap_xen::{MmapXen as MmapInfo, MmapXenSlice};
 #[cfg(not(feature = "xen"))]
 type MmapInfo = std::marker::PhantomData<()>;
 
-use crate::io::{ReadVolatile, WriteVolatile};
+use crate::io::{retry_eintr, ReadVolatile, WriteVolatile};
 use copy_slice_impl::{copy_from_volatile_slice, copy_to_volatile_slice};
 
 /// `VolatileMemory` related errors.
@@ -809,6 +809,34 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
             });
         }
         Ok(())
+    }
+
+    fn read_volatile_from<F>(&self, addr: usize, src: &mut F, count: usize) -> Result<usize>
+    where
+        F: ReadVolatile,
+    {
+        retry_eintr!(src.read_volatile(&mut self.offset(addr)?.truncate(count)))
+    }
+
+    fn read_exact_volatile_from<F>(&self, addr: usize, src: &mut F, count: usize) -> Result<()>
+    where
+        F: ReadVolatile,
+    {
+        src.read_exact_volatile(&mut self.get_slice(addr, count)?)
+    }
+
+    fn write_volatile_to<F>(&self, addr: usize, dst: &mut F, count: usize) -> Result<usize>
+    where
+        F: WriteVolatile,
+    {
+        retry_eintr!(dst.write_volatile(&self.offset(addr)?.truncate(count)))
+    }
+
+    fn write_all_volatile_to<F>(&self, addr: usize, dst: &mut F, count: usize) -> Result<()>
+    where
+        F: WriteVolatile,
+    {
+        dst.write_all_volatile(&self.get_slice(addr, count)?)
     }
 
     fn store<T: AtomicAccess>(&self, val: T, addr: usize, order: Ordering) -> Result<()> {

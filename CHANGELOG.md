@@ -6,6 +6,11 @@
 
 - \[[#307](https://github.com/rust-vmm/vm-memory/pull/304)\] Introduce `VolatileSlice::truncate`
 
+### Changed
+
+- \[[#307](https://github.com/rust-vmm/vm-memory/pull/304)\] Move `read_volatile_from`, `read_exact_volatile_from`,
+  `write_volatile_to` and `write_all_volatile_to` functions from the `GuestMemory` trait to the `Bytes` trait.
+
 ### Removed
 
 - \[[#307](https://github.com/rust-vmm/vm-memory/pull/304)\] Remove deprecated functions `Bytes::read_from`, `Bytes::read_exact_from`,
