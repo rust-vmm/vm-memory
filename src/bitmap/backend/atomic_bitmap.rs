@@ -18,6 +18,7 @@ use crate::mmap::NewBitmap;
 pub struct AtomicBitmap {
     map: Vec<AtomicU64>,
     size: usize,
+    byte_size: usize,
     page_size: NonZeroUsize,
 }
 
@@ -33,8 +34,18 @@ impl AtomicBitmap {
         AtomicBitmap {
             map,
             size: num_pages,
+            byte_size,
             page_size,
         }
+    }
+
+    /// Enlarge this bitmap with enough bits to track `additional_size` additional bytes at page granularity.
+    /// New bits are initialized to zero.
+    pub fn enlarge(&mut self, additional_size: usize) {
+        self.byte_size += additional_size;
+        self.size = self.byte_size.div_ceil(self.page_size.get());
+        let map_size = self.size.div_ceil(u64::BITS as usize);
+        self.map.resize_with(map_size, Default::default);
     }
 
     /// Is bit `n` set? Bits outside the range of the bitmap are always unset.
@@ -117,6 +128,11 @@ impl AtomicBitmap {
         self.size
     }
 
+    /// Get the size in bytes i.e how many bytes the bitmap can represent, one bit per page.
+    pub fn byte_size(&self) -> usize {
+        self.byte_size
+    }
+
     /// Atomically get and reset the dirty page bitmap.
     pub fn get_and_reset(&self) -> Vec<u64> {
         self.map
@@ -144,6 +160,7 @@ impl Clone for AtomicBitmap {
         AtomicBitmap {
             map,
             size: self.size,
+            byte_size: self.byte_size,
             page_size: self.page_size,
         }
     }
@@ -277,5 +294,45 @@ mod tests {
     fn test_bitmap_impl() {
         let b = AtomicBitmap::new(0x800, DEFAULT_PAGE_SIZE);
         test_bitmap(&b);
+    }
+
+    #[test]
+    fn test_bitmap_enlarge() {
+        let mut b = AtomicBitmap::new(8 * 1024, DEFAULT_PAGE_SIZE);
+        assert_eq!(b.len(), 64);
+        b.set_addr_range(128, 129);
+        assert!(!b.is_addr_set(0));
+        assert!(b.is_addr_set(128));
+        assert!(b.is_addr_set(256));
+        assert!(!b.is_addr_set(384));
+
+        b.reset_addr_range(128, 129);
+        assert!(!b.is_addr_set(0));
+        assert!(!b.is_addr_set(128));
+        assert!(!b.is_addr_set(256));
+        assert!(!b.is_addr_set(384));
+        b.set_addr_range(128, 129);
+        b.enlarge(8 * 1024);
+        for i in 65..128 {
+            assert!(!b.is_bit_set(i));
+        }
+        assert_eq!(b.len(), 128);
+        assert!(!b.is_addr_set(0));
+        assert!(b.is_addr_set(128));
+        assert!(b.is_addr_set(256));
+        assert!(!b.is_addr_set(384));
+
+        b.set_bit(55);
+        assert!(b.is_bit_set(55));
+        for i in 65..128 {
+            b.set_bit(i);
+        }
+        for i in 65..128 {
+            assert!(b.is_bit_set(i));
+        }
+        b.reset_addr_range(0, 16 * 1024);
+        for i in 0..128 {
+            assert!(!b.is_bit_set(i));
+        }
     }
 }
