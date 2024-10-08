@@ -422,42 +422,6 @@ impl<M: GuestMemory> GuestAddressSpace for Arc<M> {
     }
 }
 
-/// Lifetime generic associated iterators. The actual iterator type is defined through associated
-/// item `Iter`, for example:
-///
-/// ```
-/// # use std::marker::PhantomData;
-/// # use vm_memory::guest_memory::GuestMemoryIterator;
-/// #
-/// // Declare the relevant Region and Memory types
-/// struct MyGuestRegion {/* fields omitted */}
-/// struct MyGuestMemory {/* fields omitted */}
-///
-/// // Make an Iterator type to iterate over the Regions
-/// # /*
-/// struct MyGuestMemoryIter<'a> {/* fields omitted */}
-/// # */
-/// # struct MyGuestMemoryIter<'a> {
-/// #   _marker: PhantomData<&'a MyGuestRegion>,
-/// # }
-/// impl<'a> Iterator for MyGuestMemoryIter<'a> {
-///     type Item = &'a MyGuestRegion;
-///     fn next(&mut self) -> Option<&'a MyGuestRegion> {
-///         // ...
-/// #       None
-///     }
-/// }
-///
-/// // Associate the Iter type with the Memory type
-/// impl<'a> GuestMemoryIterator<'a, MyGuestRegion> for MyGuestMemory {
-///     type Iter = MyGuestMemoryIter<'a>;
-/// }
-/// ```
-pub trait GuestMemoryIterator<'a, R: 'a> {
-    /// Type of the `iter` method's return value.
-    type Iter: Iterator<Item = &'a R>;
-}
-
 /// `GuestMemory` represents a container for an *immutable* collection of
 /// `GuestMemoryRegion` objects.  `GuestMemory` provides the `Bytes<GuestAddress>`
 /// trait to hide the details of accessing guest memory by physical address.
@@ -470,9 +434,6 @@ pub trait GuestMemoryIterator<'a, R: 'a> {
 pub trait GuestMemory {
     /// Type of objects hosted by the address space.
     type R: GuestMemoryRegion;
-
-    /// Lifetime generic associated iterators. Usually this is just `Self`.
-    type I: for<'a> GuestMemoryIterator<'a, Self::R>;
 
     /// Returns the number of regions in the collection.
     fn num_regions(&self) -> usize;
@@ -533,7 +494,7 @@ pub trait GuestMemory {
     /// assert_eq!(3, total_size)
     /// # }
     /// ```
-    fn iter(&self) -> <Self::I as GuestMemoryIterator<Self::R>>::Iter;
+    fn iter(&self) -> impl Iterator<Item = &Self::R>;
 
     /// Applies two functions, specified as callbacks, on the inner memory regions.
     ///
