@@ -2,6 +2,11 @@
 
 ## Upcoming version
 
+### Added
+
+- [[#287](https://github.com/rust-vmm/vm-memory/pull/287)] Support for RISC-V 64-bit platform.
+- [[#299](https://github.com/rust-vmm/vm-memory/pull/299)] atomic_bitmap: support enlarging the bitmap.
+
 ### Changed
 
 - [[#278](https://github.com/rust-vmm/vm-memory/pull/278) Remove `GuestMemoryIterator` trait,
