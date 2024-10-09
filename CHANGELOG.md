@@ -2,6 +2,8 @@
 
 ## Upcoming version
 
+## [v0.16.0]
+
 ### Added
 
 - [[#287](https://github.com/rust-vmm/vm-memory/pull/287)] Support for RISC-V 64-bit platform.
