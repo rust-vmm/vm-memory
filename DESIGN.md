@@ -39,7 +39,7 @@ The `vm-memory` crate could be divided into four logic parts as:
 
 - [Abstraction of Address Space](#abstraction-of-address-space)
 - [Specialization for Virtual Machine Physical Address Space](#specialization-for-virtual-machine-physical-address-space)
-- [Backend Implementation Based on `mmap`](#backend-implementation-based-on-`mmap`)
+- [Backend Implementation Based on `mmap`](#backend-implementation-based-on-mmap)
 - [Utilities and helpers](#utilities-and-helpers)
 
 ### Address Space Abstraction
@@ -48,9 +48,9 @@ The address space abstraction contains traits and implementations for working
 with addresses as follows:
 
 - `AddressValue`: stores the raw value of an address. Typically `u32`, `u64` or
-   `usize` are used to store the raw value. Pointers such as `*u8`, can not be
-   used as an implementation of `AddressValue` because the `Add` and `Sub`
-   traits are not implemented for that type.
+  `usize` are used to store the raw value. Pointers such as `*u8`, can not be
+  used as an implementation of `AddressValue` because the `Add` and `Sub`
+  traits are not implemented for that type.
 - `Address`: implementation of `AddressValue`.
 - `Bytes`: trait for volatile access to memory. The `Bytes` trait can be
   parameterized with types that represent addresses, in order to enforce that
