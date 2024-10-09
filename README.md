@@ -18,7 +18,7 @@ The detailed design of the `vm-memory` crate can be found [here](DESIGN.md).
 
 ### Platform Support
 
-- Arch: x86, AMD64, ARM64
+- Arch: x86_64, ARM64, RISCV64
 - OS: Linux/Unix/Windows
 
 ### Xen support
