@@ -144,6 +144,7 @@ impl WriteVolatile for Stdout {
 }
 
 impl_read_write_volatile_for_raw_fd!(std::fs::File);
+impl_read_write_volatile_for_raw_fd!(std::net::TcpStream);
 impl_read_write_volatile_for_raw_fd!(std::os::unix::net::UnixStream);
 impl_read_write_volatile_for_raw_fd!(std::os::fd::OwnedFd);
 impl_read_write_volatile_for_raw_fd!(std::os::fd::BorrowedFd<'_>);
