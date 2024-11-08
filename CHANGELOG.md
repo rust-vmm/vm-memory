@@ -2,6 +2,8 @@
 
 ## Upcoming version
 
+## \[v0.16.1\]
+
 ### Added
 
 - \[[#304](https://github.com/rust-vmm/vm-memory/pull/304)\] Implement ReadVolatile and WriteVolatile for TcpStream
