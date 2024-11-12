@@ -9,6 +9,24 @@ use crate::{VolatileMemoryError, VolatileSlice};
 use std::io::{Cursor, ErrorKind, Stdout};
 use std::os::fd::AsRawFd;
 
+macro_rules! retry_eintr {
+    ($io_call: expr) => {
+        loop {
+            let r = $io_call;
+
+            if let Err(crate::VolatileMemoryError::IOError(ref err)) = r {
+                if err.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+            }
+
+            break r;
+        }
+    };
+}
+
+pub(crate) use retry_eintr;
+
 /// A version of the standard library's [`Read`](std::io::Read) trait that operates on volatile
 /// memory instead of slices
 ///
@@ -39,10 +57,7 @@ pub trait ReadVolatile {
         let mut partial_buf = buf.offset(0)?;
 
         while !partial_buf.is_empty() {
-            match self.read_volatile(&mut partial_buf) {
-                Err(VolatileMemoryError::IOError(err)) if err.kind() == ErrorKind::Interrupted => {
-                    continue
-                }
+            match retry_eintr!(self.read_volatile(&mut partial_buf)) {
                 Ok(0) => {
                     return Err(VolatileMemoryError::IOError(std::io::Error::new(
                         ErrorKind::UnexpectedEof,
@@ -88,10 +103,7 @@ pub trait WriteVolatile {
         let mut partial_buf = buf.offset(0)?;
 
         while !partial_buf.is_empty() {
-            match self.write_volatile(&partial_buf) {
-                Err(VolatileMemoryError::IOError(err)) if err.kind() == ErrorKind::Interrupted => {
-                    continue
-                }
+            match retry_eintr!(self.write_volatile(&partial_buf)) {
                 Ok(0) => {
                     return Err(VolatileMemoryError::IOError(std::io::Error::new(
                         ErrorKind::WriteZero,
