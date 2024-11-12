@@ -2,6 +2,10 @@
 
 ## Upcoming version
 
+### Added
+
+- \[[#307](https://github.com/rust-vmm/vm-memory/pull/304)\] Introduce `VolatileSlice::truncate`
+
 ## \[v0.16.1\]
 
 ### Added

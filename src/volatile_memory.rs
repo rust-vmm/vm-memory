@@ -538,6 +538,32 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
         }
     }
 
+    /// Returns a subslice of this [`VolatileSlice`] of length at most `count`.
+    ///
+    /// If `count` is larger than the length of `self`, returns a copy of `self`
+    ///
+    /// ```rust
+    /// # use vm_memory::VolatileSlice;
+    /// let mut arr = [1, 2, 3, 4, 5];
+    /// let slice = VolatileSlice::from(arr.as_mut_slice());
+    ///
+    /// assert_eq!(slice.truncate(3).len(), 3);
+    /// assert_eq!(slice.truncate(10).len(), 5);
+    /// ```
+    pub fn truncate(&self, count: usize) -> VolatileSlice<'a, B> {
+        // SAFETY: Safe because the memory has the same lifetime and points to a subset of the
+        // memory of the original slice.
+        unsafe {
+            // having a "too long" bitmap is fine, we'll never touch the "extra" parts
+            VolatileSlice::with_bitmap(
+                self.addr,
+                self.len().min(count),
+                self.bitmap.clone(),
+                self.mmap,
+            )
+        }
+    }
+
     /// Copies as many elements of type `T` as possible from this slice to `buf`.
     ///
     /// Copies `self.len()` or `buf.len()` times the size of `T` bytes, whichever is smaller,
