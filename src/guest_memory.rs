@@ -681,10 +681,7 @@ pub trait GuestMemory {
     where
         F: ReadVolatile,
     {
-        self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
-            // Check if something bad happened before doing unsafe things.
-            assert!(offset <= count);
-
+        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
             let mut vslice = region.get_slice(caddr, len)?;
 
             src.read_volatile(&mut vslice)
@@ -704,10 +701,7 @@ pub trait GuestMemory {
     where
         F: WriteVolatile,
     {
-        self.try_access(count, addr, |offset, len, caddr, region| -> Result<usize> {
-            // Check if something bad happened before doing unsafe things.
-            assert!(offset <= count);
-
+        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
             let vslice = region.get_slice(caddr, len)?;
 
             // For a non-RAM region, reading could have side effects, so we
