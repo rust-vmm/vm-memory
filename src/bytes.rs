@@ -227,15 +227,40 @@ pub trait Bytes<A> {
     /// Returns the number of bytes written. The number of bytes written can
     /// be less than the length of the slice if there isn't enough room in the
     /// container.
+    ///
+    /// If the given slice is empty (e.g. has length 0), always returns `Ok(0)`, even if `addr`
+    /// is otherwise out of bounds. However, if the container is empty, it will
+    /// return an error (unless the slice is also empty, in which case the above takes precedence).
+    ///
+    /// ```rust
+    /// # use vm_memory::{Bytes, VolatileMemoryError, VolatileSlice};
+    /// let mut arr = [1, 2, 3, 4, 5];
+    /// let slice = VolatileSlice::from(arr.as_mut_slice());
+    ///
+    /// assert_eq!(slice.write(&[1, 2, 3], 0).unwrap(), 3);
+    /// assert_eq!(slice.write(&[1, 2, 3], 3).unwrap(), 2);
+    /// assert!(matches!(
+    ///     slice.write(&[1, 2, 3], 5).unwrap_err(),
+    ///     VolatileMemoryError::OutOfBounds { addr: 5 }
+    /// ));
+    /// assert_eq!(slice.write(&[], 5).unwrap(), 0);
+    /// ```
     fn write(&self, buf: &[u8], addr: A) -> Result<usize, Self::E>;
 
     /// Reads data from the container at `addr` into a slice.
     ///
     /// Returns the number of bytes read. The number of bytes read can be less than the length
     /// of the slice if there isn't enough data within the container.
+    ///
+    /// If the given slice is empty (e.g. has length 0), always returns `Ok(0)`, even if `addr`
+    /// is otherwise out of bounds. However, if the container is empty, it will
+    /// return an error (unless the slice is also empty, in which case the above takes precedence).
     fn read(&self, buf: &mut [u8], addr: A) -> Result<usize, Self::E>;
 
     /// Writes the entire content of a slice into the container at `addr`.
+    ///
+    /// If the given slice is empty (e.g. has length 0), always returns `Ok(0)`, even if `addr`
+    /// is otherwise out of bounds.
     ///
     /// # Errors
     ///
@@ -244,6 +269,9 @@ pub trait Bytes<A> {
     fn write_slice(&self, buf: &[u8], addr: A) -> Result<(), Self::E>;
 
     /// Reads data from the container at `addr` to fill an entire slice.
+    ///
+    /// If the given slice is empty (e.g. has length 0), always returns `Ok(0)`, even if `addr`
+    /// is otherwise out of bounds.
     ///
     /// # Errors
     ///
