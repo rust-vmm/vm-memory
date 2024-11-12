@@ -276,7 +276,18 @@ pub trait VolatileMemory {
         unsafe { Ok(&*(slice.addr as *const T)) }
     }
 
-    /// Returns the sum of `base` and `offset` if the resulting address is valid.
+    /// Returns the sum of `base` and `offset` if it is valid to access a range of `offset`
+    /// bytes starting at `base`.
+    ///
+    /// Specifically, allows accesses of length 0 at the end of a slice:
+    ///
+    /// ```rust
+    /// # use vm_memory::{VolatileMemory, VolatileSlice};
+    /// let mut arr = [1, 2, 3];
+    /// let slice = VolatileSlice::from(arr.as_mut_slice());
+    ///
+    /// assert_eq!(slice.compute_end_offset(3, 0).unwrap(), 3);
+    /// ```
     fn compute_end_offset(&self, base: usize, offset: usize) -> Result<usize> {
         let mem_end = compute_offset(base, offset)?;
         if mem_end > self.len() {
@@ -1661,6 +1672,28 @@ mod tests {
     use crate::bitmap::{AtomicBitmap, RefSlice};
 
     const DEFAULT_PAGE_SIZE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(0x1000) };
+
+    #[test]
+    fn test_compute_end_offset() {
+        let mut array = [1, 2, 3, 4, 5];
+        let slice = VolatileSlice::from(array.as_mut_slice());
+
+        // Iterate over all valid ranges, assert that they pass validation.
+        // This includes edge cases such as len = 0 and base = 5!
+        for len in 0..slice.len() {
+            for base in 0..=slice.len() - len {
+                assert_eq!(
+                    slice.compute_end_offset(base, len).unwrap(),
+                    len + base,
+                    "compute_end_offset rejected valid base/offset pair {base} + {len}"
+                );
+            }
+        }
+
+        // Check invalid configurations
+        slice.compute_end_offset(5, 1).unwrap_err();
+        slice.compute_end_offset(6, 0).unwrap_err();
+    }
 
     #[test]
     fn test_display_error() {
