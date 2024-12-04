@@ -24,7 +24,7 @@
 //!    not reordered or elided the access.
 
 use std::cmp::min;
-use std::io::{self, Read, Write};
+use std::io;
 use std::marker::PhantomData;
 use std::mem::{align_of, size_of};
 use std::ptr::copy;
@@ -42,7 +42,7 @@ use crate::mmap_xen::{MmapXen as MmapInfo, MmapXenSlice};
 #[cfg(not(feature = "xen"))]
 type MmapInfo = std::marker::PhantomData<()>;
 
-use crate::io::{ReadVolatile, WriteVolatile};
+use crate::io::{retry_eintr, ReadVolatile, WriteVolatile};
 use copy_slice_impl::{copy_from_volatile_slice, copy_to_volatile_slice};
 
 /// `VolatileMemory` related errors.
@@ -273,7 +273,18 @@ pub trait VolatileMemory {
         unsafe { Ok(&*(slice.addr as *const T)) }
     }
 
-    /// Returns the sum of `base` and `offset` if the resulting address is valid.
+    /// Returns the sum of `base` and `offset` if it is valid to access a range of `offset`
+    /// bytes starting at `base`.
+    ///
+    /// Specifically, allows accesses of length 0 at the end of a slice:
+    ///
+    /// ```rust
+    /// # use vm_memory::{VolatileMemory, VolatileSlice};
+    /// let mut arr = [1, 2, 3];
+    /// let slice = VolatileSlice::from(arr.as_mut_slice());
+    ///
+    /// assert_eq!(slice.compute_end_offset(3, 0).unwrap(), 3);
+    /// ```
     fn compute_end_offset(&self, base: usize, offset: usize) -> Result<usize> {
         let mem_end = compute_offset(base, offset)?;
         if mem_end > self.len() {
@@ -416,18 +427,6 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
         }
     }
 
-    /// Returns a pointer to the beginning of the slice. Mutable accesses performed
-    /// using the resulting pointer are not automatically accounted for by the dirty bitmap
-    /// tracking functionality.
-    #[deprecated(
-        since = "0.12.1",
-        note = "Use `.ptr_guard()` or `.ptr_guard_mut()` instead"
-    )]
-    #[cfg(not(all(feature = "xen", unix)))]
-    pub fn as_ptr(&self) -> *mut u8 {
-        self.addr
-    }
-
     /// Returns a guard for the pointer to the underlying memory.
     pub fn ptr_guard(&self) -> PtrGuard {
         PtrGuard::read(self.mmap, self.addr, self.len())
@@ -524,6 +523,32 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
                 self.bitmap.slice_at(count),
                 self.mmap,
             ))
+        }
+    }
+
+    /// Returns a subslice of this [`VolatileSlice`] of length at most `count`.
+    ///
+    /// If `count` is larger than the length of `self`, returns a copy of `self`
+    ///
+    /// ```rust
+    /// # use vm_memory::VolatileSlice;
+    /// let mut arr = [1, 2, 3, 4, 5];
+    /// let slice = VolatileSlice::from(arr.as_mut_slice());
+    ///
+    /// assert_eq!(slice.truncate(3).len(), 3);
+    /// assert_eq!(slice.truncate(10).len(), 5);
+    /// ```
+    pub fn truncate(&self, count: usize) -> VolatileSlice<'a, B> {
+        // SAFETY: Safe because the memory has the same lifetime and points to a subset of the
+        // memory of the original slice.
+        unsafe {
+            // having a "too long" bitmap is fine, we'll never touch the "extra" parts
+            VolatileSlice::with_bitmap(
+                self.addr,
+                self.len().min(count),
+                self.bitmap.clone(),
+                self.mmap,
+            )
         }
     }
 
@@ -786,197 +811,32 @@ impl<B: BitmapSlice> Bytes<usize> for VolatileSlice<'_, B> {
         Ok(())
     }
 
-    /// # Examples
-    ///
-    /// * Read bytes from /dev/urandom
-    ///
-    /// ```
-    /// # use vm_memory::{Bytes, VolatileMemory, VolatileSlice};
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// #
-    /// # if cfg!(unix) {
-    /// # let mut mem = [0u8; 1024];
-    /// # let vslice = VolatileSlice::from(&mut mem[..]);
-    /// let mut file = File::open(Path::new("/dev/urandom")).expect("Could not open /dev/urandom");
-    ///
-    /// vslice
-    ///     .read_from(32, &mut file, 128)
-    ///     .expect("Could not read bytes from file into VolatileSlice");
-    ///
-    /// let rand_val: u32 = vslice
-    ///     .read_obj(40)
-    ///     .expect("Could not read value from VolatileSlice");
-    /// # }
-    /// ```
-    fn read_from<F>(&self, addr: usize, src: &mut F, count: usize) -> Result<usize>
+    fn read_volatile_from<F>(&self, addr: usize, src: &mut F, count: usize) -> Result<usize>
     where
-        F: Read,
+        F: ReadVolatile,
     {
-        let _ = self.compute_end_offset(addr, count)?;
-
-        let mut dst = vec![0; count];
-
-        let bytes_read = loop {
-            match src.read(&mut dst) {
-                Ok(n) => break n,
-                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(Error::IOError(e)),
-            }
-        };
-
-        // There is no guarantee that the read implementation is well-behaved, see the docs for
-        // Read::read.
-        assert!(bytes_read <= count);
-
-        let slice = self.subslice(addr, bytes_read)?;
-
-        // SAFETY: We have checked via compute_end_offset that accessing the specified
-        // region of guest memory is valid. We asserted that the value returned by `read` is between
-        // 0 and count (the length of the buffer passed to it), and that the
-        // regions don't overlap because we allocated the Vec outside of guest memory.
-        Ok(unsafe { copy_to_volatile_slice(&slice, dst.as_ptr(), bytes_read) })
+        retry_eintr!(src.read_volatile(&mut self.offset(addr)?.truncate(count)))
     }
 
-    /// # Examples
-    ///
-    /// * Read bytes from /dev/urandom
-    ///
-    /// ```
-    /// # use vm_memory::{Bytes, VolatileMemory, VolatileSlice};
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// #
-    /// # if cfg!(unix) {
-    /// # let mut mem = [0u8; 1024];
-    /// # let vslice = VolatileSlice::from(&mut mem[..]);
-    /// let mut file = File::open(Path::new("/dev/urandom")).expect("Could not open /dev/urandom");
-    ///
-    /// vslice
-    ///     .read_exact_from(32, &mut file, 128)
-    ///     .expect("Could not read bytes from file into VolatileSlice");
-    ///
-    /// let rand_val: u32 = vslice
-    ///     .read_obj(40)
-    ///     .expect("Could not read value from VolatileSlice");
-    /// # }
-    /// ```
-    fn read_exact_from<F>(&self, addr: usize, src: &mut F, count: usize) -> Result<()>
+    fn read_exact_volatile_from<F>(&self, addr: usize, src: &mut F, count: usize) -> Result<()>
     where
-        F: Read,
+        F: ReadVolatile,
     {
-        let _ = self.compute_end_offset(addr, count)?;
-
-        let mut dst = vec![0; count];
-
-        // Read into buffer that can be copied into guest memory
-        src.read_exact(&mut dst).map_err(Error::IOError)?;
-
-        let slice = self.subslice(addr, count)?;
-
-        // SAFETY: We have checked via compute_end_offset that accessing the specified
-        // region of guest memory is valid. We know that `dst` has len `count`, and that the
-        // regions don't overlap because we allocated the Vec outside of guest memory
-        unsafe { copy_to_volatile_slice(&slice, dst.as_ptr(), count) };
-        Ok(())
+        src.read_exact_volatile(&mut self.get_slice(addr, count)?)
     }
 
-    /// # Examples
-    ///
-    /// * Write 128 bytes to /dev/null
-    ///
-    /// ```
-    /// # use vm_memory::{Bytes, VolatileMemory, VolatileSlice};
-    /// # use std::fs::OpenOptions;
-    /// # use std::path::Path;
-    /// #
-    /// # if cfg!(unix) {
-    /// # let mut mem = [0u8; 1024];
-    /// # let vslice = VolatileSlice::from(&mut mem[..]);
-    /// let mut file = OpenOptions::new()
-    ///     .write(true)
-    ///     .open("/dev/null")
-    ///     .expect("Could not open /dev/null");
-    ///
-    /// vslice
-    ///     .write_to(32, &mut file, 128)
-    ///     .expect("Could not write value from VolatileSlice to /dev/null");
-    /// # }
-    /// ```
-    fn write_to<F>(&self, addr: usize, dst: &mut F, count: usize) -> Result<usize>
+    fn write_volatile_to<F>(&self, addr: usize, dst: &mut F, count: usize) -> Result<usize>
     where
-        F: Write,
+        F: WriteVolatile,
     {
-        let _ = self.compute_end_offset(addr, count)?;
-        let mut src = Vec::with_capacity(count);
-
-        let slice = self.subslice(addr, count)?;
-
-        // SAFETY: We checked the addr and count so accessing the slice is safe.
-        // It is safe to read from volatile memory. The Vec has capacity for exactly `count`
-        // many bytes, and the memory regions pointed to definitely do not overlap, as we
-        // allocated src outside of guest memory.
-        // The call to set_len is safe because the bytes between 0 and count have been initialized
-        // via copying from guest memory, and the Vec's capacity is `count`
-        unsafe {
-            copy_from_volatile_slice(src.as_mut_ptr(), &slice, count);
-            src.set_len(count);
-        }
-
-        loop {
-            match dst.write(&src) {
-                Ok(n) => break Ok(n),
-                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => break Err(Error::IOError(e)),
-            }
-        }
+        retry_eintr!(dst.write_volatile(&self.offset(addr)?.truncate(count)))
     }
 
-    /// # Examples
-    ///
-    /// * Write 128 bytes to /dev/null
-    ///
-    /// ```
-    /// # use vm_memory::{Bytes, VolatileMemory, VolatileSlice};
-    /// # use std::fs::OpenOptions;
-    /// # use std::path::Path;
-    /// #
-    /// # if cfg!(unix) {
-    /// # let mut mem = [0u8; 1024];
-    /// # let vslice = VolatileSlice::from(&mut mem[..]);
-    /// let mut file = OpenOptions::new()
-    ///     .write(true)
-    ///     .open("/dev/null")
-    ///     .expect("Could not open /dev/null");
-    ///
-    /// vslice
-    ///     .write_all_to(32, &mut file, 128)
-    ///     .expect("Could not write value from VolatileSlice to /dev/null");
-    /// # }
-    /// ```
-    fn write_all_to<F>(&self, addr: usize, dst: &mut F, count: usize) -> Result<()>
+    fn write_all_volatile_to<F>(&self, addr: usize, dst: &mut F, count: usize) -> Result<()>
     where
-        F: Write,
+        F: WriteVolatile,
     {
-        let _ = self.compute_end_offset(addr, count)?;
-        let mut src = Vec::with_capacity(count);
-
-        let slice = self.subslice(addr, count)?;
-
-        // SAFETY: We checked the addr and count so accessing the slice is safe.
-        // It is safe to read from volatile memory. The Vec has capacity for exactly `count`
-        // many bytes, and the memory regions pointed to definitely do not overlap, as we
-        // allocated src outside of guest memory.
-        // The call to set_len is safe because the bytes between 0 and count have been initialized
-        // via copying from guest memory, and the Vec's capacity is `count`
-        unsafe {
-            copy_from_volatile_slice(src.as_mut_ptr(), &slice, count);
-            src.set_len(count);
-        }
-
-        dst.write_all(&src).map_err(Error::IOError)?;
-
-        Ok(())
+        dst.write_all_volatile(&self.get_slice(addr, count)?)
     }
 
     fn store<T: AtomicAccess>(&self, val: T, addr: usize, order: Ordering) -> Result<()> {
@@ -1000,19 +860,7 @@ impl<B: BitmapSlice> VolatileMemory for VolatileSlice<'_, B> {
     }
 
     fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice<B>> {
-        let _ = self.compute_end_offset(offset, count)?;
-        Ok(
-            // SAFETY: This is safe because the pointer is range-checked by compute_end_offset, and
-            // the lifetime is the same as self.
-            unsafe {
-                VolatileSlice::with_bitmap(
-                    self.addr.add(offset),
-                    count,
-                    self.bitmap.slice_at(offset),
-                    self.mmap,
-                )
-            },
-        )
+        self.subslice(offset, count)
     }
 }
 
@@ -1076,18 +924,6 @@ where
             bitmap,
             mmap,
         }
-    }
-
-    /// Returns a pointer to the underlying memory. Mutable accesses performed
-    /// using the resulting pointer are not automatically accounted for by the dirty bitmap
-    /// tracking functionality.
-    #[deprecated(
-        since = "0.12.1",
-        note = "Use `.ptr_guard()` or `.ptr_guard_mut()` instead"
-    )]
-    #[cfg(not(all(feature = "xen", unix)))]
-    pub fn as_ptr(&self) -> *mut u8 {
-        self.addr as *mut u8
     }
 
     /// Returns a guard for the pointer to the underlying memory.
@@ -1269,18 +1105,6 @@ where
     /// ```
     pub fn element_size(&self) -> usize {
         size_of::<T>()
-    }
-
-    /// Returns a pointer to the underlying memory. Mutable accesses performed
-    /// using the resulting pointer are not automatically accounted for by the dirty bitmap
-    /// tracking functionality.
-    #[deprecated(
-        since = "0.12.1",
-        note = "Use `.ptr_guard()` or `.ptr_guard_mut()` instead"
-    )]
-    #[cfg(not(all(feature = "xen", unix)))]
-    pub fn as_ptr(&self) -> *mut u8 {
-        self.addr
     }
 
     /// Returns a guard for the pointer to the underlying memory.
@@ -1650,6 +1474,28 @@ mod tests {
     use crate::bitmap::{AtomicBitmap, RefSlice};
 
     const DEFAULT_PAGE_SIZE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(0x1000) };
+
+    #[test]
+    fn test_compute_end_offset() {
+        let mut array = [1, 2, 3, 4, 5];
+        let slice = VolatileSlice::from(array.as_mut_slice());
+
+        // Iterate over all valid ranges, assert that they pass validation.
+        // This includes edge cases such as len = 0 and base = 5!
+        for len in 0..slice.len() {
+            for base in 0..=slice.len() - len {
+                assert_eq!(
+                    slice.compute_end_offset(base, len).unwrap(),
+                    len + base,
+                    "compute_end_offset rejected valid base/offset pair {base} + {len}"
+                );
+            }
+        }
+
+        // Check invalid configurations
+        slice.compute_end_offset(5, 1).unwrap_err();
+        slice.compute_end_offset(6, 0).unwrap_err();
+    }
 
     #[test]
     fn test_display_error() {

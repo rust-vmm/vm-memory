@@ -111,7 +111,6 @@ pub type MS<'a, M> = BS<'a, <<M as GuestMemory>::R as GuestMemoryRegion>::B>;
 pub(crate) mod tests {
     use super::*;
 
-    use std::io::Cursor;
     use std::marker::PhantomData;
     use std::mem::size_of_val;
     use std::result::Result;
@@ -262,26 +261,6 @@ pub(crate) mod tests {
         // Test `write_obj`.
         h.test_access(bytes, dirty_offset, size_of_val(&val), |m, addr| {
             m.write_obj(val, addr).unwrap()
-        })
-        .unwrap();
-        dirty_offset += step;
-
-        // Test `read_from`.
-        #[allow(deprecated)] // test of deprecated functions
-        h.test_access(bytes, dirty_offset, BUF_SIZE, |m, addr| {
-            assert_eq!(
-                m.read_from(addr, &mut Cursor::new(&buf), BUF_SIZE).unwrap(),
-                BUF_SIZE
-            )
-        })
-        .unwrap();
-        dirty_offset += step;
-
-        // Test `read_exact_from`.
-        #[allow(deprecated)] // test of deprecated functions
-        h.test_access(bytes, dirty_offset, BUF_SIZE, |m, addr| {
-            m.read_exact_from(addr, &mut Cursor::new(&buf), BUF_SIZE)
-                .unwrap()
         })
         .unwrap();
         dirty_offset += step;
