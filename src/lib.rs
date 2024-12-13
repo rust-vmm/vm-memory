@@ -58,7 +58,7 @@ pub mod mmap;
 
 #[cfg(feature = "backend-mmap")]
 pub use mmap::{Error, GuestMemoryMmap, GuestRegionMmap, MmapRegion};
-#[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
+#[cfg(all(feature = "backend-mmap", feature = "xen", target_family = "unix"))]
 pub use mmap::{MmapRange, MmapXenFlags};
 
 pub mod volatile_memory;

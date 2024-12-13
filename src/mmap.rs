@@ -13,7 +13,7 @@
 //! This implementation is mmap-ing the memory of the guest into the current process.
 
 use std::borrow::Borrow;
-#[cfg(unix)]
+#[cfg(target_family = "unix")]
 use std::io::{Seek, SeekFrom};
 use std::ops::Deref;
 use std::result;
@@ -28,24 +28,24 @@ use crate::guest_memory::{
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
 use crate::{AtomicAccess, Bytes, ReadVolatile, WriteVolatile};
 
-#[cfg(all(not(feature = "xen"), unix))]
+#[cfg(all(not(feature = "xen"), target_family = "unix"))]
 mod unix;
 
-#[cfg(all(feature = "xen", unix))]
+#[cfg(all(feature = "xen", target_family = "unix"))]
 pub(crate) mod xen;
 
-#[cfg(windows)]
+#[cfg(target_family = "windows")]
 mod windows;
 
-#[cfg(all(not(feature = "xen"), unix))]
+#[cfg(all(not(feature = "xen"), target_family = "unix"))]
 pub use unix::{Error as MmapRegionError, MmapRegion, MmapRegionBuilder};
 
-#[cfg(all(feature = "xen", unix))]
+#[cfg(all(feature = "xen", target_family = "unix"))]
 pub use xen::{Error as MmapRegionError, MmapRange, MmapRegion, MmapXenFlags};
 
-#[cfg(windows)]
+#[cfg(target_family = "windows")]
 pub use std::io::Error as MmapRegionError;
-#[cfg(windows)]
+#[cfg(target_family = "windows")]
 pub use windows::MmapRegion;
 
 /// A `Bitmap` that can be created starting from an initial size.
@@ -80,7 +80,7 @@ pub enum Error {
 }
 
 // TODO: use this for Windows as well after we redefine the Error type there.
-#[cfg(unix)]
+#[cfg(target_family = "unix")]
 /// Checks if a mapping of `size` bytes fits at the provided `file_offset`.
 ///
 /// For a borrowed `FileOffset` and size, this function checks whether the mapping does not
@@ -1042,7 +1042,7 @@ mod tests {
         let gm_list = [gm, gm_backed_by_file];
         for gm in gm_list.iter() {
             let addr = GuestAddress(0x1010);
-            let mut file = if cfg!(unix) {
+            let mut file = if cfg!(target_family = "unix") {
                 File::open(Path::new("/dev/zero")).unwrap()
             } else {
                 File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
@@ -1051,7 +1051,7 @@ mod tests {
             gm.read_exact_volatile_from(addr, &mut file, mem::size_of::<u32>())
                 .unwrap();
             let value: u32 = gm.read_obj(addr).unwrap();
-            if cfg!(unix) {
+            if cfg!(target_family = "unix") {
                 assert_eq!(value, 0);
             } else {
                 assert_eq!(value, 0x0090_5a4d);
@@ -1060,7 +1060,7 @@ mod tests {
             let mut sink = vec![0; mem::size_of::<u32>()];
             gm.write_all_volatile_to(addr, &mut sink.as_mut_slice(), mem::size_of::<u32>())
                 .unwrap();
-            if cfg!(unix) {
+            if cfg!(target_family = "unix") {
                 assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
             } else {
                 assert_eq!(sink, vec![0x4d, 0x5a, 0x90, 0x00]);
@@ -1179,7 +1179,7 @@ mod tests {
     // used for the backing file. Refer to Microsoft docs here:
     // https://docs.microsoft.com/en-us/windows/desktop/api/memoryapi/nf-memoryapi-mapviewoffile
     #[test]
-    #[cfg(unix)]
+    #[cfg(target_family = "unix")]
     fn test_retrieve_offset_from_fd_backing_memory_region() {
         let f = TempFile::new().unwrap().into_file();
         f.set_len(0x1400).unwrap();
