@@ -340,7 +340,7 @@ pub trait Bytes<A> {
     /// # let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
     /// #    .expect("Could not create guest memory");
     /// # let addr = GuestAddress(0x1010);
-    /// # let mut file = if cfg!(unix) {
+    /// # let mut file = if cfg!(target_family = "unix") {
     /// let mut file = File::open(Path::new("/dev/urandom")).expect("Could not open /dev/urandom");
     /// #   file
     /// # } else {
