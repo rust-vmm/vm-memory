@@ -29,15 +29,24 @@ use crate::volatile_memory::{VolatileMemory, VolatileSlice};
 use crate::{AtomicAccess, Bytes, ReadVolatile, WriteVolatile};
 
 #[cfg(all(not(feature = "xen"), unix))]
-pub use crate::mmap_unix::{Error as MmapRegionError, MmapRegion, MmapRegionBuilder};
+mod unix;
 
 #[cfg(all(feature = "xen", unix))]
-pub use crate::mmap_xen::{Error as MmapRegionError, MmapRange, MmapRegion, MmapXenFlags};
+pub(crate) mod xen;
 
 #[cfg(windows)]
-pub use crate::mmap_windows::MmapRegion;
+mod windows;
+
+#[cfg(all(not(feature = "xen"), unix))]
+pub use unix::{Error as MmapRegionError, MmapRegion, MmapRegionBuilder};
+
+#[cfg(all(feature = "xen", unix))]
+pub use xen::{Error as MmapRegionError, MmapRange, MmapRegion, MmapXenFlags};
+
 #[cfg(windows)]
 pub use std::io::Error as MmapRegionError;
+#[cfg(windows)]
+pub use windows::MmapRegion;
 
 /// A `Bitmap` that can be created starting from an initial size.
 pub trait NewBitmap: Bitmap + Default {
