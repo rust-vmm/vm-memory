@@ -39,7 +39,7 @@ use crate::atomic_integer::AtomicInteger;
 use crate::bitmap::{Bitmap, BitmapSlice, BS};
 use crate::{AtomicAccess, ByteValued, Bytes};
 
-#[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
+#[cfg(all(feature = "backend-mmap", feature = "xen", target_family = "unix"))]
 use crate::mmap::xen::{MmapXen as MmapInfo, MmapXenSlice};
 
 #[cfg(not(feature = "xen"))]
@@ -322,7 +322,7 @@ pub struct PtrGuard {
 
     // This isn't used anymore, but it protects the slice from getting unmapped while in use.
     // Once this goes out of scope, the memory is unmapped automatically.
-    #[cfg(all(feature = "xen", unix))]
+    #[cfg(all(feature = "xen", target_family = "unix"))]
     _slice: MmapXenSlice,
 }
 
@@ -330,7 +330,7 @@ pub struct PtrGuard {
 impl PtrGuard {
     #[allow(unused_variables)]
     fn new(mmap: Option<&MmapInfo>, addr: *mut u8, write: bool, len: usize) -> Self {
-        #[cfg(all(feature = "xen", unix))]
+        #[cfg(all(feature = "xen", target_family = "unix"))]
         let (addr, _slice) = {
             let prot = if write {
                 libc::PROT_WRITE
@@ -345,7 +345,7 @@ impl PtrGuard {
             addr,
             len,
 
-            #[cfg(all(feature = "xen", unix))]
+            #[cfg(all(feature = "xen", target_family = "unix"))]
             _slice,
         }
     }
@@ -1952,7 +1952,7 @@ mod tests {
         let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
         assert!(s.write_obj(!0u32, 1).is_ok());
-        let mut file = if cfg!(unix) {
+        let mut file = if cfg!(target_family = "unix") {
             File::open(Path::new("/dev/zero")).unwrap()
         } else {
             File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
@@ -1968,7 +1968,7 @@ mod tests {
             .is_err());
 
         let value = s.read_obj::<u32>(1).unwrap();
-        if cfg!(unix) {
+        if cfg!(target_family = "unix") {
             assert_eq!(value, 0);
         } else {
             assert_eq!(value, 0x0090_5a4d);
@@ -1980,7 +1980,7 @@ mod tests {
             .write_all_volatile(&s.get_slice(1, size_of::<u32>()).unwrap())
             .is_ok());
 
-        if cfg!(unix) {
+        if cfg!(target_family = "unix") {
             assert_eq!(sink, vec![0; size_of::<u32>()]);
         } else {
             assert_eq!(sink, vec![0x4d, 0x5a, 0x90, 0x00]);
