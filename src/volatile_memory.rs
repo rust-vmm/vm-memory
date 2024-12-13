@@ -40,7 +40,7 @@ use crate::bitmap::{Bitmap, BitmapSlice, BS};
 use crate::{AtomicAccess, ByteValued, Bytes};
 
 #[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
-use crate::mmap_xen::{MmapXen as MmapInfo, MmapXenSlice};
+use crate::mmap::xen::{MmapXen as MmapInfo, MmapXenSlice};
 
 #[cfg(not(feature = "xen"))]
 type MmapInfo = std::marker::PhantomData<()>;
