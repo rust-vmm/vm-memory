@@ -36,10 +36,10 @@ use crate::atomic_integer::AtomicInteger;
 use crate::bitmap::{Bitmap, BitmapSlice, BS};
 use crate::{AtomicAccess, ByteValued, Bytes};
 
-#[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
+#[cfg(all(xen, unix))]
 use crate::mmap_xen::{MmapXen as MmapInfo, MmapXenSlice};
 
-#[cfg(not(feature = "xen"))]
+#[cfg(all(not(xen), unix))]
 type MmapInfo = std::marker::PhantomData<()>;
 
 use crate::io::{ReadVolatile, WriteVolatile};
@@ -308,7 +308,7 @@ pub struct PtrGuard {
 
     // This isn't used anymore, but it protects the slice from getting unmapped while in use.
     // Once this goes out of scope, the memory is unmapped automatically.
-    #[cfg(all(feature = "xen", unix))]
+    #[cfg(all(xen, unix))]
     _slice: MmapXenSlice,
 }
 
@@ -316,7 +316,7 @@ pub struct PtrGuard {
 impl PtrGuard {
     #[allow(unused_variables)]
     fn new(mmap: Option<&MmapInfo>, addr: *mut u8, prot: i32, len: usize) -> Self {
-        #[cfg(all(feature = "xen", unix))]
+        #[cfg(all(xen, unix))]
         let (addr, _slice) = {
             let slice = MmapInfo::mmap(mmap, addr, prot, len);
             (slice.addr(), slice)
@@ -326,7 +326,7 @@ impl PtrGuard {
             addr,
             len,
 
-            #[cfg(all(feature = "xen", unix))]
+            #[cfg(all(xen, unix))]
             _slice,
         }
     }
@@ -423,7 +423,7 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
         since = "0.12.1",
         note = "Use `.ptr_guard()` or `.ptr_guard_mut()` instead"
     )]
-    #[cfg(not(all(feature = "xen", unix)))]
+    #[cfg(not(all(xen, unix)))]
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr
     }
@@ -1085,7 +1085,7 @@ where
         since = "0.12.1",
         note = "Use `.ptr_guard()` or `.ptr_guard_mut()` instead"
     )]
-    #[cfg(not(all(feature = "xen", unix)))]
+    #[cfg(not(all(xen, unix)))]
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr as *mut u8
     }
@@ -1278,7 +1278,7 @@ where
         since = "0.12.1",
         note = "Use `.ptr_guard()` or `.ptr_guard_mut()` instead"
     )]
-    #[cfg(not(all(feature = "xen", unix)))]
+    #[cfg(not(all(xen, unix)))]
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr
     }
