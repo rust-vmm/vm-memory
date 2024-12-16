@@ -140,7 +140,7 @@ impl<M: GuestMemory> GuestMemoryExclusiveGuard<'_, M> {
 }
 
 #[cfg(test)]
-#[cfg(feature = "backend-mmap")]
+#[cfg(any(feature = "backend-mmap", all(xen, unix)))]
 mod tests {
     use super::*;
     use crate::{GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MmapRegion};

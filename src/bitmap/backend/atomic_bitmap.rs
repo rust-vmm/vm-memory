@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::bitmap::{Bitmap, RefSlice, WithBitmapSlice};
 
-#[cfg(feature = "backend-mmap")]
+#[cfg(any(feature = "backend-mmap", all(xen, unix)))]
 use crate::mmap::NewBitmap;
 
 /// `AtomicBitmap` implements a simple bit map on the page level with test and set operations.
@@ -191,7 +191,7 @@ impl Default for AtomicBitmap {
     }
 }
 
-#[cfg(feature = "backend-mmap")]
+#[cfg(any(feature = "backend-mmap", all(xen, unix)))]
 impl NewBitmap for AtomicBitmap {
     fn with_len(len: usize) -> Self {
         #[cfg(unix)]

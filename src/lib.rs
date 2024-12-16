@@ -53,21 +53,21 @@ pub use guest_memory::{
 pub mod io;
 pub use io::{ReadVolatile, WriteVolatile};
 
-#[cfg(all(feature = "backend-mmap", not(feature = "xen"), unix))]
+#[cfg(all(feature = "backend-mmap", not(xen), unix))]
 mod mmap_unix;
 
-#[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
+#[cfg(all(xen, unix))]
 mod mmap_xen;
 
 #[cfg(all(feature = "backend-mmap", windows))]
 mod mmap_windows;
 
-#[cfg(feature = "backend-mmap")]
+#[cfg(any(feature = "backend-mmap", all(xen, unix)))]
 pub mod mmap;
 
-#[cfg(feature = "backend-mmap")]
+#[cfg(any(feature = "backend-mmap", all(xen, unix)))]
 pub use mmap::{Error, GuestMemoryMmap, GuestRegionMmap, MmapRegion};
-#[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
+#[cfg(all(xen, unix))]
 pub use mmap::{MmapRange, MmapXenFlags};
 
 pub mod volatile_memory;
