@@ -26,7 +26,7 @@ impl<B> BaseSlice<B> {
     }
 }
 
-impl<'a, B> WithBitmapSlice<'a> for BaseSlice<B>
+impl<B> WithBitmapSlice<'_> for BaseSlice<B>
 where
     B: Clone + Deref,
     B::Target: Bitmap,
