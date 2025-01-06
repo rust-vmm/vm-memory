@@ -22,7 +22,7 @@
     },
     {
       "test_name": "miri",
-      "command": "RUST_BACKTRACE=1 MIRIFLAGS='-Zmiri-disable-isolation -Zmiri-panic-on-unsupported -Zmiri-backtrace=full' cargo +nightly miri test --features backend-mmap",
+      "command": "RUST_BACKTRACE=1 MIRIFLAGS='-Zmiri-disable-isolation -Zmiri-backtrace=full' cargo +nightly miri test --features backend-mmap",
       "platform": ["x86_64", "aarch64"]
     },
     {
