@@ -49,8 +49,7 @@ pub trait Bitmap: for<'a> WithBitmapSlice<'a> {
 
 /// A no-op `Bitmap` implementation that can be provided for backends that do not actually
 /// require the tracking functionality.
-
-impl<'a> WithBitmapSlice<'a> for () {
+impl WithBitmapSlice<'_> for () {
     type S = Self;
 }
 
@@ -67,7 +66,6 @@ impl Bitmap for () {
 }
 
 /// A `Bitmap` and `BitmapSlice` implementation for `Option<B>`.
-
 impl<'a, B> WithBitmapSlice<'a> for Option<B>
 where
     B: WithBitmapSlice<'a>,
