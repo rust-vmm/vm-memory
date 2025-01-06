@@ -489,7 +489,7 @@ fn page_size() -> u64 {
 
 fn pages(size: usize) -> (usize, usize) {
     let page_size = page_size() as usize;
-    let num = (size + page_size - 1) / page_size;
+    let num = size.div_ceil(page_size);
 
     (num, page_size * num)
 }
