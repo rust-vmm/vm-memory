@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::bitmap::{ArcSlice, AtomicBitmap, Bitmap, WithBitmapSlice};
 
-#[cfg(feature = "backend-mmap")]
+#[cfg(any(feature = "backend-mmap", all(xen, unix)))]
 use crate::mmap::NewBitmap;
 
 /// A `Bitmap` implementation that's based on an atomically reference counted handle to an
@@ -65,7 +65,7 @@ impl Default for AtomicBitmapArc {
     }
 }
 
-#[cfg(feature = "backend-mmap")]
+#[cfg(any(feature = "backend-mmap", all(xen, unix)))]
 impl NewBitmap for AtomicBitmapArc {
     fn with_len(len: usize) -> Self {
         Self::new(AtomicBitmap::with_len(len))

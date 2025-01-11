@@ -2,7 +2,7 @@
   "tests": [
     {
       "test_name": "build-gnu-mmap",
-      "command": "cargo build --release --features=xen",
+      "command": "XEN=ENABLE cargo build --release",
       "platform": ["x86_64", "aarch64"]
     },
     {
@@ -12,7 +12,7 @@
     },
     {
       "test_name": "build-musl-mmap",
-      "command": "cargo build --release --features=xen --target {target_platform}-unknown-linux-musl",
+      "command": "XEN=ENABLE cargo build --release --target {target_platform}-unknown-linux-musl",
       "platform": ["x86_64", "aarch64"]
     },
     {
@@ -26,32 +26,32 @@
       "platform": ["x86_64", "aarch64"]
     },
     {
-      "test_name": "unittests-gnu-no-xen",
-      "command": "cargo test --features 'backend-bitmap backend-mmap backend-atomic' --workspace",
+      "test_name": "unittests-gnu-xen",
+      "command": "XEN=ENABLE cargo test --workspace",
       "platform": [
         "x86_64",
         "aarch64"
       ]
     },
     {
-      "test_name": "unittests-musl-no-xen",
-      "command": "cargo test  --features 'backend-bitmap backend-mmap backend-atomic' --workspace --target {target_platform}-unknown-linux-musl",
+      "test_name": "unittests-musl-xen",
+      "command": "XEN=ENABLE cargo test --workspace --target {target_platform}-unknown-linux-musl",
       "platform": [
         "x86_64",
         "aarch64"
       ]
     },
     {
-      "test_name": "clippy-no-xen",
-      "command": "cargo clippy --workspace --bins --examples --benches  --features 'backend-bitmap backend-mmap backend-atomic' --all-targets -- -D warnings -D clippy::undocumented_unsafe_blocks",
+      "test_name": "clippy-xen",
+      "command": "XEN=ENABLE cargo clippy --workspace --bins --examples --benches --all-targets -- -D warnings -D clippy::undocumented_unsafe_blocks",
       "platform": [
         "x86_64",
         "aarch64"
       ]
     },
     {
-      "test_name": "check-warnings-no-xen",
-      "command": "RUSTFLAGS=\"-D warnings\" cargo check --all-targets  --features 'backend-bitmap backend-mmap backend-atomic' --workspace",
+      "test_name": "check-warnings-xen",
+      "command": "RUSTFLAGS=\"-D warnings\" XEN=ENABLE cargo check --all-targets  --features 'backend-bitmap backend-mmap backend-atomic' --workspace",
       "platform": [
         "x86_64",
         "aarch64"

@@ -277,7 +277,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// # Examples (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     /// # {
     /// # use vm_memory::{GuestAddress, MmapRegion, GuestRegionMmap, GuestMemoryRegion};
     /// # use vm_memory::volatile_memory::{VolatileMemory, VolatileSlice, VolatileRef};
@@ -307,7 +307,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// # Examples (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     /// # {
     /// #   use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestRegionMmap};
     /// let addr = GuestAddress(0x1000);
@@ -337,7 +337,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
 /// # Examples (uses the `backend-mmap` and `backend-atomic` features)
 ///
 /// ```
-/// # #[cfg(feature = "backend-mmap")]
+/// # #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
 /// # {
 /// # use std::sync::Arc;
 /// # use vm_memory::{GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryMmap};
@@ -478,7 +478,7 @@ pub trait GuestMemory {
     ///   `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     /// # {
     /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryRegion, GuestMemoryMmap};
     /// #
@@ -514,7 +514,7 @@ pub trait GuestMemory {
     ///   `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     /// # {
     /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryRegion, GuestMemoryMmap};
     /// #
@@ -542,7 +542,7 @@ pub trait GuestMemory {
     /// # Examples (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     /// # {
     /// # use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
     /// #
@@ -650,7 +650,7 @@ pub trait GuestMemory {
     /// * Read bytes from /dev/urandom (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     /// # {
     /// # use vm_memory::{Address, GuestMemory, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::File;
@@ -791,7 +791,7 @@ pub trait GuestMemory {
     /// # Examples (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     /// # {
     /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
     /// #
@@ -848,7 +848,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     /// * Write a slice at guestaddress 0x1000. (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     /// # {
     /// # use vm_memory::{Bytes, GuestAddress, mmap::GuestMemoryMmap};
     /// #
@@ -876,7 +876,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     /// * Read a slice of length 16 at guestaddress 0x1000. (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     /// # {
     /// # use vm_memory::{Bytes, GuestAddress, mmap::GuestMemoryMmap};
     /// #
@@ -905,7 +905,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     /// * Read bytes from /dev/urandom (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     /// # {
     /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::File;
@@ -982,7 +982,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     /// ```
     /// # #[cfg(not(unix))]
     /// # extern crate vmm_sys_util;
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     /// # {
     /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// #
@@ -1031,7 +1031,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     /// ```
     /// # #[cfg(not(unix))]
     /// # extern crate vmm_sys_util;
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     /// # {
     /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// #
@@ -1088,19 +1088,19 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use super::*;
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     use crate::bytes::ByteValued;
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     use crate::GuestAddress;
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     use std::time::{Duration, Instant};
 
     use vmm_sys_util::tempfile::TempFile;
 
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     type GuestMemoryMmap = crate::GuestMemoryMmap<()>;
 
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     fn make_image(size: u8) -> Vec<u8> {
         let mut image: Vec<u8> = Vec::with_capacity(size as usize);
         for i in 0..size {
@@ -1121,7 +1121,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     #[test]
     fn checked_read_from() {
         let start_addr1 = GuestAddress(0x0);
@@ -1138,7 +1138,7 @@ mod tests {
     }
 
     // Runs the provided closure in a loop, until at least `duration` time units have elapsed.
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     fn loop_timed<F>(duration: Duration, mut f: F)
     where
         F: FnMut(),
@@ -1163,7 +1163,7 @@ mod tests {
     // flips all the bits of the member with every write, while the reader checks that every byte
     // has the same value (and thus it did not do a non-atomic access). The test succeeds if
     // no mismatch is detected after performing accesses for a pre-determined amount of time.
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     #[cfg(not(miri))] // This test simulates a race condition between guest and vmm
     fn non_atomic_access_helper<T>()
     where
@@ -1255,14 +1255,14 @@ mod tests {
         t.join().unwrap()
     }
 
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     #[test]
     #[cfg(not(miri))]
     fn test_non_atomic_access() {
         non_atomic_access_helper::<u16>()
     }
 
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     #[test]
     fn test_zero_length_accesses() {
         #[derive(Default, Clone, Copy)]
@@ -1308,7 +1308,7 @@ mod tests {
             .is_ok());
     }
 
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     #[test]
     fn test_atomic_accesses() {
         let addr = GuestAddress(0x1000);
@@ -1318,7 +1318,7 @@ mod tests {
         crate::bytes::tests::check_atomic_accesses(mem, addr, bad_addr);
     }
 
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(any(feature = "backend-mmap", all(xen, unix)))]
     #[cfg(target_os = "linux")]
     #[test]
     fn test_guest_memory_mmap_is_hugetlbfs() {
