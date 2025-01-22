@@ -886,7 +886,7 @@ pub struct VolatileRef<'a, T, B = ()> {
     mmap: Option<&'a MmapInfo>,
 }
 
-impl<'a, T> VolatileRef<'a, T, ()>
+impl<T> VolatileRef<'_, T, ()>
 where
     T: ByteValued,
 {
@@ -1017,7 +1017,7 @@ pub struct VolatileArrayRef<'a, T, B = ()> {
     mmap: Option<&'a MmapInfo>,
 }
 
-impl<'a, T> VolatileArrayRef<'a, T>
+impl<T> VolatileArrayRef<'_, T>
 where
     T: ByteValued,
 {
