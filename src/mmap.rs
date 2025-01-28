@@ -13,7 +13,6 @@
 //! This implementation is mmap-ing the memory of the guest into the current process.
 
 use std::borrow::Borrow;
-use std::io::{Read, Write};
 #[cfg(unix)]
 use std::io::{Seek, SeekFrom};
 use std::ops::Deref;
@@ -27,7 +26,7 @@ use crate::guest_memory::{
     self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
 };
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
-use crate::{AtomicAccess, Bytes};
+use crate::{AtomicAccess, Bytes, ReadVolatile, WriteVolatile};
 
 #[cfg(all(not(feature = "xen"), unix))]
 pub use crate::mmap_unix::{Error as MmapRegionError, MmapRegion, MmapRegionBuilder};
@@ -233,187 +232,63 @@ impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionMmap<B> {
             .map_err(Into::into)
     }
 
-    /// # Examples
-    ///
-    /// * Read bytes from /dev/urandom
-    ///
-    /// ```
-    /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// #
-    /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
-    /// #    .expect("Could not create guest memory");
-    /// # let addr = GuestAddress(0x1010);
-    /// # let mut file = if cfg!(unix) {
-    /// let mut file = File::open(Path::new("/dev/urandom")).expect("Could not open /dev/urandom");
-    /// #   file
-    /// # } else {
-    /// #   File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe"))
-    /// #       .expect("Could not open c:\\Windows\\system32\\ntoskrnl.exe")
-    /// # };
-    ///
-    /// gm.read_from(addr, &mut file, 128)
-    ///     .expect("Could not read from /dev/urandom into guest memory");
-    ///
-    /// let read_addr = addr.checked_add(8).expect("Could not compute read address");
-    /// let rand_val: u32 = gm
-    ///     .read_obj(read_addr)
-    ///     .expect("Could not read u32 val from /dev/urandom");
-    /// ```
-    fn read_from<F>(
+    fn read_volatile_from<F>(
         &self,
         addr: MemoryRegionAddress,
         src: &mut F,
         count: usize,
-    ) -> guest_memory::Result<usize>
+    ) -> Result<usize, Self::E>
     where
-        F: Read,
+        F: ReadVolatile,
     {
-        let maddr = addr.raw_value() as usize;
-        #[allow(deprecated)] // function itself is deprecated
         self.as_volatile_slice()
             .unwrap()
-            .read_from::<F>(maddr, src, count)
+            .read_volatile_from(addr.0 as usize, src, count)
             .map_err(Into::into)
     }
 
-    /// # Examples
-    ///
-    /// * Read bytes from /dev/urandom
-    ///
-    /// ```
-    /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
-    /// # use std::fs::File;
-    /// # use std::path::Path;
-    /// #
-    /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
-    /// #    .expect("Could not create guest memory");
-    /// # let addr = GuestAddress(0x1010);
-    /// # let mut file = if cfg!(unix) {
-    /// let mut file = File::open(Path::new("/dev/urandom")).expect("Could not open /dev/urandom");
-    /// #   file
-    /// # } else {
-    /// #   File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe"))
-    /// #       .expect("Could not open c:\\Windows\\system32\\ntoskrnl.exe")
-    /// # };
-    ///
-    /// gm.read_exact_from(addr, &mut file, 128)
-    ///     .expect("Could not read from /dev/urandom into guest memory");
-    ///
-    /// let read_addr = addr.checked_add(8).expect("Could not compute read address");
-    /// let rand_val: u32 = gm
-    ///     .read_obj(read_addr)
-    ///     .expect("Could not read u32 val from /dev/urandom");
-    /// ```
-    fn read_exact_from<F>(
+    fn read_exact_volatile_from<F>(
         &self,
         addr: MemoryRegionAddress,
         src: &mut F,
         count: usize,
-    ) -> guest_memory::Result<()>
+    ) -> Result<(), Self::E>
     where
-        F: Read,
+        F: ReadVolatile,
     {
-        let maddr = addr.raw_value() as usize;
-        #[allow(deprecated)] // function itself is deprecated
         self.as_volatile_slice()
             .unwrap()
-            .read_exact_from::<F>(maddr, src, count)
+            .read_exact_volatile_from(addr.0 as usize, src, count)
             .map_err(Into::into)
     }
 
-    /// Writes data from the region to a writable object.
-    ///
-    /// # Examples
-    ///
-    /// * Write 128 bytes to a /dev/null file
-    ///
-    /// ```
-    /// # #[cfg(not(unix))]
-    /// # extern crate vmm_sys_util;
-    /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
-    /// #
-    /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
-    /// #    .expect("Could not create guest memory");
-    /// # let mut file = if cfg!(unix) {
-    /// # use std::fs::OpenOptions;
-    /// let mut file = OpenOptions::new()
-    ///     .write(true)
-    ///     .open("/dev/null")
-    ///     .expect("Could not open /dev/null");
-    /// #   file
-    /// # } else {
-    /// #   use vmm_sys_util::tempfile::TempFile;
-    /// #   TempFile::new().unwrap().into_file()
-    /// # };
-    ///
-    /// gm.write_to(start_addr, &mut file, 128)
-    ///     .expect("Could not write to file from guest memory");
-    /// ```
-    fn write_to<F>(
+    fn write_volatile_to<F>(
         &self,
         addr: MemoryRegionAddress,
         dst: &mut F,
         count: usize,
-    ) -> guest_memory::Result<usize>
+    ) -> Result<usize, Self::E>
     where
-        F: Write,
+        F: WriteVolatile,
     {
-        let maddr = addr.raw_value() as usize;
-        #[allow(deprecated)] // function itself is deprecated
         self.as_volatile_slice()
             .unwrap()
-            .write_to::<F>(maddr, dst, count)
+            .write_volatile_to(addr.0 as usize, dst, count)
             .map_err(Into::into)
     }
 
-    /// Writes data from the region to a writable object.
-    ///
-    /// # Examples
-    ///
-    /// * Write 128 bytes to a /dev/null file
-    ///
-    /// ```
-    /// # #[cfg(not(unix))]
-    /// # extern crate vmm_sys_util;
-    /// # use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
-    /// #
-    /// # let start_addr = GuestAddress(0x1000);
-    /// # let gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
-    /// #    .expect("Could not create guest memory");
-    /// # let mut file = if cfg!(unix) {
-    /// # use std::fs::OpenOptions;
-    /// let mut file = OpenOptions::new()
-    ///     .write(true)
-    ///     .open("/dev/null")
-    ///     .expect("Could not open /dev/null");
-    /// #   file
-    /// # } else {
-    /// #   use vmm_sys_util::tempfile::TempFile;
-    /// #   TempFile::new().unwrap().into_file()
-    /// # };
-    ///
-    /// gm.write_all_to(start_addr, &mut file, 128)
-    ///     .expect("Could not write to file from guest memory");
-    /// ```
-    fn write_all_to<F>(
+    fn write_all_volatile_to<F>(
         &self,
         addr: MemoryRegionAddress,
         dst: &mut F,
         count: usize,
-    ) -> guest_memory::Result<()>
+    ) -> Result<(), Self::E>
     where
-        F: Write,
+        F: WriteVolatile,
     {
-        let maddr = addr.raw_value() as usize;
-        #[allow(deprecated)] // function itself is deprecated
         self.as_volatile_slice()
             .unwrap()
-            .write_all_to::<F>(maddr, dst, count)
+            .write_all_volatile_to(addr.0 as usize, dst, count)
             .map_err(Into::into)
     }
 
@@ -646,6 +521,7 @@ mod tests {
     use crate::GuestAddressSpace;
 
     use std::fs::File;
+    use std::io::Write;
     use std::mem;
     use std::path::Path;
     use vmm_sys_util::tempfile::TempFile;
