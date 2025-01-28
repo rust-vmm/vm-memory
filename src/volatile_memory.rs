@@ -318,9 +318,14 @@ pub struct PtrGuard {
 #[allow(clippy::len_without_is_empty)]
 impl PtrGuard {
     #[allow(unused_variables)]
-    fn new(mmap: Option<&MmapInfo>, addr: *mut u8, prot: i32, len: usize) -> Self {
+    fn new(mmap: Option<&MmapInfo>, addr: *mut u8, write: bool, len: usize) -> Self {
         #[cfg(all(feature = "xen", unix))]
         let (addr, _slice) = {
+            let prot = if write {
+                libc::PROT_WRITE
+            } else {
+                libc::PROT_READ
+            };
             let slice = MmapInfo::mmap(mmap, addr, prot, len);
             (slice.addr(), slice)
         };
@@ -335,7 +340,7 @@ impl PtrGuard {
     }
 
     fn read(mmap: Option<&MmapInfo>, addr: *mut u8, len: usize) -> Self {
-        Self::new(mmap, addr, libc::PROT_READ, len)
+        Self::new(mmap, addr, false, len)
     }
 
     /// Returns a non-mutable pointer to the beginning of the slice.
@@ -356,7 +361,7 @@ pub struct PtrGuardMut(PtrGuard);
 #[allow(clippy::len_without_is_empty)]
 impl PtrGuardMut {
     fn write(mmap: Option<&MmapInfo>, addr: *mut u8, len: usize) -> Self {
-        Self(PtrGuard::new(mmap, addr, libc::PROT_WRITE, len))
+        Self(PtrGuard::new(mmap, addr, true, len))
     }
 
     /// Returns a mutable pointer to the beginning of the slice. Mutable accesses performed
