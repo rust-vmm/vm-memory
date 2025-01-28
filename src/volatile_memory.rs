@@ -85,7 +85,7 @@ pub type Result<T> = result::Result<T, Error>;
 /// # use vm_memory::volatile_memory::compute_offset;
 /// #
 /// assert_eq!(108, compute_offset(100, 8).unwrap());
-/// assert!(compute_offset(std::usize::MAX, 6).is_err());
+/// assert!(compute_offset(usize::MAX, 6).is_err());
 /// ```
 pub fn compute_offset(base: usize, offset: usize) -> Result<usize> {
     match base.checked_add(offset) {
