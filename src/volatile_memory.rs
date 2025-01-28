@@ -1641,8 +1641,10 @@ mod tests {
     use super::*;
     use std::alloc::Layout;
 
+    #[cfg(feature = "rawfd")]
     use std::fs::File;
     use std::mem::size_of_val;
+    #[cfg(feature = "rawfd")]
     use std::path::Path;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier};
@@ -1650,6 +1652,7 @@ mod tests {
 
     use matches::assert_matches;
     use std::num::NonZeroUsize;
+    #[cfg(feature = "rawfd")]
     use vmm_sys_util::tempfile::TempFile;
 
     use crate::bitmap::tests::{
@@ -2117,6 +2120,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "rawfd")]
     fn mem_read_and_write() {
         let mut backing = vec![0u8; 5];
         let a = VolatileSlice::from(backing.as_mut_slice());
