@@ -650,7 +650,7 @@ pub trait GuestMemory {
     /// * Read bytes from /dev/urandom (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(all(feature = "backend-mmap", feature = "rawfd"))]
     /// # {
     /// # use vm_memory::{Address, GuestMemory, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::File;

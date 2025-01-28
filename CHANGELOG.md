@@ -2,6 +2,10 @@
 
 ## Upcoming version
 
+### Added
+
+- \[[#311](https://github.com/rust-vmm/vm-memory/pull/311)\] Allow compiling without the ReadVolatile and WriteVolatile implementations
+
 ## \[v0.16.1\]
 
 ### Added

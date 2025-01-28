@@ -6,7 +6,12 @@
 use crate::bitmap::BitmapSlice;
 use crate::volatile_memory::copy_slice_impl::{copy_from_volatile_slice, copy_to_volatile_slice};
 use crate::{VolatileMemoryError, VolatileSlice};
-use std::io::{Cursor, ErrorKind, Stdout};
+use std::io::{Cursor, ErrorKind};
+
+#[cfg(feature = "rawfd")]
+use std::io::Stdout;
+
+#[cfg(feature = "rawfd")]
 use std::os::fd::AsRawFd;
 
 /// A version of the standard library's [`Read`](std::io::Read) trait that operates on volatile
@@ -114,6 +119,7 @@ pub trait WriteVolatile {
 
 macro_rules! impl_read_write_volatile_for_raw_fd {
     ($raw_fd_ty:ty) => {
+        #[cfg(feature = "rawfd")]
         impl ReadVolatile for $raw_fd_ty {
             fn read_volatile<B: BitmapSlice>(
                 &mut self,
@@ -123,6 +129,7 @@ macro_rules! impl_read_write_volatile_for_raw_fd {
             }
         }
 
+        #[cfg(feature = "rawfd")]
         impl WriteVolatile for $raw_fd_ty {
             fn write_volatile<B: BitmapSlice>(
                 &mut self,
@@ -134,6 +141,7 @@ macro_rules! impl_read_write_volatile_for_raw_fd {
     };
 }
 
+#[cfg(feature = "rawfd")]
 impl WriteVolatile for Stdout {
     fn write_volatile<B: BitmapSlice>(
         &mut self,
@@ -153,6 +161,7 @@ impl_read_write_volatile_for_raw_fd!(std::os::fd::BorrowedFd<'_>);
 /// the given [`VolatileSlice`].
 ///
 /// Returns the numbers of bytes read.
+#[cfg(feature = "rawfd")]
 fn read_volatile_raw_fd<Fd: AsRawFd>(
     raw_fd: &mut Fd,
     buf: &mut VolatileSlice<impl BitmapSlice>,
@@ -183,6 +192,7 @@ fn read_volatile_raw_fd<Fd: AsRawFd>(
 /// data stored in the given [`VolatileSlice`].
 ///
 /// Returns the numbers of bytes written.
+#[cfg(feature = "rawfd")]
 fn write_volatile_raw_fd<Fd: AsRawFd>(
     raw_fd: &mut Fd,
     buf: &VolatileSlice<impl BitmapSlice>,
@@ -361,7 +371,10 @@ impl WriteVolatile for Cursor<&mut [u8]> {
 mod tests {
     use crate::io::{ReadVolatile, WriteVolatile};
     use crate::{VolatileMemoryError, VolatileSlice};
-    use std::io::{Cursor, ErrorKind, Read, Seek, Write};
+    use std::io::{Cursor, ErrorKind};
+    #[cfg(feature = "rawfd")]
+    use std::io::{Read, Seek, Write};
+    #[cfg(feature = "rawfd")]
     use vmm_sys_util::tempfile::TempFile;
 
     // ---- Test ReadVolatile for &[u8] ----
@@ -398,6 +411,7 @@ mod tests {
     }
 
     // ---- Test ReadVolatile for File ----
+    #[cfg(feature = "rawfd")]
     fn read_4_bytes_from_file(source: Vec<u8>, expected_output: [u8; 5]) {
         let mut temp_file = TempFile::new().unwrap().into_file();
         temp_file.write_all(source.as_ref()).unwrap();
@@ -441,6 +455,7 @@ mod tests {
 
         for (input, output) in test_cases {
             read_4_bytes_to_5_byte_memory(input.clone(), output);
+            #[cfg(feature = "rawfd")]
             read_4_bytes_from_file(input, output);
         }
     }
@@ -481,6 +496,7 @@ mod tests {
     }
 
     // ---- Test ẂriteVolatile for File works ----
+    #[cfg(feature = "rawfd")]
     fn write_5_bytes_to_file(mut source: Vec<u8>) {
         // Test write_volatile for File works
         let mut temp_file = TempFile::new().unwrap().into_file();
@@ -524,6 +540,7 @@ mod tests {
 
         for (input, output) in test_cases {
             write_4_bytes_to_5_byte_vec(input.clone(), output);
+            #[cfg(feature = "rawfd")]
             write_5_bytes_to_file(input);
         }
     }
