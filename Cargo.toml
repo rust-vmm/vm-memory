@@ -12,14 +12,15 @@ edition = "2021"
 autobenches = false
 
 [features]
-default = []
+default = ["rawfd"]
 backend-bitmap = []
-backend-mmap = []
+backend-mmap = ["dep:libc"]
 backend-atomic = ["arc-swap"]
+rawfd = ["dep:libc"]
 xen = ["backend-mmap", "bitflags", "vmm-sys-util"]
 
 [dependencies]
-libc = "0.2.39"
+libc = { version = "0.2.39", optional = true }
 arc-swap = { version = "1.0.0", optional = true }
 bitflags = { version = "2.4.0", optional = true }
 thiserror = "1.0.40"

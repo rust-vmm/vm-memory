@@ -645,9 +645,9 @@ mod tests {
     use crate::bitmap::AtomicBitmap;
     use crate::GuestAddressSpace;
 
-    use std::fs::File;
     use std::mem;
-    use std::path::Path;
+    #[cfg(feature = "rawfd")]
+    use std::{fs::File, path::Path};
     use vmm_sys_util::tempfile::TempFile;
 
     type GuestMemoryMmap = super::GuestMemoryMmap<()>;
@@ -1141,6 +1141,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "rawfd")]
     fn read_to_and_write_from_mem() {
         let f = TempFile::new().unwrap().into_file();
         f.set_len(0x400).unwrap();
