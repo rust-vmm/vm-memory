@@ -11,6 +11,7 @@
 //! Define the `ByteValued` trait to mark that it is safe to instantiate the struct with random
 //! data.
 
+use std::io::{Read, Write};
 use std::mem::{size_of, MaybeUninit};
 use std::result::Result;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
@@ -115,6 +116,20 @@ pub unsafe trait ByteValued: Copy + Send + Sync {
     /// useful because `VolatileSlice` provides a `Bytes<usize>` implementation.
     fn as_bytes(&mut self) -> VolatileSlice {
         VolatileSlice::from(self.as_mut_slice())
+    }
+
+    /// Writes this [`ByteValued`]'s byte representation to the given [`Write`] impl.
+    fn write_all_to<W: Write>(&self, mut writer: W) -> Result<(), std::io::Error> {
+        writer.write_all(self.as_slice())
+    }
+
+    /// Constructs an instance of this [`ByteValued`] by reading from the given [`Read`] impl.
+    fn read_exact_from<R: Read>(mut reader: R) -> Result<Self, std::io::Error> {
+        // SAFETY: ByteValued objects must be assignable from arbitrary byte
+        // sequences and are mandated to be packed.
+        // Hence, zeroed memory is a fine initialization.
+        let mut result: Self = unsafe { MaybeUninit::<Self>::zeroed().assume_init() };
+        reader.read_exact(result.as_mut_slice()).map(|_| result)
     }
 }
 
@@ -407,6 +422,7 @@ pub(crate) mod tests {
 
     use std::cell::RefCell;
     use std::fmt::Debug;
+    use std::io::ErrorKind;
     use std::mem::align_of;
 
     // Helper method to test atomic accesses for a given `b: Bytes` that's supposed to be
@@ -607,7 +623,7 @@ pub(crate) mod tests {
     }
 
     #[repr(C)]
-    #[derive(Copy, Clone, Default)]
+    #[derive(Copy, Clone, Default, Debug)]
     struct S {
         a: u32,
         b: u32,
@@ -622,5 +638,25 @@ pub(crate) mod tests {
         s.as_bytes().copy_from(&a);
         assert_eq!(s.a, 0);
         assert_eq!(s.b, 0x0101_0101);
+    }
+
+    #[test]
+    fn test_byte_valued_io() {
+        let a: [u8; 8] = [0, 0, 0, 0, 1, 1, 1, 1];
+
+        let result = S::read_exact_from(&a[1..]);
+        assert_eq!(result.unwrap_err().kind(), ErrorKind::UnexpectedEof);
+
+        let s = S::read_exact_from(&a[..]).unwrap();
+        assert_eq!(s.a, 0);
+        assert_eq!(s.b, 0x0101_0101);
+
+        let mut b = Vec::new();
+        s.write_all_to(&mut b).unwrap();
+        assert_eq!(a.as_ref(), b.as_slice());
+
+        let mut b = [0; 7];
+        let result = s.write_all_to(b.as_mut_slice());
+        assert_eq!(result.unwrap_err().kind(), ErrorKind::WriteZero);
     }
 }
