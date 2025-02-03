@@ -49,6 +49,7 @@ macro_rules! endian_type {
         ///
         /// See module level documentation for examples.
         #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
+        #[repr(transparent)]
         pub struct $new_type($old_type);
 
         impl $new_type {
