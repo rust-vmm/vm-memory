@@ -16,16 +16,13 @@ use std::borrow::Borrow;
 use std::ops::Deref;
 use std::result;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 use crate::address::Address;
 use crate::bitmap::{Bitmap, BS};
-use crate::guest_memory::{
-    self, FileOffset, GuestAddress, GuestMemory, GuestUsize, MemoryRegionAddress,
-};
+use crate::guest_memory::{self, FileOffset, GuestAddress, GuestUsize, MemoryRegionAddress};
 use crate::region::GuestMemoryRegion;
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
-use crate::{AtomicAccess, Bytes, ReadVolatile, WriteVolatile};
+use crate::{AtomicAccess, Bytes, Error, GuestRegionCollection, ReadVolatile, WriteVolatile};
 
 // re-export for backward compat, as the trait used to be defined in mmap.rs
 pub use crate::bitmap::NewBitmap;
@@ -49,27 +46,6 @@ pub use xen::{Error as MmapRegionError, MmapRange, MmapRegion, MmapXenFlags};
 pub use std::io::Error as MmapRegionError;
 #[cfg(target_family = "windows")]
 pub use windows::MmapRegion;
-
-/// Errors that can occur when creating a memory map.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// Adding the guest base address to the length of the underlying mapping resulted
-    /// in an overflow.
-    #[error("Adding the guest base address to the length of the underlying mapping resulted in an overflow")]
-    InvalidGuestRegion,
-    /// Error creating a `MmapRegion` object.
-    #[error("{0}")]
-    MmapRegion(MmapRegionError),
-    /// No memory region found.
-    #[error("No memory region found")]
-    NoMemoryRegion,
-    /// Some of the memory regions intersect with each other.
-    #[error("Some of the memory regions intersect with each other")]
-    MemoryRegionOverlap,
-    /// The provided memory regions haven't been sorted.
-    #[error("The provided memory regions haven't been sorted")]
-    UnsortedMemoryRegions,
-}
 
 /// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) implementation that mmaps the guest's
 /// memory region in the current process.
@@ -339,17 +315,9 @@ impl<B: Bitmap> GuestMemoryRegion for GuestRegionMmap<B> {
 /// Represents the entire physical memory of the guest by tracking all its memory regions.
 /// Each region is an instance of `GuestRegionMmap`, being backed by a mapping in the
 /// virtual address space of the calling process.
-#[derive(Clone, Debug, Default)]
-pub struct GuestMemoryMmap<B = ()> {
-    regions: Vec<Arc<GuestRegionMmap<B>>>,
-}
+pub type GuestMemoryMmap<B = ()> = GuestRegionCollection<GuestRegionMmap<B>>;
 
 impl<B: NewBitmap> GuestMemoryMmap<B> {
-    /// Creates an empty `GuestMemoryMmap` instance.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Creates a container and allocates anonymous memory for guest memory regions.
     ///
     /// Valid memory regions are specified as a slice of (Address, Size) tuples sorted by Address.
@@ -377,111 +345,6 @@ impl<B: NewBitmap> GuestMemoryMmap<B> {
     }
 }
 
-impl<B: Bitmap> GuestMemoryMmap<B> {
-    /// Creates a new `GuestMemoryMmap` from a vector of regions.
-    ///
-    /// # Arguments
-    ///
-    /// * `regions` - The vector of regions.
-    ///               The regions shouldn't overlap and they should be sorted
-    ///               by the starting address.
-    pub fn from_regions(mut regions: Vec<GuestRegionMmap<B>>) -> result::Result<Self, Error> {
-        Self::from_arc_regions(regions.drain(..).map(Arc::new).collect())
-    }
-
-    /// Creates a new `GuestMemoryMmap` from a vector of Arc regions.
-    ///
-    /// Similar to the constructor `from_regions()` as it returns a
-    /// `GuestMemoryMmap`. The need for this constructor is to provide a way for
-    /// consumer of this API to create a new `GuestMemoryMmap` based on existing
-    /// regions coming from an existing `GuestMemoryMmap` instance.
-    ///
-    /// # Arguments
-    ///
-    /// * `regions` - The vector of `Arc` regions.
-    ///               The regions shouldn't overlap and they should be sorted
-    ///               by the starting address.
-    pub fn from_arc_regions(regions: Vec<Arc<GuestRegionMmap<B>>>) -> result::Result<Self, Error> {
-        if regions.is_empty() {
-            return Err(Error::NoMemoryRegion);
-        }
-
-        for window in regions.windows(2) {
-            let prev = &window[0];
-            let next = &window[1];
-
-            if prev.start_addr() > next.start_addr() {
-                return Err(Error::UnsortedMemoryRegions);
-            }
-
-            if prev.last_addr() >= next.start_addr() {
-                return Err(Error::MemoryRegionOverlap);
-            }
-        }
-
-        Ok(Self { regions })
-    }
-
-    /// Insert a region into the `GuestMemoryMmap` object and return a new `GuestMemoryMmap`.
-    ///
-    /// # Arguments
-    /// * `region`: the memory region to insert into the guest memory object.
-    pub fn insert_region(
-        &self,
-        region: Arc<GuestRegionMmap<B>>,
-    ) -> result::Result<GuestMemoryMmap<B>, Error> {
-        let mut regions = self.regions.clone();
-        regions.push(region);
-        regions.sort_by_key(|x| x.start_addr());
-
-        Self::from_arc_regions(regions)
-    }
-
-    /// Remove a region into the `GuestMemoryMmap` object and return a new `GuestMemoryMmap`
-    /// on success, together with the removed region.
-    ///
-    /// # Arguments
-    /// * `base`: base address of the region to be removed
-    /// * `size`: size of the region to be removed
-    pub fn remove_region(
-        &self,
-        base: GuestAddress,
-        size: GuestUsize,
-    ) -> result::Result<(GuestMemoryMmap<B>, Arc<GuestRegionMmap<B>>), Error> {
-        if let Ok(region_index) = self.regions.binary_search_by_key(&base, |x| x.start_addr()) {
-            if self.regions.get(region_index).unwrap().mapping.size() as GuestUsize == size {
-                let mut regions = self.regions.clone();
-                let region = regions.remove(region_index);
-                return Ok((Self { regions }, region));
-            }
-        }
-
-        Err(Error::InvalidGuestRegion)
-    }
-}
-
-impl<B: Bitmap + 'static> GuestMemory for GuestMemoryMmap<B> {
-    type R = GuestRegionMmap<B>;
-
-    fn num_regions(&self) -> usize {
-        self.regions.len()
-    }
-
-    fn find_region(&self, addr: GuestAddress) -> Option<&GuestRegionMmap<B>> {
-        let index = match self.regions.binary_search_by_key(&addr, |x| x.start_addr()) {
-            Ok(x) => Some(x),
-            // Within the closest region with starting address < addr
-            Err(x) if (x > 0 && addr <= self.regions[x - 1].last_addr()) => Some(x - 1),
-            _ => None,
-        };
-        index.map(|x| self.regions[x].as_ref())
-    }
-
-    fn iter(&self) -> impl Iterator<Item = &Self::R> {
-        self.regions.iter().map(AsRef::as_ref)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
@@ -491,16 +354,17 @@ mod tests {
 
     use crate::bitmap::tests::test_guest_memory_and_region;
     use crate::bitmap::AtomicBitmap;
-    use crate::GuestAddressSpace;
+    use crate::{Error, GuestAddressSpace, GuestMemory};
 
     use std::io::Write;
     use std::mem;
+    use std::sync::Arc;
     #[cfg(feature = "rawfd")]
     use std::{fs::File, path::Path};
     use vmm_sys_util::tempfile::TempFile;
 
-    type GuestMemoryMmap = super::GuestMemoryMmap<()>;
     type GuestRegionMmap = super::GuestRegionMmap<()>;
+    type GuestMemoryMmap = super::GuestRegionCollection<GuestRegionMmap>;
     type MmapRegion = super::MmapRegion<()>;
 
     #[test]
@@ -525,9 +389,8 @@ mod tests {
             }
             assert_eq!(guest_mem.last_addr(), last_addr);
         }
-        for ((region_addr, region_size), mmap) in expected_regions_summary
-            .iter()
-            .zip(guest_mem.regions.iter())
+        for ((region_addr, region_size), mmap) in
+            expected_regions_summary.iter().zip(guest_mem.iter())
         {
             assert_eq!(region_addr, &mmap.guest_base);
             assert_eq!(region_size, &mmap.mapping.size());
@@ -718,7 +581,7 @@ mod tests {
         let regions_summary = [(GuestAddress(0), 100_usize), (GuestAddress(100), 100_usize)];
 
         let guest_mem = GuestMemoryMmap::new();
-        assert_eq!(guest_mem.regions.len(), 0);
+        assert_eq!(guest_mem.num_regions(), 0);
 
         check_guest_memory_mmap(new_guest_memory_mmap(&regions_summary), &regions_summary);
 
@@ -1056,8 +919,10 @@ mod tests {
             .map(|x| (x.0, x.1))
             .eq(iterated_regions.iter().copied()));
 
-        assert_eq!(gm.regions[0].guest_base, regions[0].0);
-        assert_eq!(gm.regions[1].guest_base, regions[1].0);
+        let mmap_regions = gm.iter().collect::<Vec<_>>();
+
+        assert_eq!(mmap_regions[0].guest_base, regions[0].0);
+        assert_eq!(mmap_regions[1].guest_base, regions[1].0);
     }
 
     #[test]
@@ -1085,8 +950,10 @@ mod tests {
             .map(|x| (x.0, x.1))
             .eq(iterated_regions.iter().copied()));
 
-        assert_eq!(gm.regions[0].guest_base, regions[0].0);
-        assert_eq!(gm.regions[1].guest_base, regions[1].0);
+        let mmap_regions = gm.iter().collect::<Vec<_>>();
+
+        assert_eq!(mmap_regions[0].guest_base, regions[0].0);
+        assert_eq!(mmap_regions[1].guest_base, regions[1].0);
     }
 
     #[test]
@@ -1195,11 +1062,13 @@ mod tests {
         assert_eq!(mem_orig.num_regions(), 2);
         assert_eq!(gm.num_regions(), 5);
 
-        assert_eq!(gm.regions[0].start_addr(), GuestAddress(0x0000));
-        assert_eq!(gm.regions[1].start_addr(), GuestAddress(0x4000));
-        assert_eq!(gm.regions[2].start_addr(), GuestAddress(0x8000));
-        assert_eq!(gm.regions[3].start_addr(), GuestAddress(0xc000));
-        assert_eq!(gm.regions[4].start_addr(), GuestAddress(0x10_0000));
+        let regions = gm.iter().collect::<Vec<_>>();
+
+        assert_eq!(regions[0].start_addr(), GuestAddress(0x0000));
+        assert_eq!(regions[1].start_addr(), GuestAddress(0x4000));
+        assert_eq!(regions[2].start_addr(), GuestAddress(0x8000));
+        assert_eq!(regions[3].start_addr(), GuestAddress(0xc000));
+        assert_eq!(regions[4].start_addr(), GuestAddress(0x10_0000));
     }
 
     #[test]
@@ -1220,7 +1089,7 @@ mod tests {
         assert_eq!(mem_orig.num_regions(), 2);
         assert_eq!(gm.num_regions(), 1);
 
-        assert_eq!(gm.regions[0].start_addr(), GuestAddress(0x0000));
+        assert_eq!(gm.iter().next().unwrap().start_addr(), GuestAddress(0x0000));
         assert_eq!(region.start_addr(), GuestAddress(0x10_0000));
     }
 
