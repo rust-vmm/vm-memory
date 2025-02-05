@@ -408,7 +408,9 @@ pub trait GuestMemory {
     fn num_regions(&self) -> usize;
 
     /// Returns the region containing the specified address or `None`.
-    fn find_region(&self, addr: GuestAddress) -> Option<&Self::R>;
+    fn find_region(&self, addr: GuestAddress) -> Option<&Self::R> {
+        self.iter().find(|region| addr >= region.start_addr() && addr <= region.last_addr())
+    }
 
     /// Gets an iterator over the entries in the collection.
     ///

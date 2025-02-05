@@ -10,6 +10,8 @@
 
 - \[[#307](https://github.com/rust-vmm/vm-memory/pull/304)\] Move `read_volatile_from`, `read_exact_volatile_from`,
   `write_volatile_to` and `write_all_volatile_to` functions from the `GuestMemory` trait to the `Bytes` trait.
+- \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\]: Give `GuestMemory::find_region` a default implementation,
+  based on linear search.
 
 ### Removed
 
