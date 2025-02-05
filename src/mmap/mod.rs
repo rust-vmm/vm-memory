@@ -384,7 +384,7 @@ mod tests {
 
     use crate::bitmap::tests::test_guest_memory_and_region;
     use crate::bitmap::AtomicBitmap;
-    use crate::{Error, GuestAddressSpace, GuestMemory};
+    use crate::{Error, GuestAddressSpace, GuestMemory, GuestMemoryError};
 
     use std::io::Write;
     use std::mem;
@@ -481,129 +481,66 @@ mod tests {
     fn test_no_memory_region() {
         let regions_summary = [];
 
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap(&regions_summary).err().unwrap()
-            ),
-            format!("{:?}", Error::NoMemoryRegion)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_with_files(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::NoMemoryRegion)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::NoMemoryRegion)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_arc_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::NoMemoryRegion)
-        );
+        assert!(matches!(
+            new_guest_memory_mmap(&regions_summary).unwrap_err(),
+            Error::NoMemoryRegion
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_with_files(&regions_summary).unwrap_err(),
+            Error::NoMemoryRegion
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::NoMemoryRegion
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::NoMemoryRegion
+        ));
     }
 
     #[test]
     fn test_overlapping_memory_regions() {
         let regions_summary = [(GuestAddress(0), 100_usize), (GuestAddress(99), 100_usize)];
 
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap(&regions_summary).err().unwrap()
-            ),
-            format!("{:?}", Error::MemoryRegionOverlap)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_with_files(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::MemoryRegionOverlap)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::MemoryRegionOverlap)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_arc_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::MemoryRegionOverlap)
-        );
+        assert!(matches!(
+            new_guest_memory_mmap(&regions_summary).unwrap_err(),
+            Error::MemoryRegionOverlap
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_with_files(&regions_summary).unwrap_err(),
+            Error::MemoryRegionOverlap
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::MemoryRegionOverlap
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::MemoryRegionOverlap
+        ));
     }
 
     #[test]
     fn test_unsorted_memory_regions() {
         let regions_summary = [(GuestAddress(100), 100_usize), (GuestAddress(0), 100_usize)];
 
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap(&regions_summary).err().unwrap()
-            ),
-            format!("{:?}", Error::UnsortedMemoryRegions)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_with_files(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::UnsortedMemoryRegions)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::UnsortedMemoryRegions)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_arc_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::UnsortedMemoryRegions)
-        );
+        assert!(matches!(
+            new_guest_memory_mmap(&regions_summary).unwrap_err(),
+            Error::UnsortedMemoryRegions
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_with_files(&regions_summary).unwrap_err(),
+            Error::UnsortedMemoryRegions
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::UnsortedMemoryRegions
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::UnsortedMemoryRegions
+        ));
     }
 
     #[test]
@@ -828,18 +765,13 @@ mod tests {
         for gm in gm_list.iter() {
             let val1: u64 = 0xaa55_aa55_aa55_aa55;
             let val2: u64 = 0x55aa_55aa_55aa_55aa;
-            assert_eq!(
-                format!("{:?}", gm.write_obj(val1, bad_addr).err().unwrap()),
-                format!("InvalidGuestAddress({:?})", bad_addr,)
-            );
-            assert_eq!(
-                format!("{:?}", gm.write_obj(val1, bad_addr2).err().unwrap()),
-                format!(
-                    "PartialBuffer {{ expected: {:?}, completed: {:?} }}",
-                    mem::size_of::<u64>(),
-                    max_addr.checked_offset_from(bad_addr2).unwrap()
-                )
-            );
+            assert!(matches!(
+                gm.write_obj(val1, bad_addr).unwrap_err(),
+                GuestMemoryError::InvalidGuestAddress(addr) if addr == bad_addr
+            ));
+            assert!(matches!(
+                gm.write_obj(val1, bad_addr2).unwrap_err(),
+                GuestMemoryError::PartialBuffer { expected, completed} if expected == size_of::<u64>() && completed == max_addr.checked_offset_from(bad_addr2).unwrap() as usize));
 
             gm.write_obj(val1, GuestAddress(0x500)).unwrap();
             gm.write_obj(val2, GuestAddress(0x1000 + 32)).unwrap();
