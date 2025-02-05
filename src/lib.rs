@@ -51,7 +51,7 @@ pub use guest_memory::{
 };
 
 pub mod region;
-pub use region::GuestMemoryRegion;
+pub use region::{GuestMemoryRegion, GuestRegionCollection, GuestRegionError as Error};
 
 pub mod io;
 pub use io::{ReadVolatile, WriteVolatile};
@@ -69,7 +69,7 @@ mod mmap_windows;
 pub mod mmap;
 
 #[cfg(feature = "backend-mmap")]
-pub use mmap::{Error, GuestMemoryMmap, GuestRegionMmap, MmapRegion};
+pub use mmap::{GuestMemoryMmap, GuestRegionMmap, MmapRegion};
 #[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
 pub use mmap::{MmapRange, MmapXenFlags};
 
