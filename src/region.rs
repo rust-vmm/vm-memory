@@ -1,17 +1,44 @@
 //! Module containing abstracts for dealing with contiguous regions of guest memory
 
 use crate::bitmap::{Bitmap, BS};
-use crate::guest_memory::Error;
 use crate::guest_memory::Result;
 use crate::{
-    Address, Bytes, FileOffset, GuestAddress, GuestMemory, GuestUsize, MemoryRegionAddress,
-    VolatileSlice,
+    Address, AtomicAccess, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryError,
+    GuestUsize, MemoryRegionAddress, ReadVolatile, VolatileSlice, WriteVolatile,
 };
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 /// Represents a continuous region of guest physical memory.
+///
+/// Note that the [`Bytes`] super trait requirement can be satisfied by implementing
+/// [`GuestMemoryRegionBytes`], which provides a default implementation of `Bytes`
+/// for memory regions that are backed by physical RAM:
+///
+/// ```
+/// ///
+/// use vm_memory::bitmap::BS;
+/// use vm_memory::{GuestAddress, GuestMemoryRegion, GuestMemoryRegionBytes, GuestUsize};
+///
+/// struct MyRegion;
+///
+/// impl GuestMemoryRegion for MyRegion {
+///     type B = ();
+///     fn len(&self) -> GuestUsize {
+///         todo!()
+///     }
+///     fn start_addr(&self) -> GuestAddress {
+///         todo!()
+///     }
+///     fn bitmap(&self) {
+///         todo!()
+///     }
+/// }
+///
+/// impl GuestMemoryRegionBytes for MyRegion {}
+/// ```
 #[allow(clippy::len_without_is_empty)]
-pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
+pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = GuestMemoryError> {
     /// Type used for dirty memory tracking.
     type B: Bitmap;
 
@@ -73,7 +100,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     /// Rust memory safety model. It's the caller's responsibility to ensure that there's no
     /// concurrent accesses to the underlying guest memory.
     fn get_host_address(&self, _addr: MemoryRegionAddress) -> Result<*mut u8> {
-        Err(Error::HostAddressNotAvailable)
+        Err(GuestMemoryError::HostAddressNotAvailable)
     }
 
     /// Returns information regarding the file and offset backing this memory region.
@@ -89,7 +116,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
         offset: MemoryRegionAddress,
         count: usize,
     ) -> Result<VolatileSlice<BS<Self::B>>> {
-        Err(Error::HostAddressNotAvailable)
+        Err(GuestMemoryError::HostAddressNotAvailable)
     }
 
     /// Gets a slice of memory for the entire region that supports volatile access.
@@ -297,5 +324,155 @@ impl<R: GuestMemoryRegion> GuestMemory for GuestRegionCollection<R> {
 
     fn iter(&self) -> impl Iterator<Item = &Self::R> {
         self.regions.iter().map(AsRef::as_ref)
+    }
+}
+
+/// A marker trait that if implemented on a type `R` makes available a default
+/// implementation of `Bytes<MemoryRegionAddress>` for `R`, based on the assumption
+/// that the entire `GuestMemoryRegion` is just traditional memory without any
+/// special access requirements.
+pub trait GuestMemoryRegionBytes: GuestMemoryRegion {}
+
+impl<R: GuestMemoryRegionBytes> Bytes<MemoryRegionAddress> for R {
+    type E = GuestMemoryError;
+
+    /// # Examples
+    /// * Write a slice at guest address 0x1200.
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    /// #
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # {
+    /// # let start_addr = GuestAddress(0x1000);
+    /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
+    /// #    .expect("Could not create guest memory");
+    /// #
+    /// let res = gm
+    ///     .write(&[1, 2, 3, 4, 5], GuestAddress(0x1200))
+    ///     .expect("Could not write to guest memory");
+    /// assert_eq!(5, res);
+    /// # }
+    /// ```
+    fn write(&self, buf: &[u8], addr: MemoryRegionAddress) -> Result<usize> {
+        let maddr = addr.raw_value() as usize;
+        self.as_volatile_slice()?
+            .write(buf, maddr)
+            .map_err(Into::into)
+    }
+
+    /// # Examples
+    /// * Read a slice of length 16 at guestaddress 0x1200.
+    ///
+    /// ```
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    /// #
+    /// # #[cfg(feature = "backend-mmap")]
+    /// # {
+    /// # let start_addr = GuestAddress(0x1000);
+    /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
+    /// #    .expect("Could not create guest memory");
+    /// #
+    /// let buf = &mut [0u8; 16];
+    /// let res = gm
+    ///     .read(buf, GuestAddress(0x1200))
+    ///     .expect("Could not read from guest memory");
+    /// assert_eq!(16, res);
+    /// # }
+    /// ```
+    fn read(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> Result<usize> {
+        let maddr = addr.raw_value() as usize;
+        self.as_volatile_slice()?
+            .read(buf, maddr)
+            .map_err(Into::into)
+    }
+
+    fn write_slice(&self, buf: &[u8], addr: MemoryRegionAddress) -> Result<()> {
+        let maddr = addr.raw_value() as usize;
+        self.as_volatile_slice()?
+            .write_slice(buf, maddr)
+            .map_err(Into::into)
+    }
+
+    fn read_slice(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> Result<()> {
+        let maddr = addr.raw_value() as usize;
+        self.as_volatile_slice()?
+            .read_slice(buf, maddr)
+            .map_err(Into::into)
+    }
+
+    fn read_volatile_from<F>(
+        &self,
+        addr: MemoryRegionAddress,
+        src: &mut F,
+        count: usize,
+    ) -> Result<usize>
+    where
+        F: ReadVolatile,
+    {
+        self.as_volatile_slice()?
+            .read_volatile_from(addr.0 as usize, src, count)
+            .map_err(Into::into)
+    }
+
+    fn read_exact_volatile_from<F>(
+        &self,
+        addr: MemoryRegionAddress,
+        src: &mut F,
+        count: usize,
+    ) -> Result<()>
+    where
+        F: ReadVolatile,
+    {
+        self.as_volatile_slice()?
+            .read_exact_volatile_from(addr.0 as usize, src, count)
+            .map_err(Into::into)
+    }
+
+    fn write_volatile_to<F>(
+        &self,
+        addr: MemoryRegionAddress,
+        dst: &mut F,
+        count: usize,
+    ) -> Result<usize>
+    where
+        F: WriteVolatile,
+    {
+        self.as_volatile_slice()?
+            .write_volatile_to(addr.0 as usize, dst, count)
+            .map_err(Into::into)
+    }
+
+    fn write_all_volatile_to<F>(
+        &self,
+        addr: MemoryRegionAddress,
+        dst: &mut F,
+        count: usize,
+    ) -> Result<()>
+    where
+        F: WriteVolatile,
+    {
+        self.as_volatile_slice()?
+            .write_all_volatile_to(addr.0 as usize, dst, count)
+            .map_err(Into::into)
+    }
+
+    fn store<T: AtomicAccess>(
+        &self,
+        val: T,
+        addr: MemoryRegionAddress,
+        order: Ordering,
+    ) -> Result<()> {
+        self.as_volatile_slice().and_then(|s| {
+            s.store(val, addr.raw_value() as usize, order)
+                .map_err(Into::into)
+        })
+    }
+
+    fn load<T: AtomicAccess>(&self, addr: MemoryRegionAddress, order: Ordering) -> Result<T> {
+        self.as_volatile_slice()
+            .and_then(|s| s.load(addr.raw_value() as usize, order).map_err(Into::into))
     }
 }

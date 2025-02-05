@@ -14,6 +14,8 @@
   `write_volatile_to` and `write_all_volatile_to` functions from the `GuestMemory` trait to the `Bytes` trait.
 - \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\]: Give `GuestMemory::find_region` and `GuestMemory::num_regions`
   a default implementation, based on linear search.
+- \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\]: Provide a marker trait, `GuestMemoryRegionBytes`, which enables a default implementation of `Bytes<MemoryRegionAddress>`
+  for a `GuestMemoryRegion` if implemented.
 
 - \[#324](https:////github.com/rust-vmm/vm-memory/pull/324)\] `GuestMemoryRegion::bitmap()` now returns a `BitmapSlice`. Accessing the full bitmap is now possible only if the type of the memory region is know, for example with `MmapRegion::bitmap()`.
 

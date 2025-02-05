@@ -51,7 +51,9 @@ pub use guest_memory::{
 };
 
 pub mod region;
-pub use region::{GuestMemoryRegion, GuestRegionCollection, GuestRegionError as Error};
+pub use region::{
+    GuestMemoryRegion, GuestMemoryRegionBytes, GuestRegionCollection, GuestRegionError as Error,
+};
 
 pub mod io;
 pub use io::{ReadVolatile, WriteVolatile};
