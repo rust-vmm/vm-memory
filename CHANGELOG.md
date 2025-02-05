@@ -5,6 +5,8 @@
 ### Added
 
 - \[[#311](https://github.com/rust-vmm/vm-memory/pull/311)\] Allow compiling without the ReadVolatile and WriteVolatile implementations
+- \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\] `GuestRegionContainer`, a generic container of `GuestMemoryRegion`s, generalizing `GuestMemoryMmap` (which 
+  is now a type alias for `GuestRegionContainer<GuestRegionMmap>`).
 
 ### Changed
 
