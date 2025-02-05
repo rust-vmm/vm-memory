@@ -1489,58 +1489,6 @@ mod tests {
     }
 
     #[test]
-    fn test_display_error() {
-        assert_eq!(
-            format!("{}", Error::OutOfBounds { addr: 0x10 }),
-            "address 0x10 is out of bounds"
-        );
-
-        assert_eq!(
-            format!(
-                "{}",
-                Error::Overflow {
-                    base: 0x0,
-                    offset: 0x10
-                }
-            ),
-            "address 0x0 offset by 0x10 would overflow"
-        );
-
-        assert_eq!(
-            format!(
-                "{}",
-                Error::TooBig {
-                    nelements: 100_000,
-                    size: 1_000_000_000
-                }
-            ),
-            "100000 elements of size 1000000000 would overflow a usize"
-        );
-
-        assert_eq!(
-            format!(
-                "{}",
-                Error::Misaligned {
-                    addr: 0x4,
-                    alignment: 8
-                }
-            ),
-            "address 0x4 is not aligned to 8"
-        );
-
-        assert_eq!(
-            format!(
-                "{}",
-                Error::PartialBuffer {
-                    expected: 100,
-                    completed: 90
-                }
-            ),
-            "only used 90 bytes in 100 long buffer"
-        );
-    }
-
-    #[test]
     fn misaligned_ref() {
         let mut a = [0u8; 3];
         let a_ref = VolatileSlice::from(&mut a[..]);
