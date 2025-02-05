@@ -15,14 +15,13 @@
 use std::borrow::Borrow;
 use std::ops::Deref;
 use std::result;
-use std::sync::atomic::Ordering;
 
 use crate::address::Address;
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::{self, FileOffset, GuestAddress, GuestUsize, MemoryRegionAddress};
-use crate::region::GuestMemoryRegion;
+use crate::region::{GuestMemoryRegion, GuestMemoryRegionBytes};
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
-use crate::{AtomicAccess, Bytes, Error, GuestRegionCollection, ReadVolatile, WriteVolatile};
+use crate::{Error, GuestRegionCollection};
 
 // re-export for backward compat, as the trait used to be defined in mmap.rs
 pub use crate::bitmap::NewBitmap;
@@ -115,154 +114,6 @@ impl<B: NewBitmap> GuestRegionMmap<B> {
     }
 }
 
-impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionMmap<B> {
-    type E = guest_memory::Error;
-
-    /// # Examples
-    /// * Write a slice at guest address 0x1200.
-    ///
-    /// ```
-    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
-    /// #
-    /// # let start_addr = GuestAddress(0x1000);
-    /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
-    /// #    .expect("Could not create guest memory");
-    /// #
-    /// let res = gm
-    ///     .write(&[1, 2, 3, 4, 5], GuestAddress(0x1200))
-    ///     .expect("Could not write to guest memory");
-    /// assert_eq!(5, res);
-    /// ```
-    fn write(&self, buf: &[u8], addr: MemoryRegionAddress) -> guest_memory::Result<usize> {
-        let maddr = addr.raw_value() as usize;
-        self.as_volatile_slice()
-            .unwrap()
-            .write(buf, maddr)
-            .map_err(Into::into)
-    }
-
-    /// # Examples
-    /// * Read a slice of length 16 at guestaddress 0x1200.
-    ///
-    /// ```
-    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
-    /// #
-    /// # let start_addr = GuestAddress(0x1000);
-    /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
-    /// #    .expect("Could not create guest memory");
-    /// #
-    /// let buf = &mut [0u8; 16];
-    /// let res = gm
-    ///     .read(buf, GuestAddress(0x1200))
-    ///     .expect("Could not read from guest memory");
-    /// assert_eq!(16, res);
-    /// ```
-    fn read(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> guest_memory::Result<usize> {
-        let maddr = addr.raw_value() as usize;
-        self.as_volatile_slice()
-            .unwrap()
-            .read(buf, maddr)
-            .map_err(Into::into)
-    }
-
-    fn write_slice(&self, buf: &[u8], addr: MemoryRegionAddress) -> guest_memory::Result<()> {
-        let maddr = addr.raw_value() as usize;
-        self.as_volatile_slice()
-            .unwrap()
-            .write_slice(buf, maddr)
-            .map_err(Into::into)
-    }
-
-    fn read_slice(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> guest_memory::Result<()> {
-        let maddr = addr.raw_value() as usize;
-        self.as_volatile_slice()
-            .unwrap()
-            .read_slice(buf, maddr)
-            .map_err(Into::into)
-    }
-
-    fn read_volatile_from<F>(
-        &self,
-        addr: MemoryRegionAddress,
-        src: &mut F,
-        count: usize,
-    ) -> Result<usize, Self::E>
-    where
-        F: ReadVolatile,
-    {
-        self.as_volatile_slice()
-            .unwrap()
-            .read_volatile_from(addr.0 as usize, src, count)
-            .map_err(Into::into)
-    }
-
-    fn read_exact_volatile_from<F>(
-        &self,
-        addr: MemoryRegionAddress,
-        src: &mut F,
-        count: usize,
-    ) -> Result<(), Self::E>
-    where
-        F: ReadVolatile,
-    {
-        self.as_volatile_slice()
-            .unwrap()
-            .read_exact_volatile_from(addr.0 as usize, src, count)
-            .map_err(Into::into)
-    }
-
-    fn write_volatile_to<F>(
-        &self,
-        addr: MemoryRegionAddress,
-        dst: &mut F,
-        count: usize,
-    ) -> Result<usize, Self::E>
-    where
-        F: WriteVolatile,
-    {
-        self.as_volatile_slice()
-            .unwrap()
-            .write_volatile_to(addr.0 as usize, dst, count)
-            .map_err(Into::into)
-    }
-
-    fn write_all_volatile_to<F>(
-        &self,
-        addr: MemoryRegionAddress,
-        dst: &mut F,
-        count: usize,
-    ) -> Result<(), Self::E>
-    where
-        F: WriteVolatile,
-    {
-        self.as_volatile_slice()
-            .unwrap()
-            .write_all_volatile_to(addr.0 as usize, dst, count)
-            .map_err(Into::into)
-    }
-
-    fn store<T: AtomicAccess>(
-        &self,
-        val: T,
-        addr: MemoryRegionAddress,
-        order: Ordering,
-    ) -> guest_memory::Result<()> {
-        self.as_volatile_slice().and_then(|s| {
-            s.store(val, addr.raw_value() as usize, order)
-                .map_err(Into::into)
-        })
-    }
-
-    fn load<T: AtomicAccess>(
-        &self,
-        addr: MemoryRegionAddress,
-        order: Ordering,
-    ) -> guest_memory::Result<T> {
-        self.as_volatile_slice()
-            .and_then(|s| s.load(addr.raw_value() as usize, order).map_err(Into::into))
-    }
-}
-
 impl<B: Bitmap> GuestMemoryRegion for GuestRegionMmap<B> {
     type B = B;
 
@@ -309,6 +160,8 @@ impl<B: Bitmap> GuestMemoryRegion for GuestRegionMmap<B> {
     }
 }
 
+impl<B: Bitmap> GuestMemoryRegionBytes for GuestRegionMmap<B> {}
+
 /// [`GuestMemory`](trait.GuestMemory.html) implementation that mmaps the guest's memory
 /// in the current process.
 ///
@@ -354,7 +207,7 @@ mod tests {
 
     use crate::bitmap::tests::test_guest_memory_and_region;
     use crate::bitmap::AtomicBitmap;
-    use crate::{Error, GuestAddressSpace, GuestMemory};
+    use crate::{Bytes, Error, GuestAddressSpace, GuestMemory, GuestMemoryError};
 
     use std::io::Write;
     use std::mem;
@@ -451,129 +304,66 @@ mod tests {
     fn test_no_memory_region() {
         let regions_summary = [];
 
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap(&regions_summary).err().unwrap()
-            ),
-            format!("{:?}", Error::NoMemoryRegion)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_with_files(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::NoMemoryRegion)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::NoMemoryRegion)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_arc_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::NoMemoryRegion)
-        );
+        assert!(matches!(
+            new_guest_memory_mmap(&regions_summary).unwrap_err(),
+            Error::NoMemoryRegion
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_with_files(&regions_summary).unwrap_err(),
+            Error::NoMemoryRegion
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::NoMemoryRegion
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::NoMemoryRegion
+        ));
     }
 
     #[test]
     fn test_overlapping_memory_regions() {
         let regions_summary = [(GuestAddress(0), 100_usize), (GuestAddress(99), 100_usize)];
 
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap(&regions_summary).err().unwrap()
-            ),
-            format!("{:?}", Error::MemoryRegionOverlap)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_with_files(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::MemoryRegionOverlap)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::MemoryRegionOverlap)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_arc_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::MemoryRegionOverlap)
-        );
+        assert!(matches!(
+            new_guest_memory_mmap(&regions_summary).unwrap_err(),
+            Error::MemoryRegionOverlap
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_with_files(&regions_summary).unwrap_err(),
+            Error::MemoryRegionOverlap
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::MemoryRegionOverlap
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::MemoryRegionOverlap
+        ));
     }
 
     #[test]
     fn test_unsorted_memory_regions() {
         let regions_summary = [(GuestAddress(100), 100_usize), (GuestAddress(0), 100_usize)];
 
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap(&regions_summary).err().unwrap()
-            ),
-            format!("{:?}", Error::UnsortedMemoryRegions)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_with_files(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::UnsortedMemoryRegions)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::UnsortedMemoryRegions)
-        );
-
-        assert_eq!(
-            format!(
-                "{:?}",
-                new_guest_memory_mmap_from_arc_regions(&regions_summary)
-                    .err()
-                    .unwrap()
-            ),
-            format!("{:?}", Error::UnsortedMemoryRegions)
-        );
+        assert!(matches!(
+            new_guest_memory_mmap(&regions_summary).unwrap_err(),
+            Error::UnsortedMemoryRegions
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_with_files(&regions_summary).unwrap_err(),
+            Error::UnsortedMemoryRegions
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::UnsortedMemoryRegions
+        ));
+        assert!(matches!(
+            new_guest_memory_mmap_from_regions(&regions_summary).unwrap_err(),
+            Error::UnsortedMemoryRegions
+        ));
     }
 
     #[test]
@@ -798,18 +588,13 @@ mod tests {
         for gm in gm_list.iter() {
             let val1: u64 = 0xaa55_aa55_aa55_aa55;
             let val2: u64 = 0x55aa_55aa_55aa_55aa;
-            assert_eq!(
-                format!("{:?}", gm.write_obj(val1, bad_addr).err().unwrap()),
-                format!("InvalidGuestAddress({:?})", bad_addr,)
-            );
-            assert_eq!(
-                format!("{:?}", gm.write_obj(val1, bad_addr2).err().unwrap()),
-                format!(
-                    "PartialBuffer {{ expected: {:?}, completed: {:?} }}",
-                    mem::size_of::<u64>(),
-                    max_addr.checked_offset_from(bad_addr2).unwrap()
-                )
-            );
+            assert!(matches!(
+                gm.write_obj(val1, bad_addr).unwrap_err(),
+                GuestMemoryError::InvalidGuestAddress(addr) if addr == bad_addr
+            ));
+            assert!(matches!(
+                gm.write_obj(val1, bad_addr2).unwrap_err(),
+                GuestMemoryError::PartialBuffer { expected, completed} if expected == size_of::<u64>() && completed == max_addr.checked_offset_from(bad_addr2).unwrap() as usize));
 
             gm.write_obj(val1, GuestAddress(0x500)).unwrap();
             gm.write_obj(val2, GuestAddress(0x1000 + 32)).unwrap();
