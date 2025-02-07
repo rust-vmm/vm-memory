@@ -118,6 +118,14 @@ pub unsafe trait ByteValued: Copy + Send + Sync {
         VolatileSlice::from(self.as_mut_slice())
     }
 
+    /// Constructs a `Self` ewhose binary representation is set to all zeroes.
+    fn zeroed() -> Self {
+        // SAFETY: ByteValued objects must be assignable from arbitrary byte
+        // sequences and are mandated to be packed.
+        // Hence, zeroed memory is a fine initialization.
+        unsafe { MaybeUninit::<Self>::zeroed().assume_init() }
+    }
+
     /// Writes this [`ByteValued`]'s byte representation to the given [`Write`] impl.
     fn write_all_to<W: Write>(&self, mut writer: W) -> Result<(), std::io::Error> {
         writer.write_all(self.as_slice())
@@ -125,10 +133,7 @@ pub unsafe trait ByteValued: Copy + Send + Sync {
 
     /// Constructs an instance of this [`ByteValued`] by reading from the given [`Read`] impl.
     fn read_exact_from<R: Read>(mut reader: R) -> Result<Self, std::io::Error> {
-        // SAFETY: ByteValued objects must be assignable from arbitrary byte
-        // sequences and are mandated to be packed.
-        // Hence, zeroed memory is a fine initialization.
-        let mut result: Self = unsafe { MaybeUninit::<Self>::zeroed().assume_init() };
+        let mut result = Self::zeroed();
         reader.read_exact(result.as_mut_slice()).map(|_| result)
     }
 }
@@ -305,10 +310,7 @@ pub trait Bytes<A> {
     ///
     /// Returns an error if there's not enough data inside the container.
     fn read_obj<T: ByteValued>(&self, addr: A) -> Result<T, Self::E> {
-        // SAFETY: ByteValued objects must be assignable from a arbitrary byte
-        // sequence and are mandated to be packed.
-        // Hence, zeroed memory is a fine initialization.
-        let mut result: T = unsafe { MaybeUninit::<T>::zeroed().assume_init() };
+        let mut result = T::zeroed();
         self.read_slice(result.as_mut_slice(), addr).map(|_| result)
     }
 
@@ -658,5 +660,12 @@ pub(crate) mod tests {
         let mut b = [0; 7];
         let result = s.write_all_to(b.as_mut_slice());
         assert_eq!(result.unwrap_err().kind(), ErrorKind::WriteZero);
+    }
+
+    #[test]
+    fn test_byte_valued_zeroed() {
+        let s = S::zeroed();
+
+        assert!(s.as_slice().iter().all(|&b| b == 0x0));
     }
 }
