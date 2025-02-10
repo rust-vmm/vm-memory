@@ -408,7 +408,10 @@ pub trait GuestMemory {
     fn num_regions(&self) -> usize;
 
     /// Returns the region containing the specified address or `None`.
-    fn find_region(&self, addr: GuestAddress) -> Option<&Self::R>;
+    fn find_region(&self, addr: GuestAddress) -> Option<&Self::R> {
+        self.iter()
+            .find(|region| addr >= region.start_addr() && addr <= region.last_addr())
+    }
 
     /// Gets an iterator over the entries in the collection.
     ///
@@ -581,6 +584,168 @@ pub trait GuestMemory {
         self.to_region_addr(addr)
             .ok_or(Error::InvalidGuestAddress(addr))
             .and_then(|(r, addr)| r.get_slice(addr, count))
+    }
+}
+
+/// Errors that can occur when creating a memory map.
+#[derive(Debug, thiserror::Error)]
+pub enum GuestRegionCollectionError {
+    /// Adding the guest base address to the length of the underlying mapping resulted
+    /// in an overflow.
+    #[error("Adding the guest base address to the length of the underlying mapping resulted in an overflow")]
+    #[cfg(feature = "backend-mmap")]
+    InvalidGuestRegion,
+    /// Error creating a `MmapRegion` object.
+    #[error("{0}")]
+    #[cfg(feature = "backend-mmap")]
+    MmapRegion(crate::mmap::MmapRegionError),
+    /// No memory region found.
+    #[error("No memory region found")]
+    NoMemoryRegion,
+    /// Some of the memory regions intersect with each other.
+    #[error("Some of the memory regions intersect with each other")]
+    MemoryRegionOverlap,
+    /// The provided memory regions haven't been sorted.
+    #[error("The provided memory regions haven't been sorted")]
+    UnsortedMemoryRegions,
+}
+
+/// [`GuestMemory`](trait.GuestMemory.html) implementation based on a homogeneous collection
+/// of [`GuestMemoryRegion`] implementations.
+///
+/// Represents a sorted set of non-overlapping physical guest memory regions.
+#[derive(Debug)]
+pub struct GuestRegionCollection<R: GuestMemoryRegion> {
+    regions: Vec<Arc<R>>,
+}
+
+impl<R: GuestMemoryRegion> Default for GuestRegionCollection<R> {
+    fn default() -> Self {
+        Self {
+            regions: Vec::new(),
+        }
+    }
+}
+
+impl<R: GuestMemoryRegion> Clone for GuestRegionCollection<R> {
+    fn clone(&self) -> Self {
+        GuestRegionCollection {
+            regions: self.regions.iter().map(Arc::clone).collect(),
+        }
+    }
+}
+
+impl<R: GuestMemoryRegion> GuestRegionCollection<R> {
+    /// Creates an empty `GuestMemoryMmap` instance.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates a new [`GuestRegionCollection`] from a vector of regions.
+    ///
+    /// # Arguments
+    ///
+    /// * `regions` - The vector of regions.
+    ///               The regions shouldn't overlap, and they should be sorted
+    ///               by the starting address.
+    pub fn from_regions(
+        mut regions: Vec<R>,
+    ) -> std::result::Result<Self, GuestRegionCollectionError> {
+        Self::from_arc_regions(regions.drain(..).map(Arc::new).collect())
+    }
+
+    /// Creates a new [`GuestRegionCollection`] from a vector of Arc regions.
+    ///
+    /// Similar to the constructor `from_regions()` as it returns a
+    /// [`GuestRegionCollection`]. The need for this constructor is to provide a way for
+    /// consumer of this API to create a new [`GuestRegionCollection`] based on existing
+    /// regions coming from an existing [`GuestRegionCollection`] instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `regions` - The vector of `Arc` regions.
+    ///               The regions shouldn't overlap and they should be sorted
+    ///               by the starting address.
+    pub fn from_arc_regions(
+        regions: Vec<Arc<R>>,
+    ) -> std::result::Result<Self, GuestRegionCollectionError> {
+        if regions.is_empty() {
+            return Err(GuestRegionCollectionError::NoMemoryRegion);
+        }
+
+        for window in regions.windows(2) {
+            let prev = &window[0];
+            let next = &window[1];
+
+            if prev.start_addr() > next.start_addr() {
+                return Err(GuestRegionCollectionError::UnsortedMemoryRegions);
+            }
+
+            if prev.last_addr() >= next.start_addr() {
+                return Err(GuestRegionCollectionError::MemoryRegionOverlap);
+            }
+        }
+
+        Ok(Self { regions })
+    }
+
+    /// Insert a region into the `GuestMemoryMmap` object and return a new `GuestMemoryMmap`.
+    ///
+    /// # Arguments
+    /// * `region`: the memory region to insert into the guest memory object.
+    pub fn insert_region(
+        &self,
+        region: Arc<R>,
+    ) -> std::result::Result<GuestRegionCollection<R>, GuestRegionCollectionError> {
+        let mut regions = self.regions.clone();
+        regions.push(region);
+        regions.sort_by_key(|x| x.start_addr());
+
+        Self::from_arc_regions(regions)
+    }
+
+    /// Remove a region from the [`GuestRegionCollection`] object and return a new `GuestRegionCollection`
+    /// on success, together with the removed region.
+    ///
+    /// # Arguments
+    /// * `base`: base address of the region to be removed
+    /// * `size`: size of the region to be removed
+    pub fn remove_region(
+        &self,
+        base: GuestAddress,
+        size: GuestUsize,
+    ) -> std::result::Result<(GuestRegionCollection<R>, Arc<R>), GuestRegionCollectionError> {
+        if let Ok(region_index) = self.regions.binary_search_by_key(&base, |x| x.start_addr()) {
+            if self.regions.get(region_index).unwrap().len() == size {
+                let mut regions = self.regions.clone();
+                let region = regions.remove(region_index);
+                return Ok((Self { regions }, region));
+            }
+        }
+
+        Err(GuestRegionCollectionError::NoMemoryRegion)
+    }
+}
+
+impl<R: GuestMemoryRegion> GuestMemory for GuestRegionCollection<R> {
+    type R = R;
+
+    fn num_regions(&self) -> usize {
+        self.regions.len()
+    }
+
+    fn find_region(&self, addr: GuestAddress) -> Option<&R> {
+        let index = match self.regions.binary_search_by_key(&addr, |x| x.start_addr()) {
+            Ok(x) => Some(x),
+            // Within the closest region with starting address < addr
+            Err(x) if (x > 0 && addr <= self.regions[x - 1].last_addr()) => Some(x - 1),
+            _ => None,
+        };
+        index.map(|x| self.regions[x].as_ref())
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Self::R> {
+        self.regions.iter().map(AsRef::as_ref)
     }
 }
 
