@@ -215,7 +215,7 @@ impl<B: NewBitmap> GuestMemoryMmap<B> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     extern crate vmm_sys_util;
 
@@ -236,13 +236,13 @@ mod tests {
     macro_rules! any_backend {
         ($($(#[$attr:meta])* $backend: ident[$region: path]), *) => {
             #[derive(Debug)]
-            enum AnyRegion {
+            pub enum AnyRegion {
                 $(
                     $(#[$attr])* $backend($region)
                 ),*
             }
 
-            type AnyBackend = $crate::GuestRegionCollection<AnyRegion>;
+            pub type AnyBackend = $crate::GuestRegionCollection<AnyRegion>;
 
             impl $crate::GuestMemoryRegion for AnyRegion {
                 type B = ();
@@ -369,7 +369,9 @@ mod tests {
             transpose(striped)
         }
 
-        fn all(regions: &[(GuestAddress, usize, Option<FileOffset>)]) -> Vec<AnyBackend> {
+        pub(crate) fn all(
+            regions: &[(GuestAddress, usize, Option<FileOffset>)],
+        ) -> Vec<AnyBackend> {
             let striped = regions
                 .iter()
                 .map(|(addr, size, file)| AnyRegion::all(*addr, *size, file))
