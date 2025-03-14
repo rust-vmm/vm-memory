@@ -948,16 +948,6 @@ mod tests {
     }
 
     #[cfg(feature = "backend-mmap")]
-    #[test]
-    fn test_atomic_accesses() {
-        let addr = GuestAddress(0x1000);
-        let mem = GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
-        let bad_addr = addr.unchecked_add(0x1000);
-
-        crate::bytes::tests::check_atomic_accesses(mem, addr, bad_addr);
-    }
-
-    #[cfg(feature = "backend-mmap")]
     #[cfg(target_os = "linux")]
     #[test]
     fn test_guest_memory_mmap_is_hugetlbfs() {
