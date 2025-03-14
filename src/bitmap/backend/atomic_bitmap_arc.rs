@@ -4,10 +4,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
-use crate::bitmap::{ArcSlice, AtomicBitmap, Bitmap, WithBitmapSlice};
-
-#[cfg(feature = "backend-mmap")]
-use crate::mmap::NewBitmap;
+use crate::bitmap::{ArcSlice, AtomicBitmap, Bitmap, NewBitmap, WithBitmapSlice};
 
 /// A `Bitmap` implementation that's based on an atomically reference counted handle to an
 /// `AtomicBitmap` object.
@@ -65,7 +62,6 @@ impl Default for AtomicBitmapArc {
     }
 }
 
-#[cfg(feature = "backend-mmap")]
 impl NewBitmap for AtomicBitmapArc {
     fn with_len(len: usize) -> Self {
         Self::new(AtomicBitmap::with_len(len))

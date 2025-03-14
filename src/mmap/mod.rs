@@ -28,6 +28,9 @@ use crate::guest_memory::{
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
 use crate::{AtomicAccess, Bytes, ReadVolatile, WriteVolatile};
 
+// re-export for backward compat, as the trait used to be defined in mmap.rs
+pub use crate::bitmap::NewBitmap;
+
 #[cfg(all(not(feature = "xen"), target_family = "unix"))]
 mod unix;
 
@@ -47,16 +50,6 @@ pub use xen::{Error as MmapRegionError, MmapRange, MmapRegion, MmapXenFlags};
 pub use std::io::Error as MmapRegionError;
 #[cfg(target_family = "windows")]
 pub use windows::MmapRegion;
-
-/// A `Bitmap` that can be created starting from an initial size.
-pub trait NewBitmap: Bitmap + Default {
-    /// Create a new object based on the specified length in bytes.
-    fn with_len(len: usize) -> Self;
-}
-
-impl NewBitmap for () {
-    fn with_len(_len: usize) -> Self {}
-}
 
 /// Errors that can occur when creating a memory map.
 #[derive(Debug, thiserror::Error)]

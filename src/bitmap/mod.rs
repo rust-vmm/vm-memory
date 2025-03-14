@@ -47,6 +47,13 @@ pub trait Bitmap: for<'a> WithBitmapSlice<'a> {
     fn slice_at(&self, offset: usize) -> <Self as WithBitmapSlice>::S;
 }
 
+/// A `Bitmap` that can be created starting from an initial size.
+// Cannot be a part of the Bitmap trait itself because it cannot be implemented for BaseSlice
+pub trait NewBitmap: Bitmap + Default {
+    /// Create a new object based on the specified length in bytes.
+    fn with_len(len: usize) -> Self;
+}
+
 /// A no-op `Bitmap` implementation that can be provided for backends that do not actually
 /// require the tracking functionality.
 impl WithBitmapSlice<'_> for () {
@@ -63,6 +70,10 @@ impl Bitmap for () {
     }
 
     fn slice_at(&self, _offset: usize) -> Self {}
+}
+
+impl NewBitmap for () {
+    fn with_len(_len: usize) -> Self {}
 }
 
 /// A `Bitmap` and `BitmapSlice` implementation for `Option<B>`.
