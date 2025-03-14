@@ -14,6 +14,8 @@
   `write_volatile_to` and `write_all_volatile_to` functions from the `GuestMemory` trait to the `Bytes` trait.
 - \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\]: Give `GuestMemory::find_region` a default implementation,
   based on linear search.
+- \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\]: Implement `Bytes<MemoryRegionAddress>` generically
+  for all `R: GuestMemoryRegion`.
 
 ### Removed
 
