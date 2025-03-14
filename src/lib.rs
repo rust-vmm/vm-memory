@@ -47,8 +47,11 @@ pub use endian::{Be16, Be32, Be64, BeSize, Le16, Le32, Le64, LeSize};
 pub mod guest_memory;
 pub use guest_memory::{
     Error as GuestMemoryError, FileOffset, GuestAddress, GuestAddressSpace, GuestMemory,
-    GuestMemoryRegion, GuestUsize, MemoryRegionAddress, Result as GuestMemoryResult,
+    GuestUsize, MemoryRegionAddress, Result as GuestMemoryResult,
 };
+
+pub mod region;
+pub use region::GuestMemoryRegion;
 
 pub mod io;
 pub use io::{ReadVolatile, WriteVolatile};
