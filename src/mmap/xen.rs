@@ -508,11 +508,12 @@ fn validate_file(file_offset: &Option<FileOffset>) -> Result<(i32, u64)> {
 trait MmapXenTrait: std::fmt::Debug {
     fn mmap_slice(&self, addr: *const u8, prot: i32, len: usize) -> Result<MmapXenSlice>;
     fn addr(&self) -> *mut u8;
+    fn guest_base(&self) -> GuestAddress;
 }
 
 // Standard Unix memory mapping for testing other crates.
 #[derive(Clone, Debug, PartialEq)]
-struct MmapXenUnix(MmapUnix);
+struct MmapXenUnix(MmapUnix, GuestAddress);
 
 impl MmapXenUnix {
     fn new(range: &MmapRange) -> Result<Self> {
@@ -522,13 +523,16 @@ impl MmapXenUnix {
             (-1, 0)
         };
 
-        Ok(Self(MmapUnix::new(
-            range.size,
-            range.prot.ok_or(Error::UnexpectedError)?,
-            range.flags.ok_or(Error::UnexpectedError)?,
-            fd,
-            offset,
-        )?))
+        Ok(Self(
+            MmapUnix::new(
+                range.size,
+                range.prot.ok_or(Error::UnexpectedError)?,
+                range.flags.ok_or(Error::UnexpectedError)?,
+                fd,
+                offset,
+            )?,
+            range.addr,
+        ))
     }
 }
 
@@ -540,6 +544,10 @@ impl MmapXenTrait for MmapXenUnix {
 
     fn addr(&self) -> *mut u8 {
         self.0.addr()
+    }
+
+    fn guest_base(&self) -> GuestAddress {
+        self.1
     }
 }
 
@@ -650,6 +658,10 @@ impl MmapXenTrait for MmapXenForeign {
 
     fn addr(&self) -> *mut u8 {
         self.unix_mmap.addr()
+    }
+
+    fn guest_base(&self) -> GuestAddress {
+        self.guest_base
     }
 }
 
@@ -885,6 +897,10 @@ impl MmapXenTrait for MmapXenGrant {
         } else {
             null_mut()
         }
+    }
+
+    fn guest_base(&self) -> GuestAddress {
+        self.guest_base
     }
 }
 
