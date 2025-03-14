@@ -21,8 +21,9 @@ use std::sync::Arc;
 use crate::address::Address;
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::{
-    self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
+    self, FileOffset, GuestAddress, GuestMemory, GuestUsize, MemoryRegionAddress,
 };
+use crate::region::GuestMemoryRegion;
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
 use crate::{AtomicAccess, Bytes, ReadVolatile, WriteVolatile};
 
