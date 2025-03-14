@@ -1,7 +1,7 @@
 // Copyright (C) 2020 Alibaba Cloud Computing. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
-#![cfg(all(feature = "backend-mmap", not(feature = "xen"), not(target_family = "windows")))]
+#![cfg(all(feature = "backend-mmap", not(target_family = "windows")))]
 
 use core::hint::black_box;
 pub use criterion::Criterion;

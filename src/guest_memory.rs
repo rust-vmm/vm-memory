@@ -176,7 +176,7 @@ impl FileOffset {
 /// # Examples (uses the `backend-mmap` and `backend-atomic` features)
 ///
 /// ```
-/// # #[cfg(all(feature = "backend-mmap", target_family = "unix", not(feature = "xen")))]
+/// # #[cfg(all(feature = "backend-mmap", target_family = "unix"))]
 /// # {
 /// # use std::sync::Arc;
 /// # use vm_memory::{GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryMmap};
@@ -294,7 +294,7 @@ pub trait GuestMemory {
     ///   `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix", not(feature = "xen")))]
+    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix"))]
     /// # {
     /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryRegion, GuestMemoryMmap};
     /// #
@@ -318,7 +318,7 @@ pub trait GuestMemory {
     /// # Examples (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix", not(feature = "xen")))]
+    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix"))]
     /// # {
     /// # use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
     /// #
@@ -433,7 +433,7 @@ pub trait GuestMemory {
     /// # Examples (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix", not(feature = "xen")))]
+    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix"))]
     /// # {
     /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
     /// #
@@ -592,9 +592,9 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     /// * Write a slice at guestaddress 0x1000. (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix", not(feature = "xen")))]
+    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix"))]
     /// # {
-    /// # use vm_memory::{Bytes, GuestAddress, mmap::GuestMemoryMmap};
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// #
     /// # let start_addr = GuestAddress(0x1000);
     /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
@@ -620,9 +620,9 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     /// * Read a slice of length 16 at guestaddress 0x1000. (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix", not(feature = "xen")))]
+    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix"))]
     /// # {
-    /// # use vm_memory::{Bytes, GuestAddress, mmap::GuestMemoryMmap};
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// #
     /// let start_addr = GuestAddress(0x1000);
     /// let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
