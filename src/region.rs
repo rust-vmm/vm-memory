@@ -445,7 +445,7 @@ impl<R: GuestMemoryRegion> Bytes<MemoryRegionAddress> for R {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::region::GuestRegionError;
     use crate::{
         Address, GuestAddress, GuestMemory, GuestMemoryRegion, GuestRegionCollection, GuestUsize,
@@ -453,9 +453,9 @@ mod tests {
     use std::sync::Arc;
 
     #[derive(Debug, PartialEq, Eq)]
-    struct MockRegion {
-        start: GuestAddress,
-        len: GuestUsize,
+    pub(crate) struct MockRegion {
+        pub(crate) start: GuestAddress,
+        pub(crate) len: GuestUsize,
     }
 
     impl GuestMemoryRegion for MockRegion {
@@ -474,7 +474,7 @@ mod tests {
         }
     }
 
-    type Collection = GuestRegionCollection<MockRegion>;
+    pub(crate) type Collection = GuestRegionCollection<MockRegion>;
 
     fn check_guest_memory_mmap(
         maybe_guest_mem: Result<Collection, GuestRegionError>,
@@ -502,7 +502,7 @@ mod tests {
         }
     }
 
-    fn new_guest_memory_collection_from_regions(
+    pub(crate) fn new_guest_memory_collection_from_regions(
         regions_summary: &[(GuestAddress, u64)],
     ) -> Result<Collection, GuestRegionError> {
         Collection::from_regions(
