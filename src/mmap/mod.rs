@@ -15,7 +15,7 @@
 // re-export for backward compat, as the trait used to be defined in mmap.rs
 pub use crate::bitmap::NewBitmap;
 
-#[cfg(all(not(feature = "xen"), target_family = "unix"))]
+#[cfg(target_family = "unix")]
 pub(super) mod unix;
 
 #[cfg(all(feature = "xen", target_family = "unix"))]
@@ -40,13 +40,11 @@ pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     extern crate vmm_sys_util;
 
-    use super::*;
-
     use crate::bitmap::BS;
     use crate::{
         guest_memory, Address, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryError,
-        GuestMemoryRegion, GuestMemoryRegionBytes, GuestUsize, MemoryRegionAddress, VolatileMemory,
-        VolatileSlice,
+        GuestMemoryRegion, GuestMemoryRegionBytes, GuestUsize, MemoryRegionAddress, MmapRegion,
+        VolatileMemory, VolatileSlice,
     };
 
     use std::io::Write;
@@ -109,7 +107,7 @@ pub(crate) mod tests {
     any_backend! {
         #[cfg(all(windows, feature = "backend-mmap"))]
         Windows[crate::mmap::windows::GuestRegionWindows<()>],
-        #[cfg(all(unix, feature = "backend-mmap", not(feature = "xen")))]
+        #[cfg(all(unix, feature = "backend-mmap"))]
         Mmap[crate::mmap::unix::GuestRegionMmap<()>],
         #[cfg(all(unix, feature = "backend-mmap", feature = "xen"))]
         Xen[crate::mmap::xen::MmapRegion]
@@ -128,7 +126,7 @@ pub(crate) mod tests {
                 )
                 .unwrap(),
             ));
-            #[cfg(all(unix, feature = "backend-mmap", not(feature = "xen")))]
+            #[cfg(all(unix, feature = "backend-mmap"))]
             regions.push(AnyRegion::Mmap(
                 crate::mmap::unix::GuestRegionMmap::new(
                     MmapRegion::from_file(f_off.clone(), size).unwrap(),
@@ -138,8 +136,12 @@ pub(crate) mod tests {
             ));
             #[cfg(all(unix, feature = "backend-mmap", feature = "xen"))]
             regions.push(AnyRegion::Xen(
-                MmapRegion::from_range(MmapRange::new_unix(size, Some(f_off.clone()), addr))
-                    .unwrap(),
+                crate::MmapRegionXen::from_range(crate::MmapRange::new_unix(
+                    size,
+                    Some(f_off.clone()),
+                    addr,
+                ))
+                .unwrap(),
             ));
             regions
         }
@@ -158,14 +160,15 @@ pub(crate) mod tests {
                 )
                 .unwrap(),
             ));
-            #[cfg(all(unix, feature = "backend-mmap", not(feature = "xen")))]
+            #[cfg(all(unix, feature = "backend-mmap"))]
             regions.push(AnyRegion::Mmap(
                 crate::mmap::unix::GuestRegionMmap::new(MmapRegion::new(size).unwrap(), addr)
                     .unwrap(),
             ));
             #[cfg(all(unix, feature = "backend-mmap", feature = "xen"))]
             regions.push(AnyRegion::Xen(
-                MmapRegion::from_range(MmapRange::new_unix(size, None, addr)).unwrap(),
+                crate::MmapRegionXen::from_range(crate::MmapRange::new_unix(size, None, addr))
+                    .unwrap(),
             ));
             regions
         }
