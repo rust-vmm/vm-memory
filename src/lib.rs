@@ -56,7 +56,7 @@ pub use region::{GuestMemoryRegion, GuestRegionCollection, GuestRegionError as E
 pub mod io;
 pub use io::{ReadVolatile, WriteVolatile};
 
-#[cfg(all(feature = "backend-mmap", not(feature = "xen"), unix))]
+#[cfg(all(feature = "backend-mmap", unix))]
 mod mmap_unix;
 
 #[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
@@ -68,14 +68,13 @@ mod mmap_windows;
 #[cfg(feature = "backend-mmap")]
 pub mod mmap;
 
-#[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
-pub use mmap::{MmapRange, MmapXenFlags};
-
 #[cfg(all(feature = "xen", unix))]
-pub use mmap_xen::{GuestMemoryXen, MmapRegion as MmapRegionXen};
+pub use mmap_xen::{GuestMemoryXen, MmapRange, MmapRegion as MmapRegionXen, MmapXenFlags};
 
-#[cfg(all(feature = "backend-mmap", unix, not(feature = "xen")))]
-pub use mmap_unix::{Error as MmapRegionError, GuestMemoryMmap, GuestRegionMmap, MmapRegion};
+#[cfg(all(feature = "backend-mmap", unix))]
+pub use mmap_unix::{
+    Error as MmapRegionError, GuestMemoryMmap, GuestRegionMmap, MmapRegion, MmapRegionBuilder,
+};
 
 #[cfg(windows)]
 pub use crate::mmap_windows::{

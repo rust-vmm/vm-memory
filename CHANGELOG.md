@@ -16,6 +16,9 @@
   based on linear search.
 - \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\]: Implement `Bytes<MemoryRegionAddress>` generically
   for all `R: GuestMemoryRegion`.
+- \[[#317](https://github.com/rust-vmm/vm-memory/pull/317)\]: Make `xen` feature additive, meaning enabling it
+  no longer disables the `mmap_unix` module at compile time. For this, various Xen-related structs had to be
+  renamed due to naming conflicts.
 
 ### Removed
 
