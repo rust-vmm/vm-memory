@@ -12,9 +12,8 @@ use libc::{c_void, size_t};
 
 use winapi::um::errhandlingapi::GetLastError;
 
-use crate::bitmap::{Bitmap, BS};
+use crate::bitmap::{Bitmap, NewBitmap, BS};
 use crate::guest_memory::FileOffset;
-use crate::mmap::NewBitmap;
 use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
 
 #[allow(non_snake_case)]

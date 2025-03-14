@@ -6,10 +6,7 @@
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::bitmap::{Bitmap, RefSlice, WithBitmapSlice};
-
-#[cfg(feature = "backend-mmap")]
-use crate::mmap::NewBitmap;
+use crate::bitmap::{Bitmap, NewBitmap, RefSlice, WithBitmapSlice};
 
 /// `AtomicBitmap` implements a simple bit map on the page level with test and set operations.
 /// It is page-size aware, so it converts addresses to page numbers before setting or clearing
@@ -191,7 +188,6 @@ impl Default for AtomicBitmap {
     }
 }
 
-#[cfg(feature = "backend-mmap")]
 impl NewBitmap for AtomicBitmap {
     fn with_len(len: usize) -> Self {
         #[cfg(target_family = "unix")]
