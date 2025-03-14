@@ -17,14 +17,13 @@ use std::borrow::Borrow;
 use std::io::{Seek, SeekFrom};
 use std::ops::Deref;
 use std::result;
-use std::sync::atomic::Ordering;
 
 use crate::address::Address;
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::{self, FileOffset, GuestAddress, GuestUsize, MemoryRegionAddress};
 use crate::region::GuestMemoryRegion;
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
-use crate::{AtomicAccess, Bytes, Error, GuestRegionCollection, ReadVolatile, WriteVolatile};
+use crate::{Error, GuestRegionCollection};
 
 #[cfg(all(not(feature = "xen"), unix))]
 pub use crate::mmap_unix::{Error as MmapRegionError, MmapRegion, MmapRegionBuilder};
@@ -143,154 +142,6 @@ impl<B: NewBitmap> GuestRegionMmap<B> {
     }
 }
 
-impl<B: Bitmap> Bytes<MemoryRegionAddress> for GuestRegionMmap<B> {
-    type E = guest_memory::Error;
-
-    /// # Examples
-    /// * Write a slice at guest address 0x1200.
-    ///
-    /// ```
-    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
-    /// #
-    /// # let start_addr = GuestAddress(0x1000);
-    /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
-    /// #    .expect("Could not create guest memory");
-    /// #
-    /// let res = gm
-    ///     .write(&[1, 2, 3, 4, 5], GuestAddress(0x1200))
-    ///     .expect("Could not write to guest memory");
-    /// assert_eq!(5, res);
-    /// ```
-    fn write(&self, buf: &[u8], addr: MemoryRegionAddress) -> guest_memory::Result<usize> {
-        let maddr = addr.raw_value() as usize;
-        self.as_volatile_slice()
-            .unwrap()
-            .write(buf, maddr)
-            .map_err(Into::into)
-    }
-
-    /// # Examples
-    /// * Read a slice of length 16 at guestaddress 0x1200.
-    ///
-    /// ```
-    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
-    /// #
-    /// # let start_addr = GuestAddress(0x1000);
-    /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
-    /// #    .expect("Could not create guest memory");
-    /// #
-    /// let buf = &mut [0u8; 16];
-    /// let res = gm
-    ///     .read(buf, GuestAddress(0x1200))
-    ///     .expect("Could not read from guest memory");
-    /// assert_eq!(16, res);
-    /// ```
-    fn read(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> guest_memory::Result<usize> {
-        let maddr = addr.raw_value() as usize;
-        self.as_volatile_slice()
-            .unwrap()
-            .read(buf, maddr)
-            .map_err(Into::into)
-    }
-
-    fn write_slice(&self, buf: &[u8], addr: MemoryRegionAddress) -> guest_memory::Result<()> {
-        let maddr = addr.raw_value() as usize;
-        self.as_volatile_slice()
-            .unwrap()
-            .write_slice(buf, maddr)
-            .map_err(Into::into)
-    }
-
-    fn read_slice(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> guest_memory::Result<()> {
-        let maddr = addr.raw_value() as usize;
-        self.as_volatile_slice()
-            .unwrap()
-            .read_slice(buf, maddr)
-            .map_err(Into::into)
-    }
-
-    fn read_volatile_from<F>(
-        &self,
-        addr: MemoryRegionAddress,
-        src: &mut F,
-        count: usize,
-    ) -> Result<usize, Self::E>
-    where
-        F: ReadVolatile,
-    {
-        self.as_volatile_slice()
-            .unwrap()
-            .read_volatile_from(addr.0 as usize, src, count)
-            .map_err(Into::into)
-    }
-
-    fn read_exact_volatile_from<F>(
-        &self,
-        addr: MemoryRegionAddress,
-        src: &mut F,
-        count: usize,
-    ) -> Result<(), Self::E>
-    where
-        F: ReadVolatile,
-    {
-        self.as_volatile_slice()
-            .unwrap()
-            .read_exact_volatile_from(addr.0 as usize, src, count)
-            .map_err(Into::into)
-    }
-
-    fn write_volatile_to<F>(
-        &self,
-        addr: MemoryRegionAddress,
-        dst: &mut F,
-        count: usize,
-    ) -> Result<usize, Self::E>
-    where
-        F: WriteVolatile,
-    {
-        self.as_volatile_slice()
-            .unwrap()
-            .write_volatile_to(addr.0 as usize, dst, count)
-            .map_err(Into::into)
-    }
-
-    fn write_all_volatile_to<F>(
-        &self,
-        addr: MemoryRegionAddress,
-        dst: &mut F,
-        count: usize,
-    ) -> Result<(), Self::E>
-    where
-        F: WriteVolatile,
-    {
-        self.as_volatile_slice()
-            .unwrap()
-            .write_all_volatile_to(addr.0 as usize, dst, count)
-            .map_err(Into::into)
-    }
-
-    fn store<T: AtomicAccess>(
-        &self,
-        val: T,
-        addr: MemoryRegionAddress,
-        order: Ordering,
-    ) -> guest_memory::Result<()> {
-        self.as_volatile_slice().and_then(|s| {
-            s.store(val, addr.raw_value() as usize, order)
-                .map_err(Into::into)
-        })
-    }
-
-    fn load<T: AtomicAccess>(
-        &self,
-        addr: MemoryRegionAddress,
-        order: Ordering,
-    ) -> guest_memory::Result<T> {
-        self.as_volatile_slice()
-            .and_then(|s| s.load(addr.raw_value() as usize, order).map_err(Into::into))
-    }
-}
-
 impl<B: Bitmap> GuestMemoryRegion for GuestRegionMmap<B> {
     type B = B;
 
@@ -382,7 +233,7 @@ mod tests {
 
     use crate::bitmap::tests::test_guest_memory_and_region;
     use crate::bitmap::AtomicBitmap;
-    use crate::{Error, GuestAddressSpace, GuestMemory, GuestMemoryError};
+    use crate::{Bytes, Error, GuestAddressSpace, GuestMemory, GuestMemoryError};
 
     use std::io::Write;
     use std::mem;
