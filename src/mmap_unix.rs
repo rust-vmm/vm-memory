@@ -438,6 +438,16 @@ impl<B> Drop for MmapRegion<B> {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum GuestMemoryMmapError {
+    /// Error creating a `MmapRegion` object.
+    #[error("{0}")]
+    MmapRegion(#[from] Error),
+    /// Error when calling [`GuestRegionCollection`] APIs
+    #[error("{0}")]
+    GuestRegion(#[from] GuestRegionError),
+}
+
 /// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) implementation that mmaps the guest's
 /// memory region in the current process.
 ///
@@ -480,15 +490,14 @@ impl<B: NewBitmap> GuestRegionMmap<B> {
         addr: GuestAddress,
         size: usize,
         file: Option<FileOffset>,
-    ) -> result::Result<Self, GuestRegionError> {
+    ) -> result::Result<Self, GuestMemoryMmapError> {
         let region = if let Some(ref f_off) = file {
-            MmapRegion::from_file(f_off.clone(), size)
+            MmapRegion::from_file(f_off.clone(), size)?
         } else {
-            MmapRegion::new(size)
-        }
-        .map_err(GuestRegionError::MmapRegion)?;
+            MmapRegion::new(size)?
+        };
 
-        Self::new(region, addr)
+        Ok(Self::new(region, addr)?)
     }
 }
 
@@ -550,7 +559,9 @@ impl<B: NewBitmap> GuestMemoryMmap<B> {
     /// Creates a container and allocates anonymous memory for guest memory regions.
     ///
     /// Valid memory regions are specified as a slice of (Address, Size) tuples sorted by Address.
-    pub fn from_ranges(ranges: &[(GuestAddress, usize)]) -> result::Result<Self, GuestRegionError> {
+    pub fn from_ranges(
+        ranges: &[(GuestAddress, usize)],
+    ) -> result::Result<Self, GuestMemoryMmapError> {
         Self::from_ranges_with_files(ranges.iter().map(|r| (r.0, r.1, None)))
     }
 
@@ -558,7 +569,7 @@ impl<B: NewBitmap> GuestMemoryMmap<B> {
     ///
     /// Valid memory regions are specified as a sequence of (Address, Size, [`Option<FileOffset>`])
     /// tuples sorted by Address.
-    pub fn from_ranges_with_files<A, T>(ranges: T) -> result::Result<Self, GuestRegionError>
+    pub fn from_ranges_with_files<A, T>(ranges: T) -> result::Result<Self, GuestMemoryMmapError>
     where
         A: Borrow<(GuestAddress, usize, Option<FileOffset>)>,
         T: IntoIterator<Item = A>,
@@ -571,6 +582,7 @@ impl<B: NewBitmap> GuestMemoryMmap<B> {
                 })
                 .collect::<result::Result<Vec<_>, _>>()?,
         )
+        .map_err(GuestMemoryMmapError::GuestRegion)
     }
 }
 

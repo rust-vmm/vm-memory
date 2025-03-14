@@ -142,18 +142,13 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = GuestMemoryError> {
     }
 }
 
-/// Errors that can occur when dealing with [`GuestRegion`]s, or collections thereof
+/// Errors that can occur when dealing with [`GuestRegion`]s, and collections thereof
 #[derive(Debug, thiserror::Error)]
 pub enum GuestRegionError {
     /// Adding the guest base address to the length of the underlying mapping resulted
     /// in an overflow.
     #[error("Adding the guest base address to the length of the underlying mapping resulted in an overflow")]
-    #[cfg(feature = "backend-mmap")]
     InvalidGuestRegion,
-    /// Error creating a `MmapRegion` object.
-    #[error("{0}")]
-    #[cfg(all(feature = "backend-mmap", unix, not(feature = "xen")))]
-    MmapRegion(crate::MmapRegionError),
     /// No memory region found.
     #[error("No memory region found")]
     NoMemoryRegion,
