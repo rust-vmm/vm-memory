@@ -28,7 +28,10 @@ use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::{FileOffset, GuestAddress};
 use crate::mmap::{check_file_offset, CheckFileOffsetError, NewBitmap};
 use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
-use crate::{guest_memory, Address, GuestMemoryRegion, GuestUsize, MemoryRegionAddress};
+use crate::{
+    guest_memory, Address, GuestMemoryRegion, GuestRegionCollection, GuestUsize,
+    MemoryRegionAddress,
+};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
 #[derive(Debug, thiserror::Error)]
@@ -192,6 +195,12 @@ impl<B: Bitmap> GuestMemoryRegion for MmapRegion<B> {
     }
 }
 
+/// A collection of Xen guest memory regions.
+///
+/// Represents the entire physical memory of the guest by tracking all its memory regions.
+/// Each region is an instance of [`MmapRegionXen`].
+pub type GuestMemoryXen<B> = GuestRegionCollection<MmapRegion<B>>;
+
 // SAFETY: Send and Sync aren't automatically inherited for the raw address pointer.
 // Accessing that pointer is only done through the stateless interface which
 // allows the object to be shared by multiple threads without a decrease in
@@ -213,8 +222,7 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// use std::fs::File;
     /// use std::path::Path;
     /// use vm_memory::{
-    ///     Bytes, FileOffset, GuestAddress, GuestMemoryMmap, GuestRegionMmap, MmapRange, MmapRegion,
-    ///     MmapXenFlags,
+    ///     Bytes, FileOffset, GuestAddress, GuestMemoryXen, MmapRange, MmapRegionXen, MmapXenFlags,
     /// };
     /// # use vmm_sys_util::tempfile::TempFile;
     ///
@@ -230,13 +238,9 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// # // We need a UNIX mapping for tests to succeed.
     /// # let range = MmapRange::new_unix(0x400, None, addr);
     ///
-    /// let r = GuestRegionMmap::new(
-    ///     MmapRegion::<()>::from_range(range).expect("Could not create mmap region"),
-    ///     addr,
-    /// )
-    /// .expect("Could not create guest region");
+    /// let r = MmapRegionXen::<()>::from_range(range).expect("Could not create mmap region");
     ///
-    /// let mut gm = GuestMemoryMmap::from_regions(vec![r]).expect("Could not create guest memory");
+    /// let mut gm = GuestMemoryXen::from_regions(vec![r]).expect("Could not create guest memory");
     /// let res = gm
     ///     .write(&[1, 2, 3, 4, 5], GuestAddress(0x1200))
     ///     .expect("Could not write to guest memory");
@@ -249,8 +253,7 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// use std::fs::File;
     /// use std::path::Path;
     /// use vm_memory::{
-    ///     Bytes, FileOffset, GuestAddress, GuestMemoryMmap, GuestRegionMmap, MmapRange, MmapRegion,
-    ///     MmapXenFlags,
+    ///     Bytes, FileOffset, GuestAddress, GuestMemoryXen, MmapRange, MmapRegionXen, MmapXenFlags,
     /// };
     /// # use vmm_sys_util::tempfile::TempFile;
     ///
@@ -266,13 +269,9 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// # // We need a UNIX mapping for tests to succeed.
     /// # let range = MmapRange::new_unix(0x400, None, addr);
     ///
-    /// let r = GuestRegionMmap::new(
-    ///     MmapRegion::<()>::from_range(range).expect("Could not create mmap region"),
-    ///     addr,
-    /// )
-    /// .expect("Could not create guest region");
+    /// let r = MmapRegionXen::<()>::from_range(range).expect("Could not create mmap region");
     ///
-    /// let mut gm = GuestMemoryMmap::from_regions(vec![r]).expect("Could not create guest memory");
+    /// let mut gm = GuestMemoryXen::from_regions(vec![r]).expect("Could not create guest memory");
     /// let res = gm
     ///     .write(&[1, 2, 3, 4, 5], GuestAddress(0x1200))
     ///     .expect("Could not write to guest memory");

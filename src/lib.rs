@@ -74,7 +74,7 @@ pub use mmap::{GuestMemoryMmap, GuestRegionMmap, MmapRegion};
 pub use mmap::{MmapRange, MmapXenFlags};
 
 #[cfg(all(feature = "xen", unix))]
-pub use mmap_xen::MmapRegion as MmapRegionXen;
+pub use mmap_xen::{GuestMemoryXen, MmapRegion as MmapRegionXen};
 
 pub mod volatile_memory;
 pub use volatile_memory::{
