@@ -27,6 +27,10 @@ use tests::ioctl_with_ref;
 use crate::bitmap::{Bitmap, NewBitmap, BS};
 use crate::guest_memory::{FileOffset, GuestAddress};
 use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
+use crate::{
+    guest_memory, Address, GuestMemoryRegion, GuestMemoryRegionBytes, GuestUsize,
+    MemoryRegionAddress,
+};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
 #[derive(Debug, thiserror::Error)]
@@ -150,6 +154,50 @@ pub struct MmapRegion<B = ()> {
     hugetlbfs: Option<bool>,
     mmap: MmapXen,
 }
+
+impl<B: Bitmap> GuestMemoryRegion for MmapRegion<B> {
+    type B = B;
+
+    fn len(&self) -> GuestUsize {
+        self.size as GuestUsize
+    }
+
+    fn start_addr(&self) -> GuestAddress {
+        self.mmap.mmap.guest_base()
+    }
+
+    fn bitmap(&self) -> BS<'_, Self::B> {
+        self.bitmap.slice_at(0)
+    }
+
+    // TODO: MmapRegion::as_ptr states that it should only be used for passing pointers to ioctls. Should this function then just remain the default implementation of returning Err(InvalidHostAddress)?
+    fn get_host_address(&self, addr: MemoryRegionAddress) -> crate::guest_memory::Result<*mut u8> {
+        self.check_address(addr)
+            .ok_or(guest_memory::Error::InvalidBackendAddress)
+            .map(|addr| self.as_ptr().wrapping_offset(addr.raw_value() as isize))
+    }
+
+    fn file_offset(&self) -> Option<&FileOffset> {
+        self.file_offset.as_ref()
+    }
+
+    fn get_slice(
+        &self,
+        offset: MemoryRegionAddress,
+        count: usize,
+    ) -> crate::guest_memory::Result<VolatileSlice<BS<Self::B>>> {
+        VolatileMemory::get_slice(self, offset.raw_value() as usize, count).map_err(Into::into)
+    }
+
+    // TODO: does this make sense in the context of Xen, or should it just return None, as the default implementation does?
+    // (and if running on Xen, will target_os="linux" even be true?)
+    #[cfg(target_os = "linux")]
+    fn is_hugetlbfs(&self) -> Option<bool> {
+        self.hugetlbfs
+    }
+}
+
+impl<B: Bitmap> GuestMemoryRegionBytes for MmapRegion<B> {}
 
 // SAFETY: Send and Sync aren't automatically inherited for the raw address pointer.
 // Accessing that pointer is only done through the stateless interface which
@@ -308,8 +356,8 @@ impl<B: Bitmap> MmapRegion<B> {
                 if f_off1.file().as_raw_fd() == f_off2.file().as_raw_fd() {
                     let s1 = f_off1.start();
                     let s2 = f_off2.start();
-                    let l1 = self.len() as u64;
-                    let l2 = other.len() as u64;
+                    let l1 = self.size as u64;
+                    let l2 = other.size as u64;
 
                     if s1 < s2 {
                         return s1 + l1 > s2;
