@@ -10,7 +10,9 @@
 
 //! Helper structure for working with mmaped memory regions in Unix.
 
+use std::borrow::Borrow;
 use std::io;
+use std::ops::Deref;
 use std::os::unix::io::AsRawFd;
 use std::ptr::null_mut;
 use std::result;
@@ -18,7 +20,12 @@ use std::result;
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::FileOffset;
 use crate::mmap::{check_file_offset, CheckFileOffsetError, NewBitmap};
+use crate::region::GuestRegionError;
 use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
+use crate::{
+    guest_memory, Address, GuestAddress, GuestMemoryRegion, GuestRegionCollection, GuestUsize,
+    MemoryRegionAddress,
+};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
 #[derive(Debug, thiserror::Error)]
@@ -431,6 +438,142 @@ impl<B> Drop for MmapRegion<B> {
     }
 }
 
+/// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) implementation that mmaps the guest's
+/// memory region in the current process.
+///
+/// Represents a continuous region of the guest's physical memory that is backed by a mapping
+/// in the virtual address space of the calling process.
+#[derive(Debug)]
+pub struct GuestRegionMmap<B = ()> {
+    mapping: MmapRegion<B>,
+    guest_base: GuestAddress,
+}
+
+impl<B> Deref for GuestRegionMmap<B> {
+    type Target = MmapRegion<B>;
+
+    fn deref(&self) -> &MmapRegion<B> {
+        &self.mapping
+    }
+}
+
+impl<B: Bitmap> GuestRegionMmap<B> {
+    /// Create a new memory-mapped memory region for the guest's physical memory.
+    pub fn new(
+        mapping: MmapRegion<B>,
+        guest_base: GuestAddress,
+    ) -> result::Result<Self, GuestRegionError> {
+        if guest_base.0.checked_add(mapping.size() as u64).is_none() {
+            return Err(GuestRegionError::InvalidGuestRegion);
+        }
+
+        Ok(GuestRegionMmap {
+            mapping,
+            guest_base,
+        })
+    }
+}
+
+impl<B: NewBitmap> GuestRegionMmap<B> {
+    /// Create a new memory-mapped memory region from guest's physical memory, size and file.
+    pub fn from_range(
+        addr: GuestAddress,
+        size: usize,
+        file: Option<FileOffset>,
+    ) -> result::Result<Self, GuestRegionError> {
+        let region = if let Some(ref f_off) = file {
+            MmapRegion::from_file(f_off.clone(), size)
+        } else {
+            MmapRegion::new(size)
+        }
+        .map_err(GuestRegionError::MmapRegion)?;
+
+        Self::new(region, addr)
+    }
+}
+
+impl<B: Bitmap> GuestMemoryRegion for GuestRegionMmap<B> {
+    type B = B;
+
+    fn len(&self) -> GuestUsize {
+        self.mapping.size() as GuestUsize
+    }
+
+    fn start_addr(&self) -> GuestAddress {
+        self.guest_base
+    }
+
+    fn bitmap(&self) -> &Self::B {
+        self.mapping.bitmap()
+    }
+
+    fn get_host_address(&self, addr: MemoryRegionAddress) -> guest_memory::Result<*mut u8> {
+        // Not sure why wrapping_offset is not unsafe.  Anyway this
+        // is safe because we've just range-checked addr using check_address.
+        self.check_address(addr)
+            .ok_or(guest_memory::Error::InvalidBackendAddress)
+            .map(|addr| {
+                self.mapping
+                    .as_ptr()
+                    .wrapping_offset(addr.raw_value() as isize)
+            })
+    }
+
+    fn file_offset(&self) -> Option<&FileOffset> {
+        self.mapping.file_offset()
+    }
+
+    fn get_slice(
+        &self,
+        offset: MemoryRegionAddress,
+        count: usize,
+    ) -> guest_memory::Result<VolatileSlice<BS<B>>> {
+        let slice = VolatileMemory::get_slice(&self.mapping, offset.raw_value() as usize, count)?;
+        Ok(slice)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn is_hugetlbfs(&self) -> Option<bool> {
+        self.mapping.is_hugetlbfs()
+    }
+}
+
+/// [`GuestMemory`](trait.GuestMemory.html) implementation that mmaps the guest's memory
+/// in the current process.
+///
+/// Represents the entire physical memory of the guest by tracking all its memory regions.
+/// Each region is an instance of `GuestRegionMmap`, being backed by a mapping in the
+/// virtual address space of the calling process.
+pub type GuestMemoryMmap<B = ()> = GuestRegionCollection<GuestRegionMmap<B>>;
+
+impl<B: NewBitmap> GuestMemoryMmap<B> {
+    /// Creates a container and allocates anonymous memory for guest memory regions.
+    ///
+    /// Valid memory regions are specified as a slice of (Address, Size) tuples sorted by Address.
+    pub fn from_ranges(ranges: &[(GuestAddress, usize)]) -> result::Result<Self, GuestRegionError> {
+        Self::from_ranges_with_files(ranges.iter().map(|r| (r.0, r.1, None)))
+    }
+
+    /// Creates a container and allocates anonymous memory for guest memory regions.
+    ///
+    /// Valid memory regions are specified as a sequence of (Address, Size, [`Option<FileOffset>`])
+    /// tuples sorted by Address.
+    pub fn from_ranges_with_files<A, T>(ranges: T) -> result::Result<Self, GuestRegionError>
+    where
+        A: Borrow<(GuestAddress, usize, Option<FileOffset>)>,
+        T: IntoIterator<Item = A>,
+    {
+        Self::from_regions(
+            ranges
+                .into_iter()
+                .map(|x| {
+                    GuestRegionMmap::from_range(x.borrow().0, x.borrow().1, x.borrow().2.clone())
+                })
+                .collect::<result::Result<Vec<_>, _>>()?,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
@@ -442,6 +585,7 @@ mod tests {
     use std::sync::Arc;
     use vmm_sys_util::tempfile::TempFile;
 
+    use crate::bitmap::tests::test_guest_memory_and_region;
     use crate::bitmap::AtomicBitmap;
 
     type MmapRegion = super::MmapRegion<()>;
@@ -665,5 +809,10 @@ mod tests {
         // the rest of the unit tests above.
         let m = crate::MmapRegion::<AtomicBitmap>::new(0x1_0000).unwrap();
         crate::bitmap::tests::test_volatile_memory(&m);
+
+        test_guest_memory_and_region(|| {
+            crate::GuestMemoryMmap::<AtomicBitmap>::from_ranges(&[(GuestAddress(0), 0x1_0000)])
+                .unwrap()
+        });
     }
 }

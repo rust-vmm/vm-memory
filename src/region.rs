@@ -97,7 +97,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = GuestMemoryError> {
     /// # Examples (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(all(feature = "backend-mmap", unix, not(feature = "xen")))]
     /// # {
     /// # use vm_memory::{GuestAddress, MmapRegion, GuestRegionMmap, GuestMemoryRegion};
     /// # use vm_memory::volatile_memory::{VolatileMemory, VolatileSlice, VolatileRef};
@@ -127,7 +127,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = GuestMemoryError> {
     /// # Examples (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(all(feature = "backend-mmap", unix, not(feature = "xen")))]
     /// # {
     /// #   use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestRegionMmap};
     /// let addr = GuestAddress(0x1000);
@@ -152,8 +152,8 @@ pub enum GuestRegionError {
     InvalidGuestRegion,
     /// Error creating a `MmapRegion` object.
     #[error("{0}")]
-    #[cfg(feature = "backend-mmap")]
-    MmapRegion(crate::mmap::MmapRegionError),
+    #[cfg(all(feature = "backend-mmap", unix, not(feature = "xen")))]
+    MmapRegion(crate::MmapRegionError),
     /// No memory region found.
     #[error("No memory region found")]
     NoMemoryRegion,
@@ -307,10 +307,10 @@ impl<R: GuestMemoryRegion> Bytes<MemoryRegionAddress> for R {
     /// * Write a slice at guest address 0x1200.
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(all(feature = "backend-mmap", unix, not(feature = "xen")))]
     /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// #
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(all(feature = "backend-mmap", unix, not(feature = "xen")))]
     /// # {
     /// # let start_addr = GuestAddress(0x1000);
     /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
@@ -333,10 +333,10 @@ impl<R: GuestMemoryRegion> Bytes<MemoryRegionAddress> for R {
     /// * Read a slice of length 16 at guestaddress 0x1200.
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(all(feature = "backend-mmap", unix, not(feature = "xen")))]
     /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// #
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(all(feature = "backend-mmap", unix, not(feature = "xen")))]
     /// # {
     /// # let start_addr = GuestAddress(0x1000);
     /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
