@@ -331,7 +331,7 @@ pub trait Bytes<A> {
     /// * Read bytes from /dev/urandom (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(all(feature = "backend-mmap", feature = "rawfd"))]
+    /// # #[cfg(all(feature = "backend-mmap", feature = "rawfd", target_family = "unix", not(feature = "xen")))]
     /// # {
     /// # use vm_memory::{Address, GuestMemory, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::File;

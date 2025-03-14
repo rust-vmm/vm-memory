@@ -67,13 +67,21 @@ pub use io::{ReadVolatile, WriteVolatile};
 #[cfg(feature = "backend-mmap")]
 pub mod mmap;
 
-#[cfg(feature = "backend-mmap")]
-pub use mmap::{GuestMemoryMmap, GuestRegionMmap, MmapRegion};
 #[cfg(all(feature = "backend-mmap", feature = "xen", target_family = "unix"))]
 pub use mmap::{MmapRange, MmapXenFlags};
 
-#[cfg(all(feature = "xen", unix))]
+#[cfg(all(feature = "xen", target_family = "unix"))]
 pub use mmap::xen::{GuestMemoryXen, MmapRegion as MmapRegionXen};
+
+#[cfg(all(feature = "backend-mmap", target_family = "unix", not(feature = "xen")))]
+pub use mmap::unix::{Error as MmapRegionError, GuestMemoryMmap, GuestRegionMmap, MmapRegion};
+
+#[cfg(all(feature = "backend-mmap", target_family = "windows"))]
+pub use crate::mmap::windows::{
+    GuestMemoryWindows as GuestMemoryMmap, GuestRegionWindows as GuestRegionMmap, MmapRegion,
+}; // rename for backwards compat
+#[cfg(all(feature = "backend-mmap", target_family = "windows"))]
+pub use std::io::Error as MmapRegionError;
 
 pub mod volatile_memory;
 pub use volatile_memory::{
