@@ -26,30 +26,18 @@ use tests::ioctl_with_ref;
 
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::{FileOffset, GuestAddress};
-use crate::mmap::{check_file_offset, NewBitmap};
+use crate::mmap::{check_file_offset, CheckFileOffsetError, NewBitmap};
 use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// The specified file offset and length cause overflow when added.
-    #[error("The specified file offset and length cause overflow when added")]
-    InvalidOffsetLength,
     /// The forbidden `MAP_FIXED` flag was specified.
     #[error("The forbidden `MAP_FIXED` flag was specified")]
     MapFixed,
-    /// A mapping with offset + length > EOF was attempted.
-    #[error("The specified file offset and length is greater then file length")]
-    MappingPastEof,
     /// The `mmap` call returned an error.
     #[error("{0}")]
     Mmap(io::Error),
-    /// Seeking the end of the file returned an error.
-    #[error("Error seeking the end of the file: {0}")]
-    SeekEnd(io::Error),
-    /// Seeking the start of the file returned an error.
-    #[error("Error seeking the start of the file: {0}")]
-    SeekStart(io::Error),
     /// Invalid file offset.
     #[error("Invalid file offset")]
     InvalidFileOffset,
@@ -65,6 +53,9 @@ pub enum Error {
     /// Unexpected error.
     #[error("Unexpected error")]
     UnexpectedError,
+    /// Error validating a [`FileOffset`]
+    #[error("{0}")]
+    ValidateFile(#[from] CheckFileOffsetError),
 }
 
 type Result<T> = result::Result<T, Error>;
@@ -497,7 +488,7 @@ fn pages(size: usize) -> (usize, usize) {
 fn validate_file(file_offset: &Option<FileOffset>) -> Result<(i32, u64)> {
     let file_offset = match file_offset {
         Some(f) => f,
-        None => return Err(Error::InvalidFileOffset),
+        None => return Err(CheckFileOffsetError::InvalidOffsetLength.into()),
     };
 
     let fd = file_offset.file().as_raw_fd();
@@ -505,7 +496,7 @@ fn validate_file(file_offset: &Option<FileOffset>) -> Result<(i32, u64)> {
 
     // We don't allow file offsets with Xen foreign mappings.
     if f_offset != 0 {
-        return Err(Error::InvalidOffsetLength);
+        return Err(CheckFileOffsetError::InvalidOffsetLength.into());
     }
 
     Ok((fd, f_offset))
@@ -1134,7 +1125,10 @@ mod tests {
         let mut range = MmapRange::initialized(true);
         range.file_offset = Some(FileOffset::new(TempFile::new().unwrap().into_file(), 1));
         let r = MmapXenForeign::new(&range);
-        assert!(matches!(r.unwrap_err(), Error::InvalidOffsetLength));
+        assert!(matches!(
+            r.unwrap_err(),
+            Error::ValidateFile(CheckFileOffsetError::InvalidOffsetLength)
+        ));
 
         let mut range = MmapRange::initialized(true);
         range.size = 0;
@@ -1171,7 +1165,10 @@ mod tests {
         let mut range = MmapRange::initialized(true);
         range.file_offset = Some(FileOffset::new(TempFile::new().unwrap().into_file(), 1));
         let r = MmapXenGrant::new(&range, MmapXenFlags::NO_ADVANCE_MAP);
-        assert!(matches!(r.unwrap_err(), Error::InvalidOffsetLength));
+        assert!(matches!(
+            r.unwrap_err(),
+            Error::ValidateFile(CheckFileOffsetError::InvalidOffsetLength)
+        ));
 
         let mut range = MmapRange::initialized(true);
         range.size = 0;

@@ -17,15 +17,12 @@ use std::result;
 
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::FileOffset;
-use crate::mmap::{check_file_offset, NewBitmap};
+use crate::mmap::{check_file_offset, CheckFileOffsetError, NewBitmap};
 use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// The specified file offset and length cause overflow when added.
-    #[error("The specified file offset and length cause overflow when added")]
-    InvalidOffsetLength,
     /// The specified pointer to the mapping is not page-aligned.
     #[error("The specified pointer to the mapping is not page-aligned")]
     InvalidPointer,
@@ -35,18 +32,12 @@ pub enum Error {
     /// Mappings using the same fd overlap in terms of file offset and length.
     #[error("Mappings using the same fd overlap in terms of file offset and length")]
     MappingOverlap,
-    /// A mapping with offset + length > EOF was attempted.
-    #[error("The specified file offset and length is greater then file length")]
-    MappingPastEof,
     /// The `mmap` call returned an error.
     #[error("{0}")]
     Mmap(io::Error),
-    /// Seeking the end of the file returned an error.
-    #[error("Error seeking the end of the file: {0}")]
-    SeekEnd(io::Error),
-    /// Seeking the start of the file returned an error.
-    #[error("Error seeking the start of the file: {0}")]
-    SeekStart(io::Error),
+    /// Error validating a [`FileOffset`]
+    #[error("{0}")]
+    ValidateFile(#[from] CheckFileOffsetError),
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -558,7 +549,10 @@ mod tests {
             prot,
             flags,
         );
-        assert!(matches!(r.unwrap_err(), Error::InvalidOffsetLength));
+        assert!(matches!(
+            r.unwrap_err(),
+            Error::ValidateFile(CheckFileOffsetError::InvalidOffsetLength)
+        ));
 
         // Offset + size is greater than the size of the file (which is 0 at this point).
         let r = MmapRegion::build(
@@ -567,7 +561,10 @@ mod tests {
             prot,
             flags,
         );
-        assert!(matches!(r.unwrap_err(), Error::MappingPastEof));
+        assert!(matches!(
+            r.unwrap_err(),
+            Error::ValidateFile(CheckFileOffsetError::MappingPastEof)
+        ));
 
         // MAP_FIXED was specified among the flags.
         let r = MmapRegion::build(

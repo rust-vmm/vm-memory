@@ -46,6 +46,23 @@ impl NewBitmap for () {
     fn with_len(_len: usize) -> Self {}
 }
 
+/// Errors that can occur during [`check_file_offset`]
+#[derive(Debug, thiserror::Error)]
+pub enum CheckFileOffsetError {
+    /// Seeking the end of the file returned an error.
+    #[error("Error seeking the end of the file: {0}")]
+    SeekEnd(std::io::Error),
+    /// Seeking the start of the file returned an error.
+    #[error("Error seeking the start of the file: {0}")]
+    SeekStart(std::io::Error),
+    /// A mapping with offset + length > EOF was attempted.
+    #[error("The specified file offset and length is greater then file length")]
+    MappingPastEof,
+    /// The specified file offset and length cause overflow when added.
+    #[error("The specified file offset and length cause overflow when added")]
+    InvalidOffsetLength,
+}
+
 // TODO: use this for Windows as well after we redefine the Error type there.
 #[cfg(unix)]
 /// Checks if a mapping of `size` bytes fits at the provided `file_offset`.
@@ -55,20 +72,20 @@ impl NewBitmap for () {
 pub fn check_file_offset(
     file_offset: &FileOffset,
     size: usize,
-) -> result::Result<(), MmapRegionError> {
+) -> result::Result<(), CheckFileOffsetError> {
     let mut file = file_offset.file();
     let start = file_offset.start();
 
     if let Some(end) = start.checked_add(size as u64) {
         let filesize = file
             .seek(SeekFrom::End(0))
-            .map_err(MmapRegionError::SeekEnd)?;
-        file.rewind().map_err(MmapRegionError::SeekStart)?;
+            .map_err(CheckFileOffsetError::SeekEnd)?;
+        file.rewind().map_err(CheckFileOffsetError::SeekStart)?;
         if filesize < end {
-            return Err(MmapRegionError::MappingPastEof);
+            return Err(CheckFileOffsetError::MappingPastEof);
         }
     } else {
-        return Err(MmapRegionError::InvalidOffsetLength);
+        return Err(CheckFileOffsetError::InvalidOffsetLength);
     }
 
     Ok(())
