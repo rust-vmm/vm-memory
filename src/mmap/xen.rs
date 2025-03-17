@@ -61,7 +61,7 @@ pub enum Error {
     Fam(FamError),
     /// Unexpected error.
     #[error("Unexpected error")]
-    UnexpectedError,
+    Unexpected,
 }
 
 type Result<T> = result::Result<T, Error>;
@@ -302,8 +302,8 @@ impl<B: NewBitmap> MmapRegion<B> {
         Ok(MmapRegion {
             bitmap: B::with_len(range.size),
             size: range.size,
-            prot: range.prot.ok_or(Error::UnexpectedError)?,
-            flags: range.flags.ok_or(Error::UnexpectedError)?,
+            prot: range.prot.ok_or(Error::Unexpected)?,
+            flags: range.flags.ok_or(Error::Unexpected)?,
             file_offset: range.file_offset,
             hugetlbfs: range.hugetlbfs,
             mmap,
@@ -570,8 +570,8 @@ impl MmapXenUnix {
         Ok(Self(
             MmapUnix::new(
                 range.size,
-                range.prot.ok_or(Error::UnexpectedError)?,
-                range.flags.ok_or(Error::UnexpectedError)?,
+                range.prot.ok_or(Error::Unexpected)?,
+                range.flags.ok_or(Error::Unexpected)?,
                 fd,
                 offset,
             )?,
@@ -647,8 +647,8 @@ impl MmapXenForeign {
 
         let unix_mmap = MmapUnix::new(
             size,
-            range.prot.ok_or(Error::UnexpectedError)?,
-            range.flags.ok_or(Error::UnexpectedError)? | MAP_SHARED,
+            range.prot.ok_or(Error::Unexpected)?,
+            range.flags.ok_or(Error::Unexpected)? | MAP_SHARED,
             fd,
             f_offset,
         )?;
@@ -861,7 +861,7 @@ impl MmapXenGrant {
             guest_base: range.addr,
             unix_mmap: None,
             file_offset: range.file_offset.as_ref().unwrap().clone(),
-            flags: range.flags.ok_or(Error::UnexpectedError)?,
+            flags: range.flags.ok_or(Error::Unexpected)?,
             size: 0,
             index: 0,
             domid: range.mmap_data,
@@ -870,11 +870,8 @@ impl MmapXenGrant {
         // Region can't be mapped in advance, partial mapping will be done later via
         // `MmapXenSlice`.
         if mmap_flags.mmap_in_advance() {
-            let (unix_mmap, index) = grant.mmap_range(
-                range.addr,
-                range.size,
-                range.prot.ok_or(Error::UnexpectedError)?,
-            )?;
+            let (unix_mmap, index) =
+                grant.mmap_range(range.addr, range.size, range.prot.ok_or(Error::Unexpected)?)?;
 
             grant.unix_mmap = Some(unix_mmap);
             grant.index = index;
@@ -1173,12 +1170,12 @@ mod tests {
         range.file_offset = Some(FileOffset::new(TempFile::new().unwrap().into_file(), 0));
         range.prot = None;
         let r = MmapXenForeign::new(&range);
-        assert_matches!(r.unwrap_err(), Error::UnexpectedError);
+        assert_matches!(r.unwrap_err(), Error::Unexpected);
 
         let mut range = MmapRange::initialized(true);
         range.flags = None;
         let r = MmapXenForeign::new(&range);
-        assert_matches!(r.unwrap_err(), Error::UnexpectedError);
+        assert_matches!(r.unwrap_err(), Error::Unexpected);
 
         let mut range = MmapRange::initialized(true);
         range.file_offset = Some(FileOffset::new(TempFile::new().unwrap().into_file(), 1));
@@ -1205,7 +1202,7 @@ mod tests {
         let mut range = MmapRange::initialized(true);
         range.prot = None;
         let r = MmapXenGrant::new(&range, MmapXenFlags::empty());
-        assert_matches!(r.unwrap_err(), Error::UnexpectedError);
+        assert_matches!(r.unwrap_err(), Error::Unexpected);
 
         let mut range = MmapRange::initialized(true);
         range.prot = None;
@@ -1215,7 +1212,7 @@ mod tests {
         let mut range = MmapRange::initialized(true);
         range.flags = None;
         let r = MmapXenGrant::new(&range, MmapXenFlags::NO_ADVANCE_MAP);
-        assert_matches!(r.unwrap_err(), Error::UnexpectedError);
+        assert_matches!(r.unwrap_err(), Error::Unexpected);
 
         let mut range = MmapRange::initialized(true);
         range.file_offset = Some(FileOffset::new(TempFile::new().unwrap().into_file(), 1));
