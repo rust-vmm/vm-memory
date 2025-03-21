@@ -17,7 +17,6 @@ use std::result;
 
 use crate::bitmap::{Bitmap, NewBitmap, BS};
 use crate::guest_memory::FileOffset;
-use crate::mmap::check_file_offset;
 use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
@@ -41,12 +40,6 @@ pub enum Error {
     /// The `mmap` call returned an error.
     #[error("{0}")]
     Mmap(io::Error),
-    /// Seeking the end of the file returned an error.
-    #[error("Error seeking the end of the file: {0}")]
-    SeekEnd(io::Error),
-    /// Seeking the start of the file returned an error.
-    #[error("Error seeking the start of the file: {0}")]
-    SeekStart(io::Error),
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -137,7 +130,6 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
         }
 
         let (fd, offset) = if let Some(ref f_off) = self.file_offset {
-            check_file_offset(f_off, self.size)?;
             (f_off.file().as_raw_fd(), f_off.start())
         } else {
             (-1, 0)
@@ -558,16 +550,9 @@ mod tests {
             prot,
             flags,
         );
-        assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidOffsetLength");
-
-        // Offset + size is greater than the size of the file (which is 0 at this point).
-        let r = MmapRegion::build(
-            Some(FileOffset::from_arc(a.clone(), offset)),
-            size,
-            prot,
-            flags,
+        assert!(
+            matches!(r.unwrap_err(), Error::Mmap(err) if err.raw_os_error() == Some(libc::EINVAL))
         );
-        assert_eq!(format!("{:?}", r.unwrap_err()), "MappingPastEof");
 
         // MAP_FIXED was specified among the flags.
         let r = MmapRegion::build(

@@ -13,8 +13,6 @@
 //! This implementation is mmap-ing the memory of the guest into the current process.
 
 use std::borrow::Borrow;
-#[cfg(target_family = "unix")]
-use std::io::{Seek, SeekFrom};
 use std::ops::Deref;
 use std::result;
 use std::sync::atomic::Ordering;
@@ -70,34 +68,6 @@ pub enum Error {
     /// The provided memory regions haven't been sorted.
     #[error("The provided memory regions haven't been sorted")]
     UnsortedMemoryRegions,
-}
-
-// TODO: use this for Windows as well after we redefine the Error type there.
-#[cfg(target_family = "unix")]
-/// Checks if a mapping of `size` bytes fits at the provided `file_offset`.
-///
-/// For a borrowed `FileOffset` and size, this function checks whether the mapping does not
-/// extend past EOF, and that adding the size to the file offset does not lead to overflow.
-pub fn check_file_offset(
-    file_offset: &FileOffset,
-    size: usize,
-) -> result::Result<(), MmapRegionError> {
-    let mut file = file_offset.file();
-    let start = file_offset.start();
-
-    if let Some(end) = start.checked_add(size as u64) {
-        let filesize = file
-            .seek(SeekFrom::End(0))
-            .map_err(MmapRegionError::SeekEnd)?;
-        file.rewind().map_err(MmapRegionError::SeekStart)?;
-        if filesize < end {
-            return Err(MmapRegionError::MappingPastEof);
-        }
-    } else {
-        return Err(MmapRegionError::InvalidOffsetLength);
-    }
-
-    Ok(())
 }
 
 /// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) implementation that mmaps the guest's

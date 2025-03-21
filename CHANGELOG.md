@@ -19,6 +19,9 @@
   `Bytes::write_to`, `Bytes::write_all_to`, `GuestMemory::as_slice`, `GuestMemory::as_slice_mut`, `GuestMemory::with_regions`, 
   `GuestMemory::with_regions_mut`, `GuestMemory::map_and_fold`, `VolatileSlice::as_ptr`, `VolatileRef::as_ptr`, and
   `VolatileArrayRef::as_ptr`.
+- \[[#320](https://github.com/rust-vmm/vm-memory/pull/320)\] Drop `check_file_offset` check when using  `MmapRegionBuilder`.
+  The `mmap(2)` syscall itself already validates that offset and length are valid, and trying to replicate this check
+  in userspace ended up being imperfect.
 
 ## \[v0.16.1\]
 
