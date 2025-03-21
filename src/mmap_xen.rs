@@ -44,12 +44,9 @@ pub enum Error {
     /// The `mmap` call returned an error.
     #[error("{0}")]
     Mmap(io::Error),
-    /// Seeking the end of the file returned an error.
-    #[error("Error seeking the end of the file: {0}")]
-    SeekEnd(io::Error),
-    /// Seeking the start of the file returned an error.
-    #[error("Error seeking the start of the file: {0}")]
-    SeekStart(io::Error),
+    /// Calling [`File::metadata`] returned an error.
+    #[error("Error determining file size: {0}")]
+    Stat(io::Error),
     /// Invalid file offset.
     #[error("Invalid file offset")]
     InvalidFileOffset,
