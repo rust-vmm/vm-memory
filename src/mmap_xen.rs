@@ -24,9 +24,9 @@ use vmm_sys_util::ioctl::ioctl_with_ref;
 #[cfg(test)]
 use tests::ioctl_with_ref;
 
-use crate::bitmap::{Bitmap, BS};
+use crate::bitmap::{Bitmap, NewBitmap, BS};
 use crate::guest_memory::{FileOffset, GuestAddress};
-use crate::mmap::{check_file_offset, NewBitmap};
+use crate::mmap::check_file_offset;
 use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
