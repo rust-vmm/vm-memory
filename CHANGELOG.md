@@ -5,6 +5,8 @@
 ### Added
 
 - \[[#311](https://github.com/rust-vmm/vm-memory/pull/311)\] Allow compiling without the ReadVolatile and WriteVolatile implementations
+- \[[#319](https://github.com/rust-vmm/vm-memory/pull/319)\] Allow constructing `MmapRegion`s 
+  mapping file descriptors that cannot be seeked, such as `guest_memfd`.
 
 ### Changed
 

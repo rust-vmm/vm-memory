@@ -84,10 +84,28 @@ pub fn check_file_offset(
     let start = file_offset.start();
 
     if let Some(end) = start.checked_add(size as u64) {
-        let filesize = file
-            .seek(SeekFrom::End(0))
-            .map_err(MmapRegionError::SeekEnd)?;
-        file.rewind().map_err(MmapRegionError::SeekStart)?;
+        // If f_ops->llseek is not implemented in the kernel for some file, we get -ESPIPE
+        // In this scenario, fall back to using fstat. We need to prefer lseek in all other
+        // cases because of https://github.com/rust-vmm/vm-memory/issues/195
+        // clippy wants us to use file.stream_position() here, but that obscures what we're trying
+        // to do here.
+        #[allow(clippy::seek_from_current)]
+        let seek_unsupported = file
+            .seek(SeekFrom::Current(0))
+            .err()
+            .map(|err| err.raw_os_error() == Some(libc::ESPIPE))
+            .unwrap_or(true);
+
+        let filesize = if seek_unsupported {
+            file.metadata().map_err(MmapRegionError::Stat)?.len()
+        } else {
+            let filesize = file
+                .seek(SeekFrom::End(0))
+                .map_err(MmapRegionError::SeekEnd)?;
+            file.rewind().map_err(MmapRegionError::SeekStart)?;
+            filesize
+        };
+
         if filesize < end {
             return Err(MmapRegionError::MappingPastEof);
         }
@@ -522,6 +540,7 @@ mod tests {
 
     use std::io::Write;
     use std::mem;
+    use std::os::fd::FromRawFd;
     #[cfg(feature = "rawfd")]
     use std::{fs::File, path::Path};
     use vmm_sys_util::tempfile::TempFile;
@@ -1395,5 +1414,47 @@ mod tests {
             crate::GuestMemoryMmap::<AtomicBitmap>::from_ranges(&[(GuestAddress(0), 0x1_0000)])
                 .unwrap()
         });
+    }
+
+    #[test]
+    #[cfg(unix)]
+    #[cfg(not(miri))] /* memfd_secret isn't support by miri */
+    #[allow(clippy::seek_from_current)]
+    fn test_non_seekable_file() {
+        let fd = unsafe { libc::syscall(libc::SYS_memfd_secret, 0) } as libc::c_int;
+        if fd < 0 {
+            if std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOSYS) {
+                // memfd_secret is not enabled by default, so skip this test if that's the case
+                return;
+            }
+
+            panic!("Creation of memfd_secret failed!");
+        }
+
+        let r = unsafe { libc::ftruncate(fd, 0x1000) };
+        assert_eq!(r, 0);
+
+        let mut file = unsafe { File::from_raw_fd(fd as _) };
+
+        // validate the memfd_secret indeed cannot be seeked, but can be mapped
+        assert_eq!(
+            file.seek(SeekFrom::Current(0))
+                .unwrap_err()
+                .raw_os_error()
+                .unwrap(),
+            libc::ESPIPE
+        );
+
+        let file = Arc::new(file);
+        let fo = FileOffset::from_arc(Arc::clone(&file), 0);
+
+        check_file_offset(&fo, 0x1000).unwrap();
+
+        let fo = FileOffset::from_arc(Arc::clone(&file), 0x1000);
+
+        assert!(matches!(
+            check_file_offset(&fo, 0x1000),
+            Err(MmapRegionError::MappingPastEof)
+        ));
     }
 }
