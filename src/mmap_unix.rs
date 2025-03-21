@@ -47,6 +47,9 @@ pub enum Error {
     /// Seeking the start of the file returned an error.
     #[error("Error seeking the start of the file: {0}")]
     SeekStart(io::Error),
+    /// Calling [`File::metadata`] returned an error.
+    #[error("Error determining size of file using fstat: {0}")]
+    Stat(io::Error),
 }
 
 pub type Result<T> = result::Result<T, Error>;
