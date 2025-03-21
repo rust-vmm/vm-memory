@@ -47,13 +47,16 @@ pub use endian::{Be16, Be32, Be64, BeSize, Le16, Le32, Le64, LeSize};
 pub mod guest_memory;
 pub use guest_memory::{
     Error as GuestMemoryError, FileOffset, GuestAddress, GuestAddressSpace, GuestMemory,
-    GuestMemoryRegion, GuestUsize, MemoryRegionAddress, Result as GuestMemoryResult,
+    GuestUsize, MemoryRegionAddress, Result as GuestMemoryResult,
 };
+
+pub mod region;
+pub use region::{GuestMemoryRegion, GuestRegionCollection, GuestRegionError as Error};
 
 pub mod io;
 pub use io::{ReadVolatile, WriteVolatile};
 
-#[cfg(all(feature = "backend-mmap", not(feature = "xen"), unix))]
+#[cfg(all(feature = "backend-mmap", unix))]
 mod mmap_unix;
 
 #[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
@@ -65,10 +68,20 @@ mod mmap_windows;
 #[cfg(feature = "backend-mmap")]
 pub mod mmap;
 
-#[cfg(feature = "backend-mmap")]
-pub use mmap::{Error, GuestMemoryMmap, GuestRegionMmap, MmapRegion};
-#[cfg(all(feature = "backend-mmap", feature = "xen", unix))]
-pub use mmap::{MmapRange, MmapXenFlags};
+#[cfg(all(feature = "xen", unix))]
+pub use mmap_xen::{GuestMemoryXen, MmapRange, MmapRegion as MmapRegionXen, MmapXenFlags};
+
+#[cfg(all(feature = "backend-mmap", unix))]
+pub use mmap_unix::{
+    Error as MmapRegionError, GuestMemoryMmap, GuestRegionMmap, MmapRegion, MmapRegionBuilder,
+};
+
+#[cfg(windows)]
+pub use crate::mmap_windows::{
+    GuestMemoryWindows as GuestMemoryMmap, GuestRegionWindows as GuestRegionMmap, MmapRegion,
+}; // rename for backwards compat
+#[cfg(windows)]
+pub use std::io::Error as MmapRegionError;
 
 pub mod volatile_memory;
 pub use volatile_memory::{

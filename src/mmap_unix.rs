@@ -10,22 +10,26 @@
 
 //! Helper structure for working with mmaped memory regions in Unix.
 
+use std::borrow::Borrow;
 use std::io;
+use std::ops::Deref;
 use std::os::unix::io::AsRawFd;
 use std::ptr::null_mut;
 use std::result;
 
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::FileOffset;
-use crate::mmap::{check_file_offset, NewBitmap};
+use crate::mmap::{check_file_offset, CheckFileOffsetError, NewBitmap};
+use crate::region::GuestRegionError;
 use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
+use crate::{
+    guest_memory, Address, GuestAddress, GuestMemoryRegion, GuestRegionCollection, GuestUsize,
+    MemoryRegionAddress,
+};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// The specified file offset and length cause overflow when added.
-    #[error("The specified file offset and length cause overflow when added")]
-    InvalidOffsetLength,
     /// The specified pointer to the mapping is not page-aligned.
     #[error("The specified pointer to the mapping is not page-aligned")]
     InvalidPointer,
@@ -35,18 +39,12 @@ pub enum Error {
     /// Mappings using the same fd overlap in terms of file offset and length.
     #[error("Mappings using the same fd overlap in terms of file offset and length")]
     MappingOverlap,
-    /// A mapping with offset + length > EOF was attempted.
-    #[error("The specified file offset and length is greater then file length")]
-    MappingPastEof,
     /// The `mmap` call returned an error.
     #[error("{0}")]
     Mmap(io::Error),
-    /// Seeking the end of the file returned an error.
-    #[error("Error seeking the end of the file: {0}")]
-    SeekEnd(io::Error),
-    /// Seeking the start of the file returned an error.
-    #[error("Error seeking the start of the file: {0}")]
-    SeekStart(io::Error),
+    /// Error validating a [`FileOffset`]
+    #[error("{0}")]
+    ValidateFile(#[from] CheckFileOffsetError),
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -440,6 +438,154 @@ impl<B> Drop for MmapRegion<B> {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum GuestMemoryMmapError {
+    /// Error creating a `MmapRegion` object.
+    #[error("{0}")]
+    MmapRegion(#[from] Error),
+    /// Error when calling [`GuestRegionCollection`] APIs
+    #[error("{0}")]
+    GuestRegion(#[from] GuestRegionError),
+}
+
+/// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) implementation that mmaps the guest's
+/// memory region in the current process.
+///
+/// Represents a continuous region of the guest's physical memory that is backed by a mapping
+/// in the virtual address space of the calling process.
+#[derive(Debug)]
+pub struct GuestRegionMmap<B = ()> {
+    mapping: MmapRegion<B>,
+    guest_base: GuestAddress,
+}
+
+impl<B> Deref for GuestRegionMmap<B> {
+    type Target = MmapRegion<B>;
+
+    fn deref(&self) -> &MmapRegion<B> {
+        &self.mapping
+    }
+}
+
+impl<B: Bitmap> GuestRegionMmap<B> {
+    /// Create a new memory-mapped memory region for the guest's physical memory.
+    pub fn new(
+        mapping: MmapRegion<B>,
+        guest_base: GuestAddress,
+    ) -> result::Result<Self, GuestRegionError> {
+        if guest_base.0.checked_add(mapping.size() as u64).is_none() {
+            return Err(GuestRegionError::InvalidGuestRegion);
+        }
+
+        Ok(GuestRegionMmap {
+            mapping,
+            guest_base,
+        })
+    }
+}
+
+impl<B: NewBitmap> GuestRegionMmap<B> {
+    /// Create a new memory-mapped memory region from guest's physical memory, size and file.
+    pub fn from_range(
+        addr: GuestAddress,
+        size: usize,
+        file: Option<FileOffset>,
+    ) -> result::Result<Self, GuestMemoryMmapError> {
+        let region = if let Some(ref f_off) = file {
+            MmapRegion::from_file(f_off.clone(), size)?
+        } else {
+            MmapRegion::new(size)?
+        };
+
+        Ok(Self::new(region, addr)?)
+    }
+}
+
+impl<B: Bitmap> GuestMemoryRegion for GuestRegionMmap<B> {
+    type B = B;
+
+    fn len(&self) -> GuestUsize {
+        self.mapping.size() as GuestUsize
+    }
+
+    fn start_addr(&self) -> GuestAddress {
+        self.guest_base
+    }
+
+    fn bitmap(&self) -> &Self::B {
+        self.mapping.bitmap()
+    }
+
+    fn get_host_address(&self, addr: MemoryRegionAddress) -> guest_memory::Result<*mut u8> {
+        // Not sure why wrapping_offset is not unsafe.  Anyway this
+        // is safe because we've just range-checked addr using check_address.
+        self.check_address(addr)
+            .ok_or(guest_memory::Error::InvalidBackendAddress)
+            .map(|addr| {
+                self.mapping
+                    .as_ptr()
+                    .wrapping_offset(addr.raw_value() as isize)
+            })
+    }
+
+    fn file_offset(&self) -> Option<&FileOffset> {
+        self.mapping.file_offset()
+    }
+
+    fn get_slice(
+        &self,
+        offset: MemoryRegionAddress,
+        count: usize,
+    ) -> guest_memory::Result<VolatileSlice<BS<B>>> {
+        let slice = VolatileMemory::get_slice(&self.mapping, offset.raw_value() as usize, count)?;
+        Ok(slice)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn is_hugetlbfs(&self) -> Option<bool> {
+        self.mapping.is_hugetlbfs()
+    }
+}
+
+/// [`GuestMemory`](trait.GuestMemory.html) implementation that mmaps the guest's memory
+/// in the current process.
+///
+/// Represents the entire physical memory of the guest by tracking all its memory regions.
+/// Each region is an instance of `GuestRegionMmap`, being backed by a mapping in the
+/// virtual address space of the calling process.
+pub type GuestMemoryMmap<B = ()> = GuestRegionCollection<GuestRegionMmap<B>>;
+
+impl<B: NewBitmap> GuestMemoryMmap<B> {
+    /// Creates a container and allocates anonymous memory for guest memory regions.
+    ///
+    /// Valid memory regions are specified as a slice of (Address, Size) tuples sorted by Address.
+    pub fn from_ranges(
+        ranges: &[(GuestAddress, usize)],
+    ) -> result::Result<Self, GuestMemoryMmapError> {
+        Self::from_ranges_with_files(ranges.iter().map(|r| (r.0, r.1, None)))
+    }
+
+    /// Creates a container and allocates anonymous memory for guest memory regions.
+    ///
+    /// Valid memory regions are specified as a sequence of (Address, Size, [`Option<FileOffset>`])
+    /// tuples sorted by Address.
+    pub fn from_ranges_with_files<A, T>(ranges: T) -> result::Result<Self, GuestMemoryMmapError>
+    where
+        A: Borrow<(GuestAddress, usize, Option<FileOffset>)>,
+        T: IntoIterator<Item = A>,
+    {
+        Self::from_regions(
+            ranges
+                .into_iter()
+                .map(|x| {
+                    GuestRegionMmap::from_range(x.borrow().0, x.borrow().1, x.borrow().2.clone())
+                })
+                .collect::<result::Result<Vec<_>, _>>()?,
+        )
+        .map_err(GuestMemoryMmapError::GuestRegion)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
@@ -451,6 +597,7 @@ mod tests {
     use std::sync::Arc;
     use vmm_sys_util::tempfile::TempFile;
 
+    use crate::bitmap::tests::test_guest_memory_and_region;
     use crate::bitmap::AtomicBitmap;
 
     type MmapRegion = super::MmapRegion<()>;
@@ -558,7 +705,10 @@ mod tests {
             prot,
             flags,
         );
-        assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidOffsetLength");
+        assert!(matches!(
+            r.unwrap_err(),
+            Error::ValidateFile(CheckFileOffsetError::InvalidOffsetLength)
+        ));
 
         // Offset + size is greater than the size of the file (which is 0 at this point).
         let r = MmapRegion::build(
@@ -567,7 +717,10 @@ mod tests {
             prot,
             flags,
         );
-        assert_eq!(format!("{:?}", r.unwrap_err()), "MappingPastEof");
+        assert!(matches!(
+            r.unwrap_err(),
+            Error::ValidateFile(CheckFileOffsetError::MappingPastEof)
+        ));
 
         // MAP_FIXED was specified among the flags.
         let r = MmapRegion::build(
@@ -576,7 +729,7 @@ mod tests {
             prot,
             flags | libc::MAP_FIXED,
         );
-        assert_eq!(format!("{:?}", r.unwrap_err()), "MapFixed");
+        assert!(matches!(r.unwrap_err(), Error::MapFixed));
 
         // Let's resize the file.
         assert_eq!(unsafe { libc::ftruncate(a.as_raw_fd(), 1024 * 10) }, 0);
@@ -621,7 +774,7 @@ mod tests {
         let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
 
         let r = unsafe { MmapRegion::build_raw((addr + 1) as *mut u8, size, prot, flags) };
-        assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidPointer");
+        assert!(matches!(r.unwrap_err(), Error::InvalidPointer));
 
         let r = unsafe { MmapRegion::build_raw(addr as *mut u8, size, prot, flags).unwrap() };
 
@@ -668,5 +821,10 @@ mod tests {
         // the rest of the unit tests above.
         let m = crate::MmapRegion::<AtomicBitmap>::new(0x1_0000).unwrap();
         crate::bitmap::tests::test_volatile_memory(&m);
+
+        test_guest_memory_and_region(|| {
+            crate::GuestMemoryMmap::<AtomicBitmap>::from_ranges(&[(GuestAddress(0), 0x1_0000)])
+                .unwrap()
+        });
     }
 }
