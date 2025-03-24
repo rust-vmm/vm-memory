@@ -248,7 +248,7 @@ mod tests {
 
     use crate::bitmap::AtomicBitmap;
     use crate::guest_memory::FileOffset;
-    use crate::mmap_windows::INVALID_HANDLE_VALUE;
+    use crate::mmap::windows::INVALID_HANDLE_VALUE;
 
     type MmapRegion = super::MmapRegion<()>;
 

@@ -194,11 +194,11 @@ impl Default for AtomicBitmap {
 #[cfg(feature = "backend-mmap")]
 impl NewBitmap for AtomicBitmap {
     fn with_len(len: usize) -> Self {
-        #[cfg(unix)]
+        #[cfg(target_family = "unix")]
         // SAFETY: There's no unsafe potential in calling this function.
         let page_size = unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) };
 
-        #[cfg(windows)]
+        #[cfg(target_family = "windows")]
         let page_size = {
             use winapi::um::sysinfoapi::{GetSystemInfo, LPSYSTEM_INFO, SYSTEM_INFO};
             let mut sysinfo = std::mem::MaybeUninit::zeroed();
