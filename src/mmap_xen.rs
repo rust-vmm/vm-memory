@@ -26,7 +26,7 @@ use tests::ioctl_with_ref;
 
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::{FileOffset, GuestAddress};
-use crate::mmap::{check_file_offset, NewBitmap};
+use crate::mmap::NewBitmap;
 use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
@@ -44,12 +44,6 @@ pub enum Error {
     /// The `mmap` call returned an error.
     #[error("{0}")]
     Mmap(io::Error),
-    /// Seeking the end of the file returned an error.
-    #[error("Error seeking the end of the file: {0}")]
-    SeekEnd(io::Error),
-    /// Seeking the start of the file returned an error.
-    #[error("Error seeking the start of the file: {0}")]
-    SeekStart(io::Error),
     /// Invalid file offset.
     #[error("Invalid file offset")]
     InvalidFileOffset,
@@ -524,7 +518,6 @@ struct MmapXenUnix(MmapUnix);
 impl MmapXenUnix {
     fn new(range: &MmapRange) -> Result<Self> {
         let (fd, offset) = if let Some(ref f_off) = range.file_offset {
-            check_file_offset(f_off, range.size)?;
             (f_off.file().as_raw_fd(), f_off.start())
         } else {
             (-1, 0)
