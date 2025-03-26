@@ -127,7 +127,7 @@ pub trait WriteVolatile {
 // We explicitly implement our traits for [`std::fs::File`] and [`std::os::unix::net::UnixStream`]
 // instead of providing blanket implementation for [`AsRawFd`] due to trait coherence limitations: A
 // blanket implementation would prevent us from providing implementations for `&mut [u8]` below, as
-// "an upstream crate could implement AsRawFd for &mut [u8]`.
+// "an upstream crate could implement AsRawFd for &mut [u8]".
 
 macro_rules! impl_read_write_volatile_for_raw_fd {
     ($raw_fd_ty:ty) => {
@@ -142,12 +142,32 @@ macro_rules! impl_read_write_volatile_for_raw_fd {
         }
 
         #[cfg(feature = "rawfd")]
+        impl ReadVolatile for &$raw_fd_ty {
+            fn read_volatile<B: BitmapSlice>(
+                &mut self,
+                buf: &mut VolatileSlice<B>,
+            ) -> Result<usize, VolatileMemoryError> {
+                read_volatile_raw_fd(*self, buf)
+            }
+        }
+
+        #[cfg(feature = "rawfd")]
         impl WriteVolatile for $raw_fd_ty {
             fn write_volatile<B: BitmapSlice>(
                 &mut self,
                 buf: &VolatileSlice<B>,
             ) -> Result<usize, VolatileMemoryError> {
                 write_volatile_raw_fd(self, buf)
+            }
+        }
+
+        #[cfg(feature = "rawfd")]
+        impl WriteVolatile for &$raw_fd_ty {
+            fn write_volatile<B: BitmapSlice>(
+                &mut self,
+                buf: &VolatileSlice<B>,
+            ) -> Result<usize, VolatileMemoryError> {
+                write_volatile_raw_fd(*self, buf)
             }
         }
     };
@@ -163,6 +183,16 @@ impl WriteVolatile for Stdout {
     }
 }
 
+#[cfg(feature = "rawfd")]
+impl WriteVolatile for &Stdout {
+    fn write_volatile<B: BitmapSlice>(
+        &mut self,
+        buf: &VolatileSlice<B>,
+    ) -> Result<usize, VolatileMemoryError> {
+        write_volatile_raw_fd(*self, buf)
+    }
+}
+
 impl_read_write_volatile_for_raw_fd!(std::fs::File);
 impl_read_write_volatile_for_raw_fd!(std::net::TcpStream);
 impl_read_write_volatile_for_raw_fd!(std::os::unix::net::UnixStream);
@@ -175,7 +205,7 @@ impl_read_write_volatile_for_raw_fd!(std::os::fd::BorrowedFd<'_>);
 /// Returns the numbers of bytes read.
 #[cfg(feature = "rawfd")]
 fn read_volatile_raw_fd<Fd: AsRawFd>(
-    raw_fd: &mut Fd,
+    raw_fd: &Fd,
     buf: &mut VolatileSlice<impl BitmapSlice>,
 ) -> Result<usize, VolatileMemoryError> {
     let fd = raw_fd.as_raw_fd();
@@ -206,7 +236,7 @@ fn read_volatile_raw_fd<Fd: AsRawFd>(
 /// Returns the numbers of bytes written.
 #[cfg(feature = "rawfd")]
 fn write_volatile_raw_fd<Fd: AsRawFd>(
-    raw_fd: &mut Fd,
+    raw_fd: &Fd,
     buf: &VolatileSlice<impl BitmapSlice>,
 ) -> Result<usize, VolatileMemoryError> {
     let fd = raw_fd.as_raw_fd();
