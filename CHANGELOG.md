@@ -5,11 +5,17 @@
 ### Added
 
 - \[[#311](https://github.com/rust-vmm/vm-memory/pull/311)\] Allow compiling without the ReadVolatile and WriteVolatile implementations
+- \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\] `GuestRegionContainer`, a generic container of `GuestMemoryRegion`s, generalizing `GuestMemoryMmap` (which 
+  is now a type alias for `GuestRegionContainer<GuestRegionMmap>`)
 
 ### Changed
 
 - \[[#307](https://github.com/rust-vmm/vm-memory/pull/304)\] Move `read_volatile_from`, `read_exact_volatile_from`,
   `write_volatile_to` and `write_all_volatile_to` functions from the `GuestMemory` trait to the `Bytes` trait.
+- \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\]: Give `GuestMemory::find_region` a default implementation,
+  based on linear search.
+- \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\]: Implement `Bytes<MemoryRegionAddress>` generically
+  for all `R: GuestMemoryRegion`.
 
 ### Removed
 
