@@ -55,7 +55,7 @@ use crate::bitmap::MS;
 use crate::bytes::{AtomicAccess, Bytes};
 use crate::io::{ReadVolatile, WriteVolatile};
 use crate::volatile_memory::{self, VolatileSlice};
-use crate::GuestMemoryRegion;
+use crate::{GuestMemoryRegion, IoMemory, Permissions};
 
 /// Errors associated with handling guest memory accesses.
 #[allow(missing_docs)]
@@ -222,7 +222,7 @@ impl FileOffset {
 /// ```
 pub trait GuestAddressSpace {
     /// The type that will be used to access guest memory.
-    type M: GuestMemory;
+    type M: IoMemory;
 
     /// A type that provides access to the memory.
     type T: Clone + Deref<Target = Self::M>;
@@ -233,7 +233,7 @@ pub trait GuestAddressSpace {
     fn memory(&self) -> Self::T;
 }
 
-impl<M: GuestMemory> GuestAddressSpace for &M {
+impl<M: IoMemory> GuestAddressSpace for &M {
     type M = M;
     type T = Self;
 
@@ -242,7 +242,7 @@ impl<M: GuestMemory> GuestAddressSpace for &M {
     }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
+impl<M: IoMemory> GuestAddressSpace for Rc<M> {
     type M = M;
     type T = Self;
 
@@ -251,7 +251,7 @@ impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
     }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for Arc<M> {
+impl<M: IoMemory> GuestAddressSpace for Arc<M> {
     type M = M;
     type T = Self;
 
@@ -458,13 +458,14 @@ pub trait GuestMemory {
     }
 }
 
-impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
+impl<T: IoMemory + ?Sized> Bytes<GuestAddress> for T {
     type E = Error;
 
     fn write(&self, buf: &[u8], addr: GuestAddress) -> Result<usize> {
         self.try_access(
             buf.len(),
             addr,
+            Permissions::Write,
             |offset, count, caddr, region| -> Result<usize> {
                 region.write(&buf[offset..(offset + count)], caddr)
             },
@@ -475,6 +476,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
         self.try_access(
             buf.len(),
             addr,
+            Permissions::Read,
             |offset, count, caddr, region| -> Result<usize> {
                 region.read(&mut buf[offset..(offset + count)], caddr)
             },
@@ -542,9 +544,12 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: ReadVolatile,
     {
-        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
-            region.read_volatile_from(caddr, src, len)
-        })
+        self.try_access(
+            count,
+            addr,
+            Permissions::Write,
+            |_, len, caddr, region| -> Result<usize> { region.read_volatile_from(caddr, src, len) },
+        )
     }
 
     fn read_exact_volatile_from<F>(
@@ -570,11 +575,16 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: WriteVolatile,
     {
-        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
-            // For a non-RAM region, reading could have side effects, so we
-            // must use write_all().
-            region.write_all_volatile_to(caddr, dst, len).map(|()| len)
-        })
+        self.try_access(
+            count,
+            addr,
+            Permissions::Read,
+            |_, len, caddr, region| -> Result<usize> {
+                // For a non-RAM region, reading could have side effects, so we
+                // must use write_all().
+                region.write_all_volatile_to(caddr, dst, len).map(|()| len)
+            },
+        )
     }
 
     fn write_all_volatile_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<()>
@@ -597,6 +607,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
         let completed = self.try_access(
             expected,
             addr,
+            Permissions::Write,
             |offset, len, region_addr, region| -> Result<usize> {
                 assert_eq!(offset, 0);
                 if len < expected {
@@ -626,6 +637,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
         let completed = self.try_access(
             expected,
             addr,
+            Permissions::Read,
             |offset, len, region_addr, region| -> Result<usize> {
                 assert_eq!(offset, 0);
                 if len < expected {
