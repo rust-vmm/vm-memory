@@ -52,7 +52,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::address::{Address, AddressValue};
-use crate::bitmap::MS;
+use crate::bitmap::{BitmapSlice, MS};
 use crate::bytes::{AtomicAccess, Bytes};
 use crate::io::{ReadVolatile, WriteVolatile};
 use crate::volatile_memory::{self, VolatileSlice};
@@ -541,11 +541,7 @@ impl<'a, M: GuestMemory + ?Sized> GuestMemorySliceIterator<'a, M> {
     /// when it encounters an error after successfully producing at least one slice.
     /// Return an error if requesting the first slice returns an error.
     pub fn stop_on_error(self) -> Result<impl Iterator<Item = VolatileSlice<'a, MS<'a, M>>>> {
-        let mut peek = self.peekable();
-        if let Some(err) = peek.next_if(Result::is_err) {
-            return Err(err.unwrap_err());
-        }
-        Ok(peek.filter_map(Result::ok))
+        <Self as IoMemorySliceIterator<'a, MS<'a, M>>>::stop_on_error(self)
     }
 }
 
@@ -564,6 +560,11 @@ impl<'a, M: GuestMemory + ?Sized> Iterator for GuestMemorySliceIterator<'a, M> {
             }
         }
     }
+}
+
+impl<'a, M: GuestMemory + ?Sized> IoMemorySliceIterator<'a, MS<'a, M>>
+    for GuestMemorySliceIterator<'a, M>
+{
 }
 
 /// This iterator continues to return `None` when exhausted.
@@ -720,6 +721,157 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
             .unwrap()? // count > 0 never produces an empty iterator
             .load(0, order)
             .map_err(Into::into)
+    }
+}
+
+/// Permissions for accessing virtual memory.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum Permissions {
+    /// No permissions
+    No = 0b00,
+    /// Read-only
+    Read = 0b01,
+    /// Write-only
+    Write = 0b10,
+    /// Allow both reading and writing
+    ReadWrite = 0b11,
+}
+
+impl Permissions {
+    /// Convert the numerical representation into the enum.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `raw` is not a valid representation of any `Permissions` variant.
+    fn from_repr(raw: u8) -> Self {
+        use Permissions::*;
+
+        match raw {
+            value if value == No as u8 => No,
+            value if value == Read as u8 => Read,
+            value if value == Write as u8 => Write,
+            value if value == ReadWrite as u8 => ReadWrite,
+            _ => panic!("{raw:x} is not a valid raw Permissions value"),
+        }
+    }
+
+    /// Check whether the permissions `self` allow the given `access`.
+    pub fn allow(&self, access: Self) -> bool {
+        *self & access == access
+    }
+}
+
+impl std::ops::BitOr for Permissions {
+    type Output = Permissions;
+
+    /// Return the union of `self` and `rhs`.
+    fn bitor(self, rhs: Permissions) -> Self::Output {
+        Self::from_repr(self as u8 | rhs as u8)
+    }
+}
+
+impl std::ops::BitAnd for Permissions {
+    type Output = Permissions;
+
+    /// Return the intersection of `self` and `rhs`.
+    fn bitand(self, rhs: Permissions) -> Self::Output {
+        Self::from_repr(self as u8 & rhs as u8)
+    }
+}
+
+/// Represents virtual I/O memory.
+///
+/// `IoMemory` is generally backed by some “physical” `GuestMemory`, which then consists for
+/// `GuestMemoryRegion` objects.  However, the mapping from I/O virtual addresses (IOVAs) to
+/// physical addresses may be arbitrarily fragmented.  Translation is done via an IOMMU.
+///
+/// Note in contrast to `GuestMemory`:
+/// - Any IOVA range may consist of arbitrarily many underlying ranges in physical memory.
+/// - Accessing an IOVA requires passing the intended access mode, and the IOMMU will check whether
+///   the given access mode is permitted for the given IOVA.
+/// - The translation result for a given IOVA may change over time (i.e. the physical address
+///   associated with an IOVA may change).
+pub trait IoMemory {
+    /// Underlying `GuestMemory` type.
+    type PhysicalMemory: GuestMemory + ?Sized;
+
+    /// Return `true` if `addr..(addr + count)` is accessible with `access`.
+    fn check_range(&self, addr: GuestAddress, count: usize, access: Permissions) -> bool;
+
+    /// Returns a [`VolatileSlice`](struct.VolatileSlice.html) of `count` bytes starting at
+    /// `addr`.
+    ///
+    /// Note that because of the fragmented nature of virtual memory, it can easily happen that the
+    /// range `[addr, addr + count)` is not backed by a continuous region in our own virtual
+    /// memory, which will make generating the slice impossible.
+    ///
+    /// The iterator’s items are wrapped in [`Result`], i.e. there may be errors reported on
+    /// individual items.  If there is no such error, the cumulative length of all items will be
+    /// equal to `count`.  Any error will end iteration immediately, i.e. there are no items past
+    /// the first error.
+    ///
+    /// If `count` is 0, an empty iterator will be returned.
+    fn get_slices<'a>(
+        &'a self,
+        addr: GuestAddress,
+        count: usize,
+        access: Permissions,
+    ) -> Result<impl IoMemorySliceIterator<'a, MS<'a, Self::PhysicalMemory>>>;
+
+    /// If this virtual memory is just a plain `GuestMemory` object underneath without an IOMMU
+    /// translation layer in between, return that `GuestMemory` object.
+    fn physical_memory(&self) -> Option<&Self::PhysicalMemory> {
+        None
+    }
+}
+
+/// Iterates over [`VolatileSlice`]s that together form an I/O memory area.
+///
+/// Returned by [`IoMemory::get_slices()`].
+pub trait IoMemorySliceIterator<'a, B: BitmapSlice>:
+    Iterator<Item = Result<VolatileSlice<'a, B>>> + FusedIterator + Sized
+{
+    /// Adapts this [`IoMemorySliceIterator`] to return `None` (e.g. gracefully terminate) when it
+    /// encounters an error after successfully producing at least one slice.
+    /// Return an error if requesting the first slice returns an error.
+    fn stop_on_error(self) -> Result<impl Iterator<Item = VolatileSlice<'a, B>>> {
+        let mut peek = self.peekable();
+        if let Some(err) = peek.next_if(Result::is_err) {
+            return Err(err.unwrap_err());
+        }
+        Ok(peek.filter_map(Result::ok))
+    }
+}
+
+/// Allow accessing every [`GuestMemory`] via [`IoMemory`].
+///
+/// [`IoMemory`] is a generalization of [`GuestMemory`]: Every object implementing the former is a
+/// subset of an object implementing the latter (there always is an underlying [`GuestMemory`]),
+/// with an opaque internal mapping on top, e.g. provided by an IOMMU.
+///
+/// Every [`GuestMemory`] is therefore trivially also an [`IoMemory`], assuming a complete identity
+/// mapping (which we must assume, so that accessing such objects via either trait will yield the
+/// same result): Basically, all [`IoMemory`] methods are implemented as trivial wrappers around
+/// the same [`GuestMemory`] methods (if available), discarding the `access` parameter.
+impl<M: GuestMemory + ?Sized> IoMemory for M {
+    type PhysicalMemory = M;
+
+    fn check_range(&self, addr: GuestAddress, count: usize, _access: Permissions) -> bool {
+        <M as GuestMemory>::check_range(self, addr, count)
+    }
+
+    fn get_slices<'a>(
+        &'a self,
+        addr: GuestAddress,
+        count: usize,
+        _access: Permissions,
+    ) -> Result<impl IoMemorySliceIterator<'a, MS<'a, Self::PhysicalMemory>>> {
+        Ok(<M as GuestMemory>::get_slices(self, addr, count))
+    }
+
+    fn physical_memory(&self) -> Option<&Self::PhysicalMemory> {
+        Some(self)
     }
 }
 
