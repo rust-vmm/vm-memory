@@ -34,6 +34,10 @@
   The `mmap(2)` syscall itself already validates that offset and length are valid, and trying to replicate this check
   in userspace ended up being imperfect.
 
+### Fixed
+
+- \[[#339](https://github.com/rust-vmm/vm-memory/pull/339)\] Fix `Bytes::read()` and `Bytes::write()` not to ignore `try_access()`'s `count` parameter
+
 ## \[v0.16.1\]
 
 ### Added
