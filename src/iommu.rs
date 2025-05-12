@@ -12,12 +12,18 @@
 //! IOTLB misses require sending a notification to the front-end and awaiting a reply that supplies
 //! the desired mapping.
 
-use crate::{GuestAddress, Permissions};
+use crate::guest_memory::{
+    Error as GuestMemoryError, GuestMemorySliceIterator, Result as GuestMemoryResult,
+};
+use crate::{
+    bitmap, GuestAddress, GuestMemory, IoMemory, MemoryRegionAddress, Permissions, VolatileSlice,
+};
 use rangemap::RangeMap;
 use std::cmp;
 use std::fmt::Debug;
 use std::num::Wrapping;
 use std::ops::{Deref, Range};
+use std::sync::Arc;
 
 /// Errors associated with IOMMU address translation.
 #[derive(Debug, thiserror::Error)]
@@ -170,6 +176,22 @@ pub struct IotlbFails {
     pub misses: Vec<IovaRange>,
     /// Subranges that are mapped, but do not allow the requested access mode
     pub access_fails: Vec<IovaRange>,
+}
+
+/// [`IoMemory`] type that consists of an underlying [`GuestMemory`] object plus an [`Iommu`].
+///
+/// The underlying [`GuestMemory`] is basically the physical memory, and the [`Iommu`] translates
+/// the I/O virtual address space that `IommuMemory` provides into that underlying physical address
+/// space.
+#[derive(Debug, Default)]
+pub struct IommuMemory<M: GuestMemory, I: Iommu> {
+    /// Physical memory
+    inner: M,
+    /// IOMMU to translate IOVAs into physical addresses
+    iommu: Arc<I>,
+    /// Whether the IOMMU is even to be used or not; disabling it makes this a pass-through to
+    /// `inner`.
+    use_iommu: bool,
 }
 
 impl IommuMapping {
@@ -328,5 +350,251 @@ impl TryFrom<Range<u64>> for IovaRange {
             base: GuestAddress(range.start),
             length: (range.end - range.start).try_into()?,
         })
+    }
+}
+
+impl<M: GuestMemory, I: Iommu> IommuMemory<M, I> {
+    /// Create a new `IommuMemory` instance.
+    pub fn new(inner: M, iommu: I, use_iommu: bool) -> Self {
+        IommuMemory {
+            inner,
+            iommu: Arc::new(iommu),
+            use_iommu,
+        }
+    }
+
+    /// Create a new version of `self` with the underlying physical memory replaced.
+    ///
+    /// Note that the inner `Arc` reference to the IOMMU is cloned, i.e. both the existing and the
+    /// new `IommuMemory` object will share an IOMMU instance.  (The `use_iommu` flag however is
+    /// copied, so is independent between the two instances.)
+    pub fn inner_replaced(&self, inner: M) -> Self {
+        IommuMemory {
+            inner,
+            iommu: Arc::clone(&self.iommu),
+            use_iommu: self.use_iommu,
+        }
+    }
+
+    /// Enable or disable the IOMMU.
+    ///
+    /// Disabling the IOMMU switches to pass-through mode, where every access is done directly on
+    /// the underlying physical memory.
+    pub fn set_iommu_enabled(&mut self, enabled: bool) {
+        self.use_iommu = enabled;
+    }
+
+    /// Return a reference to the IOMMU.
+    pub fn iommu(&self) -> &Arc<I> {
+        &self.iommu
+    }
+
+    /// Return a reference to the inner physical memory object.
+    pub fn inner(&self) -> &M {
+        &self.inner
+    }
+}
+
+impl<M: GuestMemory + Clone, I: Iommu> Clone for IommuMemory<M, I> {
+    fn clone(&self) -> Self {
+        IommuMemory {
+            inner: self.inner.clone(),
+            iommu: Arc::clone(&self.iommu),
+            use_iommu: self.use_iommu,
+        }
+    }
+}
+
+impl<M: GuestMemory, I: Iommu> IoMemory for IommuMemory<M, I> {
+    type PhysicalMemory = M;
+
+    fn range_accessible(&self, addr: GuestAddress, count: usize, access: Permissions) -> bool {
+        if !self.use_iommu {
+            return self.inner.range_accessible(addr, count, access);
+        }
+
+        let Ok(mut translated_iter) = self.iommu.translate(addr, count, access) else {
+            return false;
+        };
+
+        translated_iter.all(|translated| {
+            self.inner
+                .range_accessible(translated.base, translated.length, access)
+        })
+    }
+
+    fn try_access<F>(
+        &self,
+        count: usize,
+        addr: GuestAddress,
+        access: Permissions,
+        mut f: F,
+    ) -> GuestMemoryResult<usize>
+    where
+        F: FnMut(
+            usize,
+            usize,
+            MemoryRegionAddress,
+            &<Self::PhysicalMemory as GuestMemory>::R,
+        ) -> GuestMemoryResult<usize>,
+    {
+        if !self.use_iommu {
+            return self.inner.try_access(count, addr, f);
+        }
+
+        let translated = self
+            .iommu
+            .translate(addr, count, access)
+            .map_err(GuestMemoryError::IommuError)?;
+
+        let mut total = 0;
+        for mapping in translated {
+            let handled = self.inner.try_access(
+                mapping.length,
+                mapping.base,
+                |inner_offset, count, in_region_addr, region| {
+                    f(total + inner_offset, count, in_region_addr, region)
+                },
+            )?;
+
+            if handled == 0 {
+                break;
+            } else if handled > count {
+                return Err(GuestMemoryError::CallbackOutOfRange);
+            }
+
+            total += handled;
+            // `GuestMemory::try_access()` only returns a short count when no more data needs to be
+            // processed, so we can stop here
+            if handled < mapping.length {
+                break;
+            }
+        }
+
+        Ok(total)
+    }
+
+    fn get_slices<'a>(
+        &'a self,
+        addr: GuestAddress,
+        count: usize,
+        access: Permissions,
+    ) -> GuestMemoryResult<
+        impl Iterator<Item = GuestMemoryResult<VolatileSlice<'a, bitmap::MS<'a, M>>>>,
+    > {
+        if self.use_iommu {
+            IommuMemorySliceIterator::virt(self, addr, count, access)
+                .map_err(GuestMemoryError::IommuError)
+        } else {
+            Ok(IommuMemorySliceIterator::phys(self, addr, count))
+        }
+    }
+
+    fn physical_memory(&self) -> Option<&Self::PhysicalMemory> {
+        if self.use_iommu {
+            None
+        } else {
+            Some(&self.inner)
+        }
+    }
+}
+
+/// Iterates over [`VolatileSlice`]s that together form an area in an `IommuMemory`.
+///
+/// Returned by [`IommuMemory::get_slices()`]
+#[derive(Debug)]
+pub struct IommuMemorySliceIterator<'a, M: GuestMemory, I: Iommu + 'a> {
+    /// Underlying physical memory (i.e. not the `IommuMemory`)
+    phys_mem: &'a M,
+    /// IOMMU translation result (i.e. remaining physical regions to visit)
+    translation: Option<IotlbIterator<I::IotlbGuard<'a>>>,
+    /// Iterator in the currently visited physical region
+    current_translated_iter: Option<GuestMemorySliceIterator<'a, M>>,
+}
+
+impl<'a, M: GuestMemory, I: Iommu> IommuMemorySliceIterator<'a, M, I> {
+    /// Create an iterator over the physical region `[addr, addr + count)`.
+    ///
+    /// “Physical” means that the IOMMU is not used to translate this address range.  The resulting
+    /// iterator is effectively the same as would be returned by [`GuestMemory::get_slices()`] on
+    /// the underlying physical memory for the given address range.
+    fn phys(mem: &'a IommuMemory<M, I>, addr: GuestAddress, count: usize) -> Self {
+        IommuMemorySliceIterator {
+            phys_mem: &mem.inner,
+            translation: None,
+            current_translated_iter: Some(mem.inner.get_slices(addr, count)),
+        }
+    }
+
+    /// Create an iterator over the IOVA region `[addr, addr + count)`.
+    ///
+    /// This address range is translated using the IOMMU, and the resulting mappings are then
+    /// separately visited via [`GuestMemory::get_slices()`].
+    fn virt(
+        mem: &'a IommuMemory<M, I>,
+        addr: GuestAddress,
+        count: usize,
+        access: Permissions,
+    ) -> Result<Self, Error> {
+        let translation = mem.iommu.translate(addr, count, access)?;
+        Ok(IommuMemorySliceIterator {
+            phys_mem: &mem.inner,
+            translation: Some(translation),
+            current_translated_iter: None,
+        })
+    }
+
+    /// Helper function for [`<Self as Iterator>::next()`].
+    ///
+    /// Get the next slice and update the internal state.  If there is an element left in
+    /// `self.current_translated_iter`, return that; otherwise, move to the next mapping left in
+    /// `self.translation` until there are no more mappings left.
+    ///
+    /// If both fields are `None`, always return `None`.
+    ///
+    /// # Safety
+    ///
+    /// This function never resets `self.current_translated_iter` or `self.translation` to `None`,
+    /// particularly not in case of error; calling this function with these fields not reset after
+    /// an error is ill-defined, so the caller must check the return value, and in case of an
+    /// error, reset these fields to `None`.
+    ///
+    /// (This is why this function exists, so this reset can happen in a single central location.)
+    unsafe fn do_next(
+        &mut self,
+    ) -> Option<GuestMemoryResult<VolatileSlice<'a, bitmap::MS<'a, M>>>> {
+        loop {
+            if let Some(item) = self
+                .current_translated_iter
+                .as_mut()
+                .and_then(|iter| iter.next())
+            {
+                return Some(item);
+            }
+
+            let next_mapping = self.translation.as_mut()?.next()?;
+            self.current_translated_iter = Some(
+                self.phys_mem
+                    .get_slices(next_mapping.base, next_mapping.length),
+            );
+        }
+    }
+}
+
+impl<'a, M: GuestMemory, I: Iommu> Iterator for IommuMemorySliceIterator<'a, M, I> {
+    type Item = GuestMemoryResult<VolatileSlice<'a, bitmap::MS<'a, M>>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // SAFETY:
+        // We reset `current_translated_iter` and `translation` to `None` in case of error
+        match unsafe { self.do_next() } {
+            Some(Ok(slice)) => Some(Ok(slice)),
+            other => {
+                // On error (or end), clear both so iteration remains stopped
+                self.current_translated_iter.take();
+                self.translation.take();
+                other
+            }
+        }
     }
 }
