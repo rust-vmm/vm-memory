@@ -55,6 +55,8 @@ use crate::address::{Address, AddressValue};
 use crate::bitmap::{BitmapSlice, MS};
 use crate::bytes::{AtomicAccess, Bytes};
 use crate::io::{ReadVolatile, WriteVolatile};
+#[cfg(feature = "iommu")]
+use crate::iommu::Error as IommuError;
 use crate::volatile_memory::{self, VolatileSlice};
 use crate::GuestMemoryRegion;
 
@@ -85,6 +87,10 @@ pub enum Error {
     /// The address to be read by `try_access` is outside the address range.
     #[error("The address to be read by `try_access` is outside the address range")]
     GuestAddressOverflow,
+    #[cfg(feature = "iommu")]
+    /// IOMMU translation error
+    #[error("IOMMU failed to translate guest address: {0}")]
+    IommuError(IommuError),
 }
 
 impl From<volatile_memory::Error> for Error {

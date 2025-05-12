@@ -64,6 +64,11 @@ pub use region::{
 pub mod io;
 pub use io::{ReadVolatile, WriteVolatile};
 
+#[cfg(feature = "iommu")]
+pub mod iommu;
+#[cfg(feature = "iommu")]
+pub use iommu::{Iommu, Iotlb};
+
 #[cfg(feature = "backend-mmap")]
 pub mod mmap;
 
