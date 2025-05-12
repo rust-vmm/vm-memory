@@ -573,17 +573,22 @@ impl<'a, M: GuestMemory + ?Sized> IoMemorySliceIterator<'a, MS<'a, M>>
 /// returning `None`, ensuring that it will only return `None` from that point on.
 impl<M: GuestMemory + ?Sized> FusedIterator for GuestMemorySliceIterator<'_, M> {}
 
-impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
+/// Allow accessing [`IoMemory`] (and [`GuestMemory`]) objects via [`Bytes`].
+///
+/// Thanks to the [blanket implementation of `IoMemory` for all `GuestMemory`
+/// types](../io_memory/trait.IoMemory.html#impl-IoMemory-for-M), this blanket implementation
+/// extends to all [`GuestMemory`] types.
+impl<T: IoMemory + ?Sized> Bytes<GuestAddress> for T {
     type E = Error;
 
     fn write(&self, buf: &[u8], addr: GuestAddress) -> Result<usize> {
-        self.get_slices(addr, buf.len())
+        self.get_slices(addr, buf.len(), Permissions::Write)?
             .stop_on_error()?
             .try_fold(0, |acc, slice| Ok(acc + slice.write(&buf[acc..], 0)?))
     }
 
     fn read(&self, buf: &mut [u8], addr: GuestAddress) -> Result<usize> {
-        self.get_slices(addr, buf.len())
+        self.get_slices(addr, buf.len(), Permissions::Read)?
             .stop_on_error()?
             .try_fold(0, |acc, slice| Ok(acc + slice.read(&mut buf[acc..], 0)?))
     }
@@ -649,7 +654,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: ReadVolatile,
     {
-        self.get_slices(addr, count)
+        self.get_slices(addr, count, Permissions::Write)?
             .stop_on_error()?
             .try_fold(0, |acc, slice| {
                 Ok(acc + slice.read_volatile_from(0, src, slice.len())?)
@@ -679,7 +684,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: WriteVolatile,
     {
-        self.get_slices(addr, count)
+        self.get_slices(addr, count, Permissions::Read)?
             .stop_on_error()?
             .try_fold(0, |acc, slice| {
                 // For a non-RAM region, reading could have side effects, so we
@@ -706,7 +711,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     fn store<O: AtomicAccess>(&self, val: O, addr: GuestAddress, order: Ordering) -> Result<()> {
         // No need to check past the first iterator item: It either has the size of `O`, then there
         // can be no further items; or it does not, and then `VolatileSlice::store()` will fail.
-        self.get_slices(addr, size_of::<O>())
+        self.get_slices(addr, size_of::<O>(), Permissions::Write)?
             .next()
             .unwrap()? // count > 0 never produces an empty iterator
             .store(val, 0, order)
@@ -716,7 +721,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     fn load<O: AtomicAccess>(&self, addr: GuestAddress, order: Ordering) -> Result<O> {
         // No need to check past the first iterator item: It either has the size of `O`, then there
         // can be no further items; or it does not, and then `VolatileSlice::store()` will fail.
-        self.get_slices(addr, size_of::<O>())
+        self.get_slices(addr, size_of::<O>(), Permissions::Read)?
             .next()
             .unwrap()? // count > 0 never produces an empty iterator
             .load(0, order)
