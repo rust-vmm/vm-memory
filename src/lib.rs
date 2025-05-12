@@ -53,7 +53,7 @@ pub use endian::{Be16, Be32, Be64, BeSize, Le16, Le32, Le64, LeSize};
 pub mod guest_memory;
 pub use guest_memory::{
     Error as GuestMemoryError, FileOffset, GuestAddress, GuestAddressSpace, GuestMemory,
-    GuestUsize, MemoryRegionAddress, Result as GuestMemoryResult,
+    GuestUsize, IoMemory, MemoryRegionAddress, Permissions, Result as GuestMemoryResult,
 };
 
 pub mod region;
