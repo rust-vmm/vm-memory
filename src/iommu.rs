@@ -12,12 +12,16 @@
 //! IOTLB misses require sending a notification to the front-end and awaiting a reply that supplies
 //! the desired mapping.
 
-use crate::{GuestAddress, Permissions};
+use crate::guest_memory::{Error as GuestMemoryError, Result as GuestMemoryResult};
+use crate::{
+    bitmap, GuestAddress, GuestMemory, IoMemory, MemoryRegionAddress, Permissions, VolatileSlice,
+};
 use rangemap::RangeMap;
 use std::cmp;
 use std::fmt::Debug;
 use std::num::Wrapping;
 use std::ops::{Deref, Range};
+use std::sync::Arc;
 
 /// Errors associated with IOMMU address translation.
 #[derive(Debug, thiserror::Error)]
@@ -170,6 +174,22 @@ pub struct IotlbFails {
     pub misses: Vec<IovaRange>,
     /// Subranges that are mapped, but do not allow the requested access mode
     pub access_fails: Vec<IovaRange>,
+}
+
+/// [`IoMemory`] type that consists of an underlying [`GuestMemory`] object plus an [`Iommu`].
+///
+/// The underlying [`GuestMemory`] is basically the physical memory, and the [`Iommu`] translates
+/// the I/O virtual address space that `IommuMemory` provides into that underlying physical address
+/// space.
+#[derive(Debug, Default)]
+pub struct IommuMemory<M: GuestMemory, I: Iommu> {
+    /// Physical memory
+    inner: M,
+    /// IOMMU to translate IOVAs into physical addresses
+    iommu: Arc<I>,
+    /// Whether the IOMMU is even to be used or not; disabling it makes this a pass-through to
+    /// `inner`.
+    use_iommu: bool,
 }
 
 impl IommuMapping {
@@ -328,5 +348,168 @@ impl TryFrom<Range<u64>> for IovaRange {
             base: GuestAddress(range.start),
             length: (range.end - range.start).try_into()?,
         })
+    }
+}
+
+impl<M: GuestMemory, I: Iommu> IommuMemory<M, I> {
+    /// Create a new `IommuMemory` instance.
+    pub fn new(inner: M, iommu: Arc<I>, use_iommu: bool) -> Self {
+        IommuMemory {
+            inner,
+            iommu,
+            use_iommu,
+        }
+    }
+
+    /// Create a new version of `self` with the underlying physical memory replaced.
+    ///
+    /// Note that the inner `Arc` reference to the IOMMU is cloned, i.e. both the existing and the
+    /// new `IommuMemory` object will share an IOMMU instance.  (The `use_iommu` flag however is
+    /// copied, so is independent between the two instances.)
+    pub fn inner_replaced(&self, inner: M) -> Self {
+        IommuMemory {
+            inner,
+            iommu: Arc::clone(&self.iommu),
+            use_iommu: self.use_iommu,
+        }
+    }
+
+    /// Enable or disable the IOMMU.
+    ///
+    /// Disabling the IOMMU switches to pass-through mode, where every access is done directly on
+    /// the underlying physical memory.
+    pub fn set_iommu_enabled(&mut self, enabled: bool) {
+        self.use_iommu = enabled;
+    }
+
+    /// Return a reference to the IOMMU.
+    pub fn iommu(&self) -> &Arc<I> {
+        &self.iommu
+    }
+
+    /// Return a reference to the inner physical memory object.
+    pub fn inner(&self) -> &M {
+        &self.inner
+    }
+}
+
+impl<M: GuestMemory + Clone, I: Iommu> Clone for IommuMemory<M, I> {
+    fn clone(&self) -> Self {
+        IommuMemory {
+            inner: self.inner.clone(),
+            iommu: Arc::clone(&self.iommu),
+            use_iommu: self.use_iommu,
+        }
+    }
+}
+
+impl<M: GuestMemory, I: Iommu> IoMemory for IommuMemory<M, I> {
+    type PhysicalMemory = M;
+
+    fn range_accessible(&self, addr: GuestAddress, count: usize, access: Permissions) -> bool {
+        if !self.use_iommu {
+            return self.inner.range_accessible(addr, count, access);
+        }
+
+        let Ok(mut translated_iter) = self.iommu.translate(addr, count, access) else {
+            return false;
+        };
+
+        translated_iter.all(|translated| {
+            self.inner
+                .range_accessible(translated.base, translated.length, access)
+        })
+    }
+
+    fn try_access<'a, F>(
+        &'a self,
+        count: usize,
+        addr: GuestAddress,
+        access: Permissions,
+        mut f: F,
+    ) -> GuestMemoryResult<usize>
+    where
+        F: FnMut(
+            usize,
+            usize,
+            MemoryRegionAddress,
+            &'a <Self::PhysicalMemory as GuestMemory>::R,
+        ) -> GuestMemoryResult<usize>,
+    {
+        if !self.use_iommu {
+            return self.inner.try_access(count, addr, f);
+        }
+
+        let translated = self
+            .iommu
+            .translate(addr, count, access)
+            .map_err(GuestMemoryError::IommuError)?;
+
+        let mut total = 0;
+        for mapping in translated {
+            let handled = self.inner.try_access(
+                mapping.length,
+                mapping.base,
+                |inner_offset, count, in_region_addr, region| {
+                    f(total + inner_offset, count, in_region_addr, region)
+                },
+            )?;
+
+            if handled == 0 {
+                break;
+            } else if handled > count {
+                return Err(GuestMemoryError::CallbackOutOfRange);
+            }
+
+            total += handled;
+            // `GuestMemory::try_access()` only returns a short count when no more data needs to be
+            // processed, so we can stop here
+            if handled < mapping.length {
+                break;
+            }
+        }
+
+        Ok(total)
+    }
+
+    fn get_slice(
+        &self,
+        addr: GuestAddress,
+        count: usize,
+        access: Permissions,
+    ) -> GuestMemoryResult<VolatileSlice<bitmap::MS<M>>> {
+        if !self.use_iommu {
+            return self.inner.get_slice(addr, count);
+        }
+
+        // Ensure `count` is at least 1 so we can translate something
+        let adj_count = cmp::max(count, 1);
+
+        let mut translated = self
+            .iommu
+            .translate(addr, adj_count, access)
+            .map_err(GuestMemoryError::IommuError)?;
+
+        let mapping = translated.next().unwrap();
+        if translated.next().is_some() {
+            return Err(GuestMemoryError::IommuError(Error::Fragmented {
+                iova_range: IovaRange {
+                    base: addr,
+                    length: count,
+                },
+                continuous_length: mapping.length,
+            }));
+        }
+
+        assert!(mapping.length == count || (count == 0 && mapping.length == 1));
+        self.inner.get_slice(mapping.base, count)
+    }
+
+    fn physical_memory(&self) -> Option<&Self::PhysicalMemory> {
+        if self.use_iommu {
+            None
+        } else {
+            Some(&self.inner)
+        }
     }
 }
