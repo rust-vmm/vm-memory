@@ -501,9 +501,9 @@ pub trait GuestMemory {
     /// - the error code returned by the callback 'f'
     /// - the size of the already handled data when encountering the first hole
     /// - the size of the already handled data when the whole range has been handled
-    fn try_access<F>(&self, count: usize, addr: GuestAddress, mut f: F) -> Result<usize>
+    fn try_access<'a, F>(&'a self, count: usize, addr: GuestAddress, mut f: F) -> Result<usize>
     where
-        F: FnMut(usize, usize, MemoryRegionAddress, &Self::R) -> Result<usize>,
+        F: FnMut(usize, usize, MemoryRegionAddress, &'a Self::R) -> Result<usize>,
     {
         let mut cur = addr;
         let mut total = 0;
