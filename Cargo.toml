@@ -16,6 +16,7 @@ default = ["rawfd"]
 backend-bitmap = ["dep:libc", "dep:winapi"]
 backend-mmap = ["dep:libc", "dep:winapi"]
 backend-atomic = ["arc-swap"]
+iommu = ["dep:rangemap"]
 rawfd = ["dep:libc"]
 xen = ["backend-mmap", "bitflags", "vmm-sys-util"]
 
@@ -23,6 +24,7 @@ xen = ["backend-mmap", "bitflags", "vmm-sys-util"]
 libc = { version = "0.2.39", optional = true }
 arc-swap = { version = "1.0.0", optional = true }
 bitflags = { version = "2.4.0", optional = true }
+rangemap = { version = "1.5.1", optional = true }
 thiserror = "2.0.16"
 vmm-sys-util = { version = ">=0.12.1, <=0.15.0", optional = true }
 
