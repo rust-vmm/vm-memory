@@ -143,7 +143,7 @@ impl<M: IoMemory> GuestMemoryExclusiveGuard<'_, M> {
 #[cfg(feature = "backend-mmap")]
 mod tests {
     use super::*;
-    use crate::{GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MmapRegion};
+    use crate::{GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, IoMemory, MmapRegion};
 
     type GuestMemoryMmap = crate::GuestMemoryMmap<()>;
     type GuestRegionMmap = crate::GuestRegionMmap<()>;
@@ -159,7 +159,8 @@ mod tests {
         let mut iterated_regions = Vec::new();
         let gmm = GuestMemoryMmap::from_ranges(&regions).unwrap();
         let gm = GuestMemoryMmapAtomic::new(gmm);
-        let mem = gm.memory();
+        let vmem = gm.memory();
+        let mem = vmem.physical_memory().unwrap();
 
         for region in mem.iter() {
             assert_eq!(region.len(), region_size as GuestUsize);
@@ -178,7 +179,7 @@ mod tests {
             .map(|x| (x.0, x.1))
             .eq(iterated_regions.iter().copied()));
 
-        let mem2 = mem.into_inner();
+        let mem2 = vmem.into_inner();
         for region in mem2.iter() {
             assert_eq!(region.len(), region_size as GuestUsize);
         }
