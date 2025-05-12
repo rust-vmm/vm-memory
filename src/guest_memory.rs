@@ -44,6 +44,7 @@
 use std::convert::From;
 use std::fs::File;
 use std::io;
+use std::iter::FusedIterator;
 use std::ops::{BitAnd, BitOr, Deref};
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
@@ -455,7 +456,100 @@ pub trait GuestMemory {
             .ok_or(Error::InvalidGuestAddress(addr))
             .and_then(|(r, addr)| r.get_slice(addr, count))
     }
+
+    /// Returns an iterator over [`VolatileSlice`](struct.VolatileSlice.html)s, together covering
+    /// `count` bytes starting at `addr`.
+    ///
+    /// Iterating in this way is necessary because the given address range may be fragmented across
+    /// multiple [`GuestMemoryRegion`]s.
+    ///
+    /// The iterator’s items are wrapped in [`Result`], i.e. errors are reported on individual
+    /// items.  If there is no such error, the cumulative length of all items will be equal to
+    /// `count`.  If `count` is 0, an empty iterator will be returned.
+    fn get_slices<'a>(
+        &'a self,
+        addr: GuestAddress,
+        count: usize,
+    ) -> GuestMemorySliceIterator<'a, Self> {
+        GuestMemorySliceIterator {
+            mem: self,
+            addr,
+            count,
+        }
+    }
 }
+
+/// Iterates over [`VolatileSlice`]s that together form a guest memory area.
+///
+/// Returned by [`GuestMemory::get_slices()`].
+#[derive(Debug)]
+pub struct GuestMemorySliceIterator<'a, M: GuestMemory + ?Sized> {
+    /// Underlying memory
+    mem: &'a M,
+    /// Next address in the guest memory area
+    addr: GuestAddress,
+    /// Remaining bytes in the guest memory area
+    count: usize,
+}
+
+impl<'a, M: GuestMemory + ?Sized> GuestMemorySliceIterator<'a, M> {
+    /// Helper function for [`<Self as Iterator>::next()`](GuestMemorySliceIterator::next).
+    ///
+    /// Get the next slice (i.e. the one starting from `self.addr` with a length up to
+    /// `self.count`) and update the internal state.
+    ///
+    /// # Safety
+    ///
+    /// This function does not reset to `self.count` to 0 in case of error, i.e. will not stop
+    /// iterating.  Actual behavior after an error is ill-defined, so the caller must check the
+    /// return value, and in case of an error, reset `self.count` to 0.
+    ///
+    /// (This is why this function exists, so this resetting can be done in a single central
+    /// location.)
+    unsafe fn do_next(&mut self) -> Option<Result<VolatileSlice<'a, MS<'a, M>>>> {
+        if self.count == 0 {
+            return None;
+        }
+
+        let Some((region, start)) = self.mem.to_region_addr(self.addr) else {
+            return Some(Err(Error::InvalidGuestAddress(self.addr)));
+        };
+
+        let cap = region.len() - start.raw_value();
+        let len = std::cmp::min(cap, self.count as GuestUsize);
+
+        self.count -= len as usize;
+        self.addr = match self.addr.overflowing_add(len as GuestUsize) {
+            (x @ GuestAddress(0), _) | (x, false) => x,
+            (_, true) => return Some(Err(Error::GuestAddressOverflow)),
+        };
+
+        Some(region.get_slice(start, len as usize))
+    }
+}
+
+impl<'a, M: GuestMemory + ?Sized> Iterator for GuestMemorySliceIterator<'a, M> {
+    type Item = Result<VolatileSlice<'a, MS<'a, M>>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // SAFETY:
+        // We reset `self.count` to 0 on error
+        match unsafe { self.do_next() } {
+            Some(Ok(slice)) => Some(Ok(slice)),
+            other => {
+                // On error (or end), reset to 0 so iteration remains stopped
+                self.count = 0;
+                other
+            }
+        }
+    }
+}
+
+/// This iterator continues to return `None` when exhausted.
+///
+/// [`<Self as Iterator>::next()`](GuestMemorySliceIterator::next) sets `self.count` to 0 when
+/// returning `None`, ensuring that it will only return `None` from that point on.
+impl<M: GuestMemory + ?Sized> FusedIterator for GuestMemorySliceIterator<'_, M> {}
 
 impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     type E = Error;

@@ -266,7 +266,9 @@ pub(crate) mod tests {
         let dirty_len = size_of_val(&val);
 
         let (region, region_addr) = m.to_region_addr(dirty_addr).unwrap();
-        let slice = m.get_slice(dirty_addr, dirty_len).unwrap();
+        let mut slices = m.get_slices(dirty_addr, dirty_len);
+        let slice = slices.next().unwrap().unwrap();
+        assert!(slices.next().is_none());
 
         assert!(range_is_clean(&region.bitmap(), 0, region.len() as usize));
         assert!(range_is_clean(slice.bitmap(), 0, dirty_len));
