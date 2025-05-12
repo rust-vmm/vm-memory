@@ -625,6 +625,56 @@ mod tests {
     }
 
     #[test]
+    fn test_guest_memory_get_slices() {
+        let start_addr1 = GuestAddress(0);
+        let start_addr2 = GuestAddress(0x800);
+        let start_addr3 = GuestAddress(0xc00);
+        let guest_mem = GuestMemoryMmap::from_ranges(&[
+            (start_addr1, 0x400),
+            (start_addr2, 0x400),
+            (start_addr3, 0x400),
+        ])
+        .unwrap();
+
+        // Same cases as `test_guest_memory_get_slice()`, just with `get_slices()`.
+        let slice_size = 0x200;
+        let mut slices = guest_mem.get_slices(GuestAddress(0x100), slice_size);
+        let slice = slices.next().unwrap().unwrap();
+        assert!(slices.next().is_none());
+        assert_eq!(slice.len(), slice_size);
+
+        let slice_size = 0x400;
+        let mut slices = guest_mem.get_slices(GuestAddress(0x800), slice_size);
+        let slice = slices.next().unwrap().unwrap();
+        assert!(slices.next().is_none());
+        assert_eq!(slice.len(), slice_size);
+
+        // Empty iterator.
+        assert!(guest_mem
+            .get_slices(GuestAddress(0x900), 0)
+            .next()
+            .is_none());
+
+        // Error cases, wrong size or base address.
+        let mut slices = guest_mem.get_slices(GuestAddress(0), 0x500);
+        assert_eq!(slices.next().unwrap().unwrap().len(), 0x400);
+        assert!(slices.next().unwrap().is_err());
+        assert!(slices.next().is_none());
+        let mut slices = guest_mem.get_slices(GuestAddress(0x600), 0x100);
+        assert!(slices.next().unwrap().is_err());
+        assert!(slices.next().is_none());
+        let mut slices = guest_mem.get_slices(GuestAddress(0x1000), 0x100);
+        assert!(slices.next().unwrap().is_err());
+        assert!(slices.next().is_none());
+
+        // Test fragmented case
+        let mut slices = guest_mem.get_slices(GuestAddress(0xa00), 0x400);
+        assert_eq!(slices.next().unwrap().unwrap().len(), 0x200);
+        assert_eq!(slices.next().unwrap().unwrap().len(), 0x200);
+        assert!(slices.next().is_none());
+    }
+
+    #[test]
     fn test_atomic_accesses() {
         let region = GuestRegionMmap::from_range(GuestAddress(0), 0x1000, None).unwrap();
 

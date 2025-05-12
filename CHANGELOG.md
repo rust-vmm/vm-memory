@@ -9,6 +9,7 @@
   is now a type alias for `GuestRegionContainer<GuestRegionMmap>`).
 - \[[#338](https://github.com/rust-vmm/vm-memory/pull/338)\] Make `GuestMemoryAtomic` always implement `Clone`.
 - \[[#338](https://github.com/rust-vmm/vm-memory/pull/338)\] Make `GuestAddressSpace` a subtrait of `Clone`.
+- \[[#339](https://github.com/rust-vmm/vm-memory/pull/339)\] Add `GuestMemory::get_slices()`
 
 ### Changed
 
