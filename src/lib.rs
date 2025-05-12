@@ -53,6 +53,9 @@ pub use guest_memory::{
 pub mod io;
 pub use io::{ReadVolatile, WriteVolatile};
 
+pub mod io_memory;
+pub use io_memory::{IoMemory, Permissions};
+
 #[cfg(feature = "backend-mmap")]
 pub mod mmap;
 
