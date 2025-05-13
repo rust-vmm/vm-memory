@@ -15,6 +15,7 @@
 use std::borrow::Borrow;
 use std::ops::Deref;
 use std::result;
+use std::sync::Arc;
 
 use crate::address::Address;
 use crate::bitmap::{Bitmap, BS};
@@ -54,7 +55,7 @@ pub use windows::MmapRegion;
 /// in the virtual address space of the calling process.
 #[derive(Debug)]
 pub struct GuestRegionMmap<B = ()> {
-    mapping: MmapRegion<B>,
+    mapping: Arc<MmapRegion<B>>,
     guest_base: GuestAddress,
 }
 
@@ -62,7 +63,7 @@ impl<B> Deref for GuestRegionMmap<B> {
     type Target = MmapRegion<B>;
 
     fn deref(&self) -> &MmapRegion<B> {
-        &self.mapping
+        self.mapping.as_ref()
     }
 }
 
@@ -71,6 +72,11 @@ impl<B: Bitmap> GuestRegionMmap<B> {
     ///
     /// Returns `None` if `guest_base` + `mapping.len()` would overflow.
     pub fn new(mapping: MmapRegion<B>, guest_base: GuestAddress) -> Option<Self> {
+        Self::with_arc(Arc::new(mapping), guest_base)
+    }
+
+    /// Same as [`Self::new()`], but takes an `Arc`-wrapped `mapping`.
+    pub fn with_arc(mapping: Arc<MmapRegion<B>>, guest_base: GuestAddress) -> Option<Self> {
         guest_base
             .0
             .checked_add(mapping.size() as u64)
@@ -78,6 +84,16 @@ impl<B: Bitmap> GuestRegionMmap<B> {
                 mapping,
                 guest_base,
             })
+    }
+
+    /// Return a clone of the inner `Arc<MmapRegion>` (as opposed to [`.deref()`](Self::deref()),
+    /// which bypasses the `Arc`).
+    ///
+    /// The returned reference can be used to construct a new `GuestRegionMmap` with a different
+    /// base address (e.g. when switching between memory address spaces based on the guest physical
+    /// address vs. the VMM userspace virtual address).
+    pub fn get_mmap(&self) -> Arc<MmapRegion<B>> {
+        Arc::clone(&self.mapping)
     }
 }
 
