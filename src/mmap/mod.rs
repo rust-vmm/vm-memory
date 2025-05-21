@@ -327,8 +327,8 @@ impl<B: Bitmap> GuestMemoryRegion for GuestRegionMmap<B> {
         self.guest_base
     }
 
-    fn bitmap(&self) -> &Self::B {
-        self.mapping.bitmap()
+    fn bitmap(&self) -> BS<'_, Self::B> {
+        self.mapping.bitmap().slice_at(0)
     }
 
     fn get_host_address(&self, addr: MemoryRegionAddress) -> guest_memory::Result<*mut u8> {
