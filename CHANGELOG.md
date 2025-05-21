@@ -11,6 +11,8 @@
 - \[[#307](https://github.com/rust-vmm/vm-memory/pull/304)\] Move `read_volatile_from`, `read_exact_volatile_from`,
   `write_volatile_to` and `write_all_volatile_to` functions from the `GuestMemory` trait to the `Bytes` trait.
 
+- \[#324](https:////github.com/rust-vmm/vm-memory/pull/324)\] `GuestMemoryRegion::bitmap()` now returns a `BitmapSlice`. Accessing the full bitmap is now possible only if the type of the memory region is know, for example with `MmapRegion::bitmap()`.
+
 ### Removed
 
 - \[[#307](https://github.com/rust-vmm/vm-memory/pull/304)\] Remove deprecated functions `Bytes::read_from`, `Bytes::read_exact_from`,
