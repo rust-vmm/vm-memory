@@ -177,7 +177,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
     }
 
     /// Borrow the associated `Bitmap` object.
-    fn bitmap(&self) -> &Self::B;
+    fn bitmap(&self) -> BS<'_, Self::B>;
 
     /// Returns the given address if it is within this region.
     fn check_address(&self, addr: MemoryRegionAddress) -> Option<MemoryRegionAddress> {
