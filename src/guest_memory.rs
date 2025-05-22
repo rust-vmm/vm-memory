@@ -45,6 +45,7 @@ use std::convert::From;
 use std::fs::File;
 use std::io;
 use std::iter::FusedIterator;
+use std::mem::size_of;
 use std::ops::{BitAnd, BitOr, Deref};
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
@@ -685,17 +686,23 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     }
 
     fn store<O: AtomicAccess>(&self, val: O, addr: GuestAddress, order: Ordering) -> Result<()> {
-        // `find_region` should really do what `to_region_addr` is doing right now, except
-        // it should keep returning a `Result`.
-        self.to_region_addr(addr)
-            .ok_or(Error::InvalidGuestAddress(addr))
-            .and_then(|(region, region_addr)| region.store(val, region_addr, order))
+        // No need to check past the first iterator item: It either has the size of `O`, then there
+        // can be no further items; or it does not, and then `VolatileSlice::store()` will fail.
+        self.get_slices(addr, size_of::<O>())
+            .next()
+            .unwrap()? // count > 0 never produces an empty iterator
+            .store(val, 0, order)
+            .map_err(Into::into)
     }
 
     fn load<O: AtomicAccess>(&self, addr: GuestAddress, order: Ordering) -> Result<O> {
-        self.to_region_addr(addr)
-            .ok_or(Error::InvalidGuestAddress(addr))
-            .and_then(|(region, region_addr)| region.load(region_addr, order))
+        // No need to check past the first iterator item: It either has the size of `O`, then there
+        // can be no further items; or it does not, and then `VolatileSlice::store()` will fail.
+        self.get_slices(addr, size_of::<O>())
+            .next()
+            .unwrap()? // count > 0 never produces an empty iterator
+            .load(0, order)
+            .map_err(Into::into)
     }
 }
 
