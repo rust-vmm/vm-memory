@@ -44,6 +44,7 @@
 use std::convert::From;
 use std::fs::File;
 use std::io;
+use std::mem::size_of;
 use std::ops::{BitAnd, BitOr, Deref};
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
@@ -718,17 +719,62 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     }
 
     fn store<O: AtomicAccess>(&self, val: O, addr: GuestAddress, order: Ordering) -> Result<()> {
-        // `find_region` should really do what `to_region_addr` is doing right now, except
-        // it should keep returning a `Result`.
-        self.to_region_addr(addr)
-            .ok_or(Error::InvalidGuestAddress(addr))
-            .and_then(|(region, region_addr)| region.store(val, region_addr, order))
+        let expected = size_of::<O>();
+
+        let completed = self.try_access(
+            expected,
+            addr,
+            |offset, len, region_addr, region| -> Result<usize> {
+                assert_eq!(offset, 0);
+                if len < expected {
+                    return Err(Error::PartialBuffer {
+                        expected,
+                        completed: len,
+                    });
+                }
+                region.store(val, region_addr, order).map(|()| expected)
+            },
+        )?;
+
+        if completed < expected {
+            Err(Error::PartialBuffer {
+                expected,
+                completed,
+            })
+        } else {
+            Ok(())
+        }
     }
 
     fn load<O: AtomicAccess>(&self, addr: GuestAddress, order: Ordering) -> Result<O> {
-        self.to_region_addr(addr)
-            .ok_or(Error::InvalidGuestAddress(addr))
-            .and_then(|(region, region_addr)| region.load(region_addr, order))
+        let expected = size_of::<O>();
+        let mut result = None::<O>;
+
+        let completed = self.try_access(
+            expected,
+            addr,
+            |offset, len, region_addr, region| -> Result<usize> {
+                assert_eq!(offset, 0);
+                if len < expected {
+                    return Err(Error::PartialBuffer {
+                        expected,
+                        completed: len,
+                    });
+                }
+                result = Some(region.load(region_addr, order)?);
+                Ok(expected)
+            },
+        )?;
+
+        if completed < expected {
+            Err(Error::PartialBuffer {
+                expected,
+                completed,
+            })
+        } else {
+            // Must be set because `completed == expected`
+            Ok(result.unwrap())
+        }
     }
 }
 
