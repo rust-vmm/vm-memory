@@ -11,12 +11,17 @@
 - \[[#307](https://github.com/rust-vmm/vm-memory/pull/304)\] Move `read_volatile_from`, `read_exact_volatile_from`,
   `write_volatile_to` and `write_all_volatile_to` functions from the `GuestMemory` trait to the `Bytes` trait.
 
+- \[#324](https:////github.com/rust-vmm/vm-memory/pull/324)\] `GuestMemoryRegion::bitmap()` now returns a `BitmapSlice`. Accessing the full bitmap is now possible only if the type of the memory region is know, for example with `MmapRegion::bitmap()`.
+
 ### Removed
 
 - \[[#307](https://github.com/rust-vmm/vm-memory/pull/304)\] Remove deprecated functions `Bytes::read_from`, `Bytes::read_exact_from`,
   `Bytes::write_to`, `Bytes::write_all_to`, `GuestMemory::as_slice`, `GuestMemory::as_slice_mut`, `GuestMemory::with_regions`, 
   `GuestMemory::with_regions_mut`, `GuestMemory::map_and_fold`, `VolatileSlice::as_ptr`, `VolatileRef::as_ptr`, and
   `VolatileArrayRef::as_ptr`.
+- \[[#320](https://github.com/rust-vmm/vm-memory/pull/320)\] Drop `check_file_offset` check when using  `MmapRegionBuilder`.
+  The `mmap(2)` syscall itself already validates that offset and length are valid, and trying to replicate this check
+  in userspace ended up being imperfect.
 
 ## \[v0.16.1\]
 

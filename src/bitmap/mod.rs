@@ -293,13 +293,13 @@ pub(crate) mod tests {
 
         let slice = region.get_slice(dirty_addr, dirty_len).unwrap();
 
-        assert!(range_is_clean(region.bitmap(), 0, region.len() as usize));
+        assert!(range_is_clean(&region.bitmap(), 0, region.len() as usize));
         assert!(range_is_clean(slice.bitmap(), 0, dirty_len));
 
         region.write_obj(val, dirty_addr).unwrap();
 
         assert!(range_is_dirty(
-            region.bitmap(),
+            &region.bitmap(),
             dirty_addr.0 as usize,
             dirty_len
         ));
@@ -312,7 +312,7 @@ pub(crate) mod tests {
         test_bytes(
             region,
             |r: &R, start: usize, len: usize, clean: bool| {
-                check_range(r.bitmap(), start, len, clean)
+                check_range(&r.bitmap(), start, len, clean)
             },
             |offset| MemoryRegionAddress(offset as u64),
             0x1000,
@@ -334,13 +334,13 @@ pub(crate) mod tests {
         let (region, region_addr) = m.to_region_addr(dirty_addr).unwrap();
         let slice = m.get_slice(dirty_addr, dirty_len).unwrap();
 
-        assert!(range_is_clean(region.bitmap(), 0, region.len() as usize));
+        assert!(range_is_clean(&region.bitmap(), 0, region.len() as usize));
         assert!(range_is_clean(slice.bitmap(), 0, dirty_len));
 
         m.write_obj(val, dirty_addr).unwrap();
 
         assert!(range_is_dirty(
-            region.bitmap(),
+            &region.bitmap(),
             region_addr.0 as usize,
             dirty_len
         ));
@@ -354,7 +354,7 @@ pub(crate) mod tests {
         let check_range_closure = |m: &M, start: usize, len: usize, clean: bool| -> bool {
             let mut check_result = true;
             m.try_access(len, GuestAddress(start as u64), |_, size, reg_addr, reg| {
-                if !check_range(reg.bitmap(), reg_addr.0 as usize, size, clean) {
+                if !check_range(&reg.bitmap(), reg_addr.0 as usize, size, clean) {
                     check_result = false;
                 }
                 Ok(size)
