@@ -24,6 +24,7 @@
   Change return type of `GuestRegionMmap::new` from `Result` to `Option`.
 - \[#324](https:////github.com/rust-vmm/vm-memory/pull/324)\] `GuestMemoryRegion::bitmap()` now returns a `BitmapSlice`. Accessing the full bitmap is now possible only if the type of the memory region is know, for example with `MmapRegion::bitmap()`.
 - \[[#339](https://github.com/rust-vmm/vm-memory/pull/339)\] Fix `Bytes::read()` and `Bytes::write()` not to ignore `try_access()`'s `count` parameter
+- \[[#339](https://github.com/rust-vmm/vm-memory/pull/339)\] Implement `Bytes::load()` and `Bytes::store()` with `try_access()` instead of `to_region_addr()`
 
 ### Removed
 
