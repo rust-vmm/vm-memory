@@ -561,7 +561,7 @@ mod tests {
             prot,
             flags | libc::MAP_FIXED,
         );
-        assert_eq!(format!("{:?}", r.unwrap_err()), "MapFixed");
+        assert!(matches!(r.unwrap_err(), Error::MapFixed));
 
         // Let's resize the file.
         assert_eq!(unsafe { libc::ftruncate(a.as_raw_fd(), 1024 * 10) }, 0);
@@ -606,7 +606,7 @@ mod tests {
         let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
 
         let r = unsafe { MmapRegion::build_raw((addr + 1) as *mut u8, size, prot, flags) };
-        assert_eq!(format!("{:?}", r.unwrap_err()), "InvalidPointer");
+        assert!(matches!(r.unwrap_err(), Error::InvalidPointer));
 
         let r = unsafe { MmapRegion::build_raw(addr as *mut u8, size, prot, flags).unwrap() };
 
