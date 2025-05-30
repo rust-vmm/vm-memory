@@ -44,6 +44,7 @@
 use std::convert::From;
 use std::fs::File;
 use std::io;
+use std::mem::size_of;
 use std::ops::{BitAnd, BitOr, Deref};
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
@@ -53,7 +54,10 @@ use crate::address::{Address, AddressValue};
 use crate::bitmap::{Bitmap, BS, MS};
 use crate::bytes::{AtomicAccess, Bytes};
 use crate::io::{ReadVolatile, WriteVolatile};
+#[cfg(feature = "iommu")]
+use crate::iommu::Error as IommuError;
 use crate::volatile_memory::{self, VolatileSlice};
+use crate::{IoMemory, Permissions};
 
 /// Errors associated with handling guest memory accesses.
 #[allow(missing_docs)]
@@ -82,6 +86,10 @@ pub enum Error {
     /// The address to be read by `try_access` is outside the address range.
     #[error("The address to be read by `try_access` is outside the address range")]
     GuestAddressOverflow,
+    #[cfg(feature = "iommu")]
+    /// IOMMU translation error
+    #[error("IOMMU failed to translate guest address: {0}")]
+    IommuError(IommuError),
 }
 
 impl From<volatile_memory::Error> for Error {
@@ -353,7 +361,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = Error> {
 /// ```
 pub trait GuestAddressSpace {
     /// The type that will be used to access guest memory.
-    type M: GuestMemory;
+    type M: IoMemory;
 
     /// A type that provides access to the memory.
     type T: Clone + Deref<Target = Self::M>;
@@ -364,7 +372,7 @@ pub trait GuestAddressSpace {
     fn memory(&self) -> Self::T;
 }
 
-impl<M: GuestMemory> GuestAddressSpace for &M {
+impl<M: IoMemory> GuestAddressSpace for &M {
     type M = M;
     type T = Self;
 
@@ -373,7 +381,7 @@ impl<M: GuestMemory> GuestAddressSpace for &M {
     }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
+impl<M: IoMemory> GuestAddressSpace for Rc<M> {
     type M = M;
     type T = Self;
 
@@ -382,7 +390,7 @@ impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
     }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for Arc<M> {
+impl<M: IoMemory> GuestAddressSpace for Arc<M> {
     type M = M;
     type T = Self;
 
@@ -501,9 +509,9 @@ pub trait GuestMemory {
     /// - the error code returned by the callback 'f'
     /// - the size of the already handled data when encountering the first hole
     /// - the size of the already handled data when the whole range has been handled
-    fn try_access<F>(&self, count: usize, addr: GuestAddress, mut f: F) -> Result<usize>
+    fn try_access<'a, F>(&'a self, count: usize, addr: GuestAddress, mut f: F) -> Result<usize>
     where
-        F: FnMut(usize, usize, MemoryRegionAddress, &Self::R) -> Result<usize>,
+        F: FnMut(usize, usize, MemoryRegionAddress, &'a Self::R) -> Result<usize>,
     {
         let mut cur = addr;
         let mut total = 0;
@@ -584,15 +592,16 @@ pub trait GuestMemory {
     }
 }
 
-impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
+impl<T: IoMemory + ?Sized> Bytes<GuestAddress> for T {
     type E = Error;
 
     fn write(&self, buf: &[u8], addr: GuestAddress) -> Result<usize> {
         self.try_access(
             buf.len(),
             addr,
-            |offset, _count, caddr, region| -> Result<usize> {
-                region.write(&buf[offset..], caddr)
+            Permissions::Write,
+            |offset, count, caddr, region| -> Result<usize> {
+                region.write(&buf[offset..(offset + count)], caddr)
             },
         )
     }
@@ -601,8 +610,9 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
         self.try_access(
             buf.len(),
             addr,
-            |offset, _count, caddr, region| -> Result<usize> {
-                region.read(&mut buf[offset..], caddr)
+            Permissions::Read,
+            |offset, count, caddr, region| -> Result<usize> {
+                region.read(&mut buf[offset..(offset + count)], caddr)
             },
         )
     }
@@ -668,9 +678,12 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: ReadVolatile,
     {
-        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
-            region.read_volatile_from(caddr, src, len)
-        })
+        self.try_access(
+            count,
+            addr,
+            Permissions::Write,
+            |_, len, caddr, region| -> Result<usize> { region.read_volatile_from(caddr, src, len) },
+        )
     }
 
     fn read_exact_volatile_from<F>(
@@ -696,11 +709,16 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: WriteVolatile,
     {
-        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
-            // For a non-RAM region, reading could have side effects, so we
-            // must use write_all().
-            region.write_all_volatile_to(caddr, dst, len).map(|()| len)
-        })
+        self.try_access(
+            count,
+            addr,
+            Permissions::Read,
+            |_, len, caddr, region| -> Result<usize> {
+                // For a non-RAM region, reading could have side effects, so we
+                // must use write_all().
+                region.write_all_volatile_to(caddr, dst, len).map(|()| len)
+            },
+        )
     }
 
     fn write_all_volatile_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<()>
@@ -718,17 +736,64 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     }
 
     fn store<O: AtomicAccess>(&self, val: O, addr: GuestAddress, order: Ordering) -> Result<()> {
-        // `find_region` should really do what `to_region_addr` is doing right now, except
-        // it should keep returning a `Result`.
-        self.to_region_addr(addr)
-            .ok_or(Error::InvalidGuestAddress(addr))
-            .and_then(|(region, region_addr)| region.store(val, region_addr, order))
+        let expected = size_of::<O>();
+
+        let completed = self.try_access(
+            expected,
+            addr,
+            Permissions::Write,
+            |offset, len, region_addr, region| -> Result<usize> {
+                assert_eq!(offset, 0);
+                if len < expected {
+                    return Err(Error::PartialBuffer {
+                        expected,
+                        completed: len,
+                    });
+                }
+                region.store(val, region_addr, order).map(|()| expected)
+            },
+        )?;
+
+        if completed < expected {
+            Err(Error::PartialBuffer {
+                expected,
+                completed,
+            })
+        } else {
+            Ok(())
+        }
     }
 
     fn load<O: AtomicAccess>(&self, addr: GuestAddress, order: Ordering) -> Result<O> {
-        self.to_region_addr(addr)
-            .ok_or(Error::InvalidGuestAddress(addr))
-            .and_then(|(region, region_addr)| region.load(region_addr, order))
+        let expected = size_of::<O>();
+        let mut result = None::<O>;
+
+        let completed = self.try_access(
+            expected,
+            addr,
+            Permissions::Read,
+            |offset, len, region_addr, region| -> Result<usize> {
+                assert_eq!(offset, 0);
+                if len < expected {
+                    return Err(Error::PartialBuffer {
+                        expected,
+                        completed: len,
+                    });
+                }
+                result = Some(region.load(region_addr, order)?);
+                Ok(expected)
+            },
+        )?;
+
+        if completed < expected {
+            Err(Error::PartialBuffer {
+                expected,
+                completed,
+            })
+        } else {
+            // Must be set because `completed == expected`
+            Ok(result.unwrap())
+        }
     }
 }
 
