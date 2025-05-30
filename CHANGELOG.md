@@ -5,6 +5,7 @@
 ### Added
 
 - \[[#311](https://github.com/rust-vmm/vm-memory/pull/311)\] Allow compiling without the ReadVolatile and WriteVolatile implementations
+- \[[#327](https://github.com/rust-vmm/vm-memory/pull/327)\] I/O virtual memory support via `IoMemory`, `IommuMemory`, and `Iommu`/`Iotlb`
 
 ### Changed
 
