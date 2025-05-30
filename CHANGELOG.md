@@ -7,6 +7,7 @@
 - \[[#311](https://github.com/rust-vmm/vm-memory/pull/311)\] Allow compiling without the ReadVolatile and WriteVolatile implementations
 - \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\] `GuestRegionContainer`, a generic container of `GuestMemoryRegion`s, generalizing `GuestMemoryMmap` (which 
   is now a type alias for `GuestRegionContainer<GuestRegionMmap>`).
+- \[[#327](https://github.com/rust-vmm/vm-memory/pull/327)\] I/O virtual memory support via `IoMemory`, `IommuMemory`, and `Iommu`/`Iotlb`
 - \[[#338](https://github.com/rust-vmm/vm-memory/pull/338)\] Make `GuestMemoryAtomic` always implement `Clone`.
 - \[[#338](https://github.com/rust-vmm/vm-memory/pull/338)\] Make `GuestAddressSpace` a subtrait of `Clone`.
 - \[[#339](https://github.com/rust-vmm/vm-memory/pull/339)\] Add `GuestMemory::get_slices()`
