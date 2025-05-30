@@ -1,6 +1,13 @@
 # Changelog
 
-## Upcoming version
+## Unreleased
+
+### Added
+### Changed
+### Fixed
+### Removed
+
+## \[v0.17.0\]
 
 ### Added
 

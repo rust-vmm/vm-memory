@@ -1,6 +1,6 @@
 [package]
 name = "vm-memory"
-version = "0.16.1"
+version = "0.17.0"
 description = "Safe abstractions for accessing the VM physical memory"
 keywords = ["memory"]
 categories = ["memory-management"]
