@@ -8,10 +8,11 @@ extern crate criterion;
 extern crate vm_memory;
 
 use std::fs::{File, OpenOptions};
+use std::hint::black_box;
 use std::mem::size_of;
 use std::path::Path;
 
-use criterion::{black_box, Criterion};
+use criterion::Criterion;
 
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory};
 

@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 #![cfg(feature = "backend-mmap")]
 
-pub use criterion::{black_box, Criterion};
+use std::hint::black_box;
+
+pub use criterion::Criterion;
 
 use vm_memory::bitmap::Bitmap;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
