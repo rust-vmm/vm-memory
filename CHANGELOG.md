@@ -2,6 +2,10 @@
 
 ## Upcoming version
 
+## \[v0.16.2\]
+
+- \[[#328](https://github.com/rust-vmm/vm-memory/pull/328)\] Bump vmm-sys-util crate to version 0.14.0
+
 ## \[v0.16.1\]
 
 ### Added
