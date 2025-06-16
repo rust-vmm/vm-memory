@@ -5,6 +5,7 @@
 ### Added
 
 - \[[#311](https://github.com/rust-vmm/vm-memory/pull/311)\] Allow compiling without the ReadVolatile and WriteVolatile implementations
+- \[[#xxx](https://github.com/rust-vmm/vm-memory/pull/xxx)\] Add `from_raw_ptr` to `AtomicBitmap`
 
 ### Changed
 

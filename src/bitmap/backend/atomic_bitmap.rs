@@ -36,6 +36,27 @@ impl AtomicBitmap {
         }
     }
 
+    /// Create a new bitmap of `byte_size` with one bit per page using a user-supplied pointer
+    /// to AtomicU64.
+    pub unsafe fn from_raw_ptr(
+        map_ptr: *mut AtomicU64,
+        byte_size: usize,
+        page_size: NonZeroUsize,
+    ) -> Self {
+        let num_pages = byte_size.div_ceil(page_size.get());
+        let map_size = num_pages.div_ceil(u64::BITS as usize);
+
+        // Create a Vec from the existing memory without copying
+        let map = Vec::from_raw_parts(map_ptr, map_size, map_size);
+
+        AtomicBitmap {
+            map,
+            size: num_pages,
+            byte_size,
+            page_size,
+        }
+    }
+
     /// Enlarge this bitmap with enough bits to track `additional_size` additional bytes at page granularity.
     /// New bits are initialized to zero.
     pub fn enlarge(&mut self, additional_size: usize) {
@@ -329,6 +350,85 @@ mod tests {
         b.reset_addr_range(0, 16 * 1024);
         for i in 0..128 {
             assert!(!b.is_bit_set(i));
+        }
+    }
+
+    #[test]
+    fn test_from_raw_ptr() {
+        // Create a regular bitmap to compare against
+        let regular_bitmap = AtomicBitmap::new(1024, DEFAULT_PAGE_SIZE);
+        let map_size = regular_bitmap.map.len();
+
+        // Allocate memory for our raw pointer bitmap
+        let mut raw_vec: Vec<AtomicU64> = (0..map_size).map(|_| AtomicU64::new(0)).collect();
+        let raw_ptr = raw_vec.as_mut_ptr();
+
+        // Create bitmap from raw pointer
+        // SAFETY: The pointer is valid and properly aligned, and points to `map_size` elements
+        let bitmap = unsafe {
+            // Prevent raw_vec from being dropped while we use its memory
+            std::mem::forget(raw_vec);
+            AtomicBitmap::from_raw_ptr(raw_ptr, 1024, DEFAULT_PAGE_SIZE)
+        };
+
+        // Verify the bitmap was created with correct parameters
+        assert_eq!(bitmap.len(), regular_bitmap.len());
+        assert_eq!(bitmap.byte_size(), regular_bitmap.byte_size());
+        assert_eq!(bitmap.page_size, regular_bitmap.page_size);
+        assert_eq!(bitmap.map.len(), regular_bitmap.map.len());
+
+        // Test basic functionality
+        bitmap.set_addr_range(128, 256);
+        assert!(!bitmap.is_addr_set(0));
+        assert!(bitmap.is_addr_set(128));
+        assert!(bitmap.is_addr_set(256));
+        assert!(!bitmap.is_addr_set(384));
+
+        // Test reset functionality
+        bitmap.reset_addr_range(128, 256);
+        assert!(!bitmap.is_addr_set(128));
+        assert!(!bitmap.is_addr_set(256));
+    }
+
+    #[test]
+    fn test_from_raw_ptr_zero_size() {
+        // Test with zero byte_size
+        let mut raw_vec: Vec<AtomicU64> = vec![AtomicU64::new(0)];
+        let raw_ptr = raw_vec.as_mut_ptr();
+
+        // SAFETY: The pointer is valid and properly aligned
+        let bitmap = unsafe {
+            std::mem::forget(raw_vec);
+            AtomicBitmap::from_raw_ptr(raw_ptr, 0, DEFAULT_PAGE_SIZE)
+        };
+
+        assert_eq!(bitmap.len(), 0);
+        assert_eq!(bitmap.byte_size(), 0);
+    }
+
+    #[test]
+    fn test_from_raw_ptr_large_size() {
+        // Test with a larger size that requires multiple AtomicU64s
+        let byte_size = 1024 * 1024; // 1MB
+        let regular_bitmap = AtomicBitmap::new(byte_size, DEFAULT_PAGE_SIZE);
+        let map_size = regular_bitmap.map.len();
+
+        let mut raw_vec: Vec<AtomicU64> = (0..map_size).map(|_| AtomicU64::new(0)).collect();
+        let raw_ptr = raw_vec.as_mut_ptr();
+
+        // SAFETY: The pointer is valid and properly aligned
+        let bitmap = unsafe {
+            std::mem::forget(raw_vec);
+            AtomicBitmap::from_raw_ptr(raw_ptr, byte_size, DEFAULT_PAGE_SIZE)
+        };
+
+        assert_eq!(bitmap.len(), regular_bitmap.len());
+        assert_eq!(bitmap.byte_size(), byte_size);
+
+        // Test setting and checking bits across different AtomicU64s
+        bitmap.set_addr_range(0, byte_size);
+        for i in 0..bitmap.len() {
+            assert!(bitmap.is_bit_set(i));
         }
     }
 }
