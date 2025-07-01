@@ -122,7 +122,6 @@ pub(crate) mod tests {
 
     use std::marker::PhantomData;
     use std::mem::size_of_val;
-    use std::result::Result;
     use std::sync::atomic::Ordering;
 
     use crate::{Bytes, VolatileMemory};
@@ -165,12 +164,6 @@ pub(crate) mod tests {
         assert!(range_is_dirty(&s, 0, dirty_len));
     }
 
-    #[derive(Debug)]
-    pub enum TestAccessError {
-        RangeCleanCheck,
-        RangeDirtyCheck,
-    }
-
     // A helper object that implements auxiliary operations for testing `Bytes` implementations
     // in the context of dirty bitmap tracking.
     struct BytesHelper<F, G, M> {
@@ -209,21 +202,15 @@ pub(crate) mod tests {
             dirty_offset: usize,
             dirty_len: usize,
             op: Op,
-        ) -> Result<(), TestAccessError>
+        )
         where
             Op: Fn(&M, A),
         {
-            if !self.check_range(bytes, dirty_offset, dirty_len, true) {
-                return Err(TestAccessError::RangeCleanCheck);
-            }
+            assert!(self.check_range(bytes, dirty_offset, dirty_len, true));
 
             op(bytes, self.address(dirty_offset));
 
-            if !self.check_range(bytes, dirty_offset, dirty_len, false) {
-                return Err(TestAccessError::RangeDirtyCheck);
-            }
-
-            Ok(())
+            assert!(self.check_range(bytes, dirty_offset, dirty_len, false));
         }
     }
 
@@ -256,29 +243,25 @@ pub(crate) mod tests {
         // Test `write`.
         h.test_access(bytes, dirty_offset, BUF_SIZE, |m, addr| {
             assert_eq!(m.write(buf.as_slice(), addr).unwrap(), BUF_SIZE)
-        })
-        .unwrap();
+        });
         dirty_offset += step;
 
         // Test `write_slice`.
         h.test_access(bytes, dirty_offset, BUF_SIZE, |m, addr| {
             m.write_slice(buf.as_slice(), addr).unwrap()
-        })
-        .unwrap();
+        });
         dirty_offset += step;
 
         // Test `write_obj`.
         h.test_access(bytes, dirty_offset, size_of_val(&val), |m, addr| {
             m.write_obj(val, addr).unwrap()
-        })
-        .unwrap();
+        });
         dirty_offset += step;
 
         // Test `store`.
         h.test_access(bytes, dirty_offset, size_of_val(&val), |m, addr| {
             m.store(val, addr, Ordering::Relaxed).unwrap()
-        })
-        .unwrap();
+        });
     }
 
     // This function and the next are currently conditionally compiled because we only use
