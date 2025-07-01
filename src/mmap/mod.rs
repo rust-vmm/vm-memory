@@ -226,7 +226,6 @@ mod tests {
     use crate::{Bytes, GuestMemory, GuestMemoryError};
 
     use std::io::Write;
-    use std::mem;
     #[cfg(feature = "rawfd")]
     use std::{fs::File, path::Path};
     use vmm_sys_util::tempfile::TempFile;
@@ -432,6 +431,8 @@ mod tests {
     #[test]
     #[cfg(feature = "rawfd")]
     fn read_to_and_write_from_mem() {
+        use std::mem;
+
         let f = TempFile::new().unwrap().into_file();
         f.set_len(0x400).unwrap();
 
