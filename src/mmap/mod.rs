@@ -221,7 +221,7 @@ mod tests {
 
     use super::*;
 
-    use crate::bitmap::tests::test_guest_memory_and_region;
+    #[cfg(feature = "backend-bitmap")]
     use crate::bitmap::AtomicBitmap;
     use crate::{Bytes, GuestMemory, GuestMemoryError};
 
@@ -634,8 +634,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "backend-bitmap")]
     fn test_dirty_tracking() {
-        test_guest_memory_and_region(|| {
+        crate::bitmap::tests::test_guest_memory_and_region(|| {
             crate::GuestMemoryMmap::<AtomicBitmap>::from_ranges(&[(GuestAddress(0), 0x1_0000)])
                 .unwrap()
         });
