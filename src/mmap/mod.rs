@@ -19,9 +19,10 @@ use std::result;
 use crate::address::Address;
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::{self, FileOffset, GuestAddress, GuestUsize, MemoryRegionAddress};
-use crate::region::{GuestMemoryRegion, GuestMemoryRegionBytes};
+use crate::region::{
+    GuestMemoryRegion, GuestMemoryRegionBytes, GuestRegionCollection, GuestRegionCollectionError,
+};
 use crate::volatile_memory::{VolatileMemory, VolatileSlice};
-use crate::{Error, GuestRegionCollection};
 
 // re-export for backward compat, as the trait used to be defined in mmap.rs
 pub use crate::bitmap::NewBitmap;
@@ -87,15 +88,14 @@ impl<B: NewBitmap> GuestRegionMmap<B> {
         addr: GuestAddress,
         size: usize,
         file: Option<FileOffset>,
-    ) -> result::Result<Self, Error> {
+    ) -> result::Result<Self, FromRangesError> {
         let region = if let Some(ref f_off) = file {
-            MmapRegion::from_file(f_off.clone(), size)
+            MmapRegion::from_file(f_off.clone(), size)?
         } else {
-            MmapRegion::new(size)
-        }
-        .map_err(Error::MmapRegion)?;
+            MmapRegion::new(size)?
+        };
 
-        Self::new(region, addr).ok_or(Error::InvalidGuestRegion)
+        Self::new(region, addr).ok_or(FromRangesError::InvalidGuestRegion)
     }
 }
 
@@ -107,11 +107,11 @@ impl<B: NewBitmap> GuestRegionMmap<B> {
         addr: GuestAddress,
         size: usize,
         file: Option<FileOffset>,
-    ) -> result::Result<Self, Error> {
+    ) -> result::Result<Self, FromRangesError> {
         let range = MmapRange::new_unix(size, file, addr);
 
-        let region = MmapRegion::from_range(range).map_err(Error::MmapRegion)?;
-        Self::new(region, addr).ok_or(Error::InvalidGuestRegion)
+        let region = MmapRegion::from_range(range)?;
+        Self::new(region, addr).ok_or(FromRangesError::InvalidGuestRegion)
     }
 }
 
@@ -171,11 +171,25 @@ impl<B: Bitmap> GuestMemoryRegionBytes for GuestRegionMmap<B> {}
 /// virtual address space of the calling process.
 pub type GuestMemoryMmap<B = ()> = GuestRegionCollection<GuestRegionMmap<B>>;
 
+/// Errors that can happen during [`GuestMemoryMap::from_ranges`] and related functions.
+#[derive(Debug, thiserror::Error)]
+pub enum FromRangesError {
+    /// Error during construction of [`GuestMemoryMmap`]
+    #[error("Error constructing guest region collection: {0}")]
+    Collection(#[from] GuestRegionCollectionError),
+    /// Error while allocating raw mmap region
+    #[error("Error setting up raw memory for guest region: {0}")]
+    MmapRegion(#[from] MmapRegionError),
+    /// A combination of region length and guest address would overflow.
+    #[error("Combination of guest address and region length invalid (would overflow)")]
+    InvalidGuestRegion,
+}
+
 impl<B: NewBitmap> GuestMemoryMmap<B> {
     /// Creates a container and allocates anonymous memory for guest memory regions.
     ///
     /// Valid memory regions are specified as a slice of (Address, Size) tuples sorted by Address.
-    pub fn from_ranges(ranges: &[(GuestAddress, usize)]) -> result::Result<Self, Error> {
+    pub fn from_ranges(ranges: &[(GuestAddress, usize)]) -> result::Result<Self, FromRangesError> {
         Self::from_ranges_with_files(ranges.iter().map(|r| (r.0, r.1, None)))
     }
 
@@ -183,7 +197,7 @@ impl<B: NewBitmap> GuestMemoryMmap<B> {
     ///
     /// Valid memory regions are specified as a sequence of (Address, Size, [`Option<FileOffset>`])
     /// tuples sorted by Address.
-    pub fn from_ranges_with_files<A, T>(ranges: T) -> result::Result<Self, Error>
+    pub fn from_ranges_with_files<A, T>(ranges: T) -> result::Result<Self, FromRangesError>
     where
         A: Borrow<(GuestAddress, usize, Option<FileOffset>)>,
         T: IntoIterator<Item = A>,
@@ -194,8 +208,9 @@ impl<B: NewBitmap> GuestMemoryMmap<B> {
                 .map(|x| {
                     GuestRegionMmap::from_range(x.borrow().0, x.borrow().1, x.borrow().2.clone())
                 })
-                .collect::<result::Result<Vec<_>, Error>>()?,
+                .collect::<Result<Vec<_>, _>>()?,
         )
+        .map_err(Into::into)
     }
 }
 
