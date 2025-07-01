@@ -13,7 +13,7 @@ autobenches = false
 
 [features]
 default = ["rawfd"]
-backend-bitmap = []
+backend-bitmap = ["dep:libc"]
 backend-mmap = ["dep:libc"]
 backend-atomic = ["arc-swap"]
 rawfd = ["dep:libc"]
