@@ -2,8 +2,8 @@
 
 ## Objectives
 
-- Provide a set of traits for accessing and configuring the physical memory of
-  a virtual machine.
+- Provide a set of traits for accessing and configuring the physical and/or
+  I/O virtual memory of a virtual machine.
 - Provide a clean abstraction of the VM memory such that rust-vmm components
   can use it without depending on the implementation details specific to
   different VMMs.
@@ -122,6 +122,29 @@ let buf = &mut [0u8; 5];
 let result = guest_memory_mmap.write(buf, addr);
 ```
 
+### I/O Virtual Address Space
+
+When using an IOMMU, there no longer is direct access to the guest (physical)
+address space, but instead only to I/O virtual address space.  In this case:
+
+- `IoMemory` replaces `GuestMemory`: It requires specifying the required access
+  permissions (which are relevant for virtual memory).  It also removes
+  interfaces that imply a mostly linear memory layout, because virtual memory is
+  fragmented into many pages instead of few (large) memory regions.
+  - Any `IoMemory` still has a `GuestMemory` inside as the underlying address
+    space, but if an IOMMU is used, that will generally not be guest physical
+    address space.  With vhost-user, for example, it will be the VMM’s user
+    address space instead.
+  - `IommuMemory` as our only actually IOMMU-supporting `IoMemory`
+    implementation uses an `Iommu` object to translate I/O virtual addresses
+    (IOVAs) into VMM user addresses (VUAs), which are then passed to the inner
+    `GuestMemory` implementation (like `GuestMemoryMmap`).
+- `GuestAddress` (for compatibility) refers to an address in any of these
+  address spaces:
+  - Guest physical addresses (GPAs) when no IOMMU is used,
+  - I/O virtual addresses (IOVAs),
+  - VMM user addresses (VUAs).
+
 ### Utilities and Helpers
 
 The following utilities and helper traits/macros are imported from the
@@ -143,7 +166,8 @@ with minor changes:
 - `Address` inherits `AddressValue`
 - `GuestMemoryRegion` inherits `Bytes<MemoryRegionAddress, E = Error>`. The
   `Bytes` trait must be implemented.
-- `GuestMemory` has a generic implementation of `Bytes<GuestAddress>`.
+- `GuestMemory` has a generic implementation of `IoMemory`
+- `IoMemory` has a generic implementation of `Bytes<GuestAddress>`.
 
 **Types**:
 
