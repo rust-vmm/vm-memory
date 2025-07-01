@@ -405,7 +405,9 @@ pub trait GuestMemory {
     type R: GuestMemoryRegion;
 
     /// Returns the number of regions in the collection.
-    fn num_regions(&self) -> usize;
+    fn num_regions(&self) -> usize {
+        self.iter().count()
+    }
 
     /// Returns the region containing the specified address or `None`.
     fn find_region(&self, addr: GuestAddress) -> Option<&Self::R> {
