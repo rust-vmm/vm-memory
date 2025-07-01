@@ -169,18 +169,9 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = GuestMemoryError> {
     }
 }
 
-/// Errors that can occur when dealing with [`GuestRegion`]s, or collections thereof
+/// Errors that can occur when dealing with [`GuestRegionCollection`]s
 #[derive(Debug, thiserror::Error)]
-pub enum GuestRegionError {
-    /// Adding the guest base address to the length of the underlying mapping resulted
-    /// in an overflow.
-    #[error("Adding the guest base address to the length of the underlying mapping resulted in an overflow")]
-    #[cfg(feature = "backend-mmap")]
-    InvalidGuestRegion,
-    /// Error creating a `MmapRegion` object.
-    #[error("{0}")]
-    #[cfg(feature = "backend-mmap")]
-    MmapRegion(crate::mmap::MmapRegionError),
+pub enum GuestRegionCollectionError {
     /// No memory region found.
     #[error("No memory region found")]
     NoMemoryRegion,
@@ -230,7 +221,9 @@ impl<R: GuestMemoryRegion> GuestRegionCollection<R> {
     /// * `regions` - The vector of regions.
     ///               The regions shouldn't overlap, and they should be sorted
     ///               by the starting address.
-    pub fn from_regions(mut regions: Vec<R>) -> std::result::Result<Self, GuestRegionError> {
+    pub fn from_regions(
+        mut regions: Vec<R>,
+    ) -> std::result::Result<Self, GuestRegionCollectionError> {
         Self::from_arc_regions(regions.drain(..).map(Arc::new).collect())
     }
 
@@ -246,9 +239,11 @@ impl<R: GuestMemoryRegion> GuestRegionCollection<R> {
     /// * `regions` - The vector of `Arc` regions.
     ///               The regions shouldn't overlap and they should be sorted
     ///               by the starting address.
-    pub fn from_arc_regions(regions: Vec<Arc<R>>) -> std::result::Result<Self, GuestRegionError> {
+    pub fn from_arc_regions(
+        regions: Vec<Arc<R>>,
+    ) -> std::result::Result<Self, GuestRegionCollectionError> {
         if regions.is_empty() {
-            return Err(GuestRegionError::NoMemoryRegion);
+            return Err(GuestRegionCollectionError::NoMemoryRegion);
         }
 
         for window in regions.windows(2) {
@@ -256,11 +251,11 @@ impl<R: GuestMemoryRegion> GuestRegionCollection<R> {
             let next = &window[1];
 
             if prev.start_addr() > next.start_addr() {
-                return Err(GuestRegionError::UnsortedMemoryRegions);
+                return Err(GuestRegionCollectionError::UnsortedMemoryRegions);
             }
 
             if prev.last_addr() >= next.start_addr() {
-                return Err(GuestRegionError::MemoryRegionOverlap);
+                return Err(GuestRegionCollectionError::MemoryRegionOverlap);
             }
         }
 
@@ -274,7 +269,7 @@ impl<R: GuestMemoryRegion> GuestRegionCollection<R> {
     pub fn insert_region(
         &self,
         region: Arc<R>,
-    ) -> std::result::Result<GuestRegionCollection<R>, GuestRegionError> {
+    ) -> std::result::Result<GuestRegionCollection<R>, GuestRegionCollectionError> {
         let mut regions = self.regions.clone();
         regions.push(region);
         regions.sort_by_key(|x| x.start_addr());
@@ -292,7 +287,7 @@ impl<R: GuestMemoryRegion> GuestRegionCollection<R> {
         &self,
         base: GuestAddress,
         size: GuestUsize,
-    ) -> std::result::Result<(GuestRegionCollection<R>, Arc<R>), GuestRegionError> {
+    ) -> std::result::Result<(GuestRegionCollection<R>, Arc<R>), GuestRegionCollectionError> {
         if let Ok(region_index) = self.regions.binary_search_by_key(&base, |x| x.start_addr()) {
             if self.regions.get(region_index).unwrap().len() == size {
                 let mut regions = self.regions.clone();
@@ -301,7 +296,7 @@ impl<R: GuestMemoryRegion> GuestRegionCollection<R> {
             }
         }
 
-        Err(GuestRegionError::NoMemoryRegion)
+        Err(GuestRegionCollectionError::NoMemoryRegion)
     }
 }
 
@@ -479,7 +474,7 @@ impl<R: GuestMemoryRegionBytes> Bytes<MemoryRegionAddress> for R {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::region::{GuestMemoryRegionBytes, GuestRegionError};
+    use crate::region::{GuestMemoryRegionBytes, GuestRegionCollectionError};
     use crate::{
         Address, GuestAddress, GuestMemory, GuestMemoryRegion, GuestRegionCollection, GuestUsize,
     };
@@ -510,7 +505,7 @@ pub(crate) mod tests {
     pub(crate) type Collection = GuestRegionCollection<MockRegion>;
 
     fn check_guest_memory_mmap(
-        maybe_guest_mem: Result<Collection, GuestRegionError>,
+        maybe_guest_mem: Result<Collection, GuestRegionCollectionError>,
         expected_regions_summary: &[(GuestAddress, u64)],
     ) {
         assert!(maybe_guest_mem.is_ok());
@@ -537,7 +532,7 @@ pub(crate) mod tests {
 
     pub(crate) fn new_guest_memory_collection_from_regions(
         regions_summary: &[(GuestAddress, u64)],
-    ) -> Result<Collection, GuestRegionError> {
+    ) -> Result<Collection, GuestRegionCollectionError> {
         Collection::from_regions(
             regions_summary
                 .iter()
@@ -548,7 +543,7 @@ pub(crate) mod tests {
 
     fn new_guest_memory_collection_from_arc_regions(
         regions_summary: &[(GuestAddress, u64)],
-    ) -> Result<Collection, GuestRegionError> {
+    ) -> Result<Collection, GuestRegionCollectionError> {
         Collection::from_arc_regions(
             regions_summary
                 .iter()
@@ -563,11 +558,11 @@ pub(crate) mod tests {
 
         assert!(matches!(
             new_guest_memory_collection_from_regions(&regions_summary).unwrap_err(),
-            GuestRegionError::NoMemoryRegion
+            GuestRegionCollectionError::NoMemoryRegion
         ));
         assert!(matches!(
             new_guest_memory_collection_from_arc_regions(&regions_summary).unwrap_err(),
-            GuestRegionError::NoMemoryRegion
+            GuestRegionCollectionError::NoMemoryRegion
         ));
     }
 
@@ -577,11 +572,11 @@ pub(crate) mod tests {
 
         assert!(matches!(
             new_guest_memory_collection_from_regions(&regions_summary).unwrap_err(),
-            GuestRegionError::MemoryRegionOverlap
+            GuestRegionCollectionError::MemoryRegionOverlap
         ));
         assert!(matches!(
             new_guest_memory_collection_from_arc_regions(&regions_summary).unwrap_err(),
-            GuestRegionError::MemoryRegionOverlap
+            GuestRegionCollectionError::MemoryRegionOverlap
         ));
     }
 
@@ -591,11 +586,11 @@ pub(crate) mod tests {
 
         assert!(matches!(
             new_guest_memory_collection_from_regions(&regions_summary).unwrap_err(),
-            GuestRegionError::UnsortedMemoryRegions
+            GuestRegionCollectionError::UnsortedMemoryRegions
         ));
         assert!(matches!(
             new_guest_memory_collection_from_arc_regions(&regions_summary).unwrap_err(),
-            GuestRegionError::UnsortedMemoryRegions
+            GuestRegionCollectionError::UnsortedMemoryRegions
         ));
     }
 

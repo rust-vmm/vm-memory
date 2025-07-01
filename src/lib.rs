@@ -52,7 +52,7 @@ pub use guest_memory::{
 
 pub mod region;
 pub use region::{
-    GuestMemoryRegion, GuestMemoryRegionBytes, GuestRegionCollection, GuestRegionError as Error,
+    GuestMemoryRegion, GuestMemoryRegionBytes, GuestRegionCollection, GuestRegionCollectionError,
 };
 
 pub mod io;
