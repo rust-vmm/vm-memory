@@ -67,15 +67,16 @@ impl<B> Deref for GuestRegionMmap<B> {
 
 impl<B: Bitmap> GuestRegionMmap<B> {
     /// Create a new memory-mapped memory region for the guest's physical memory.
-    pub fn new(mapping: MmapRegion<B>, guest_base: GuestAddress) -> result::Result<Self, Error> {
-        if guest_base.0.checked_add(mapping.size() as u64).is_none() {
-            return Err(Error::InvalidGuestRegion);
-        }
-
-        Ok(GuestRegionMmap {
-            mapping,
-            guest_base,
-        })
+    ///
+    /// Returns `None` if `guest_base` + `mapping.len()` would overflow.
+    pub fn new(mapping: MmapRegion<B>, guest_base: GuestAddress) -> Option<Self> {
+        guest_base
+            .0
+            .checked_add(mapping.size() as u64)
+            .map(|_| Self {
+                mapping,
+                guest_base,
+            })
     }
 }
 
@@ -94,7 +95,7 @@ impl<B: NewBitmap> GuestRegionMmap<B> {
         }
         .map_err(Error::MmapRegion)?;
 
-        Self::new(region, addr)
+        Self::new(region, addr).ok_or(Error::InvalidGuestRegion)
     }
 }
 
@@ -110,7 +111,7 @@ impl<B: NewBitmap> GuestRegionMmap<B> {
         let range = MmapRange::new_unix(size, file, addr);
 
         let region = MmapRegion::from_range(range).map_err(Error::MmapRegion)?;
-        Self::new(region, addr)
+        Self::new(region, addr).ok_or(Error::InvalidGuestRegion)
     }
 }
 

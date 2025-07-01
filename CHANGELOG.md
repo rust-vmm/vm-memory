@@ -16,7 +16,9 @@
   a default implementation, based on linear search.
 - \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\]: Provide a marker trait, `GuestMemoryRegionBytes`, which enables a default implementation of `Bytes<MemoryRegionAddress>`
   for a `GuestMemoryRegion` if implemented.
-
+- \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\]: Adjust error types returned from `GuestMemoryMmap::from_ranges[_with_files]`
+  and `GuestRegionMmap::from_range` to be separate from the error type returned by `GuestRegionCollection` functions.
+  Change return type of `GuestRegionMmap::new` from `Result` to `Option`.
 - \[#324](https:////github.com/rust-vmm/vm-memory/pull/324)\] `GuestMemoryRegion::bitmap()` now returns a `BitmapSlice`. Accessing the full bitmap is now possible only if the type of the memory region is know, for example with `MmapRegion::bitmap()`.
 
 ### Removed
