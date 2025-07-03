@@ -6,14 +6,14 @@
 //! `GuestMemoryRegion` object, and the resulting bitmaps can then be aggregated to build the
 //! global view for an entire `GuestMemory` object.
 
-#[cfg(any(test, feature = "backend-bitmap"))]
+#[cfg(feature = "backend-bitmap")]
 mod backend;
 
 use std::fmt::Debug;
 
 use crate::{GuestMemory, GuestMemoryRegion};
 
-#[cfg(any(test, feature = "backend-bitmap"))]
+#[cfg(feature = "backend-bitmap")]
 pub use backend::{ArcSlice, AtomicBitmap, RefSlice};
 
 /// Trait implemented by types that support creating `BitmapSlice` objects.
@@ -117,12 +117,11 @@ pub type BS<'a, B> = <B as WithBitmapSlice<'a>>::S;
 pub type MS<'a, M> = BS<'a, <<M as GuestMemory>::R as GuestMemoryRegion>::B>;
 
 #[cfg(test)]
+#[cfg(feature = "backend-bitmap")]
 pub(crate) mod tests {
     use super::*;
 
-    use std::marker::PhantomData;
     use std::mem::size_of_val;
-    use std::result::Result;
     use std::sync::atomic::Ordering;
 
     use crate::{Bytes, VolatileMemory};
@@ -165,68 +164,6 @@ pub(crate) mod tests {
         assert!(range_is_dirty(&s, 0, dirty_len));
     }
 
-    #[derive(Debug)]
-    pub enum TestAccessError {
-        RangeCleanCheck,
-        RangeDirtyCheck,
-    }
-
-    // A helper object that implements auxiliary operations for testing `Bytes` implementations
-    // in the context of dirty bitmap tracking.
-    struct BytesHelper<F, G, M> {
-        check_range_fn: F,
-        address_fn: G,
-        phantom: PhantomData<*const M>,
-    }
-
-    // `F` represents a closure the checks whether a specified range associated with the `Bytes`
-    // object that's being tested is marked as dirty or not (depending on the value of the last
-    // parameter). It has the following parameters:
-    // - A reference to a `Bytes` implementations that's subject to testing.
-    // - The offset of the range.
-    // - The length of the range.
-    // - Whether we are checking if the range is clean (when `true`) or marked as dirty.
-    //
-    // `G` represents a closure that translates an offset into an address value that's
-    // relevant for the `Bytes` implementation being tested.
-    impl<F, G, M, A> BytesHelper<F, G, M>
-    where
-        F: Fn(&M, usize, usize, bool) -> bool,
-        G: Fn(usize) -> A,
-        M: Bytes<A>,
-    {
-        fn check_range(&self, m: &M, start: usize, len: usize, clean: bool) -> bool {
-            (self.check_range_fn)(m, start, len, clean)
-        }
-
-        fn address(&self, offset: usize) -> A {
-            (self.address_fn)(offset)
-        }
-
-        fn test_access<Op>(
-            &self,
-            bytes: &M,
-            dirty_offset: usize,
-            dirty_len: usize,
-            op: Op,
-        ) -> Result<(), TestAccessError>
-        where
-            Op: Fn(&M, A),
-        {
-            if !self.check_range(bytes, dirty_offset, dirty_len, true) {
-                return Err(TestAccessError::RangeCleanCheck);
-            }
-
-            op(bytes, self.address(dirty_offset));
-
-            if !self.check_range(bytes, dirty_offset, dirty_len, false) {
-                return Err(TestAccessError::RangeDirtyCheck);
-            }
-
-            Ok(())
-        }
-    }
-
     // `F` and `G` stand for the same closure types as described in the `BytesHelper` comment.
     // The `step` parameter represents the offset that's added the the current address after
     // performing each access. It provides finer grained control when testing tracking
@@ -236,49 +173,46 @@ pub(crate) mod tests {
     where
         F: Fn(&M, usize, usize, bool) -> bool,
         G: Fn(usize) -> A,
-        A: Copy,
         M: Bytes<A>,
         <M as Bytes<A>>::E: Debug,
     {
         const BUF_SIZE: usize = 1024;
         let buf = vec![1u8; 1024];
+        let mut dirty_offset = 0x1000;
 
         let val = 1u64;
 
-        let h = BytesHelper {
-            check_range_fn,
-            address_fn,
-            phantom: PhantomData,
-        };
-
-        let mut dirty_offset = 0x1000;
-
         // Test `write`.
-        h.test_access(bytes, dirty_offset, BUF_SIZE, |m, addr| {
-            assert_eq!(m.write(buf.as_slice(), addr).unwrap(), BUF_SIZE)
-        })
-        .unwrap();
-        dirty_offset += step;
+        assert!(check_range_fn(bytes, dirty_offset, BUF_SIZE, true));
+        assert_eq!(
+            bytes
+                .write(buf.as_slice(), address_fn(dirty_offset))
+                .unwrap(),
+            BUF_SIZE
+        );
+        assert!(check_range_fn(bytes, dirty_offset, BUF_SIZE, false));
 
         // Test `write_slice`.
-        h.test_access(bytes, dirty_offset, BUF_SIZE, |m, addr| {
-            m.write_slice(buf.as_slice(), addr).unwrap()
-        })
-        .unwrap();
         dirty_offset += step;
+        assert!(check_range_fn(bytes, dirty_offset, BUF_SIZE, true));
+        bytes
+            .write_slice(buf.as_slice(), address_fn(dirty_offset))
+            .unwrap();
+        assert!(check_range_fn(bytes, dirty_offset, BUF_SIZE, false));
 
         // Test `write_obj`.
-        h.test_access(bytes, dirty_offset, size_of_val(&val), |m, addr| {
-            m.write_obj(val, addr).unwrap()
-        })
-        .unwrap();
         dirty_offset += step;
+        assert!(check_range_fn(bytes, dirty_offset, BUF_SIZE, true));
+        bytes.write_obj(val, address_fn(dirty_offset)).unwrap();
+        assert!(check_range_fn(bytes, dirty_offset, BUF_SIZE, false));
 
         // Test `store`.
-        h.test_access(bytes, dirty_offset, size_of_val(&val), |m, addr| {
-            m.store(val, addr, Ordering::Relaxed).unwrap()
-        })
-        .unwrap();
+        dirty_offset += step;
+        assert!(check_range_fn(bytes, dirty_offset, BUF_SIZE, true));
+        bytes
+            .store(val, address_fn(dirty_offset), Ordering::Relaxed)
+            .unwrap();
+        assert!(check_range_fn(bytes, dirty_offset, BUF_SIZE, false));
     }
 
     // This function and the next are currently conditionally compiled because we only use

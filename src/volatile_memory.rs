@@ -1447,6 +1447,7 @@ mod tests {
 
     #[cfg(feature = "rawfd")]
     use std::fs::File;
+    #[cfg(feature = "backend-bitmap")]
     use std::mem::size_of_val;
     #[cfg(feature = "rawfd")]
     use std::path::Path;
@@ -1455,15 +1456,19 @@ mod tests {
     use std::thread::spawn;
 
     use matches::assert_matches;
+    #[cfg(feature = "backend-bitmap")]
     use std::num::NonZeroUsize;
     #[cfg(feature = "rawfd")]
     use vmm_sys_util::tempfile::TempFile;
 
+    #[cfg(feature = "backend-bitmap")]
     use crate::bitmap::tests::{
         check_range, range_is_clean, range_is_dirty, test_bytes, test_volatile_memory,
     };
+    #[cfg(feature = "backend-bitmap")]
     use crate::bitmap::{AtomicBitmap, RefSlice};
 
+    #[cfg(feature = "backend-bitmap")]
     const DEFAULT_PAGE_SIZE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(0x1000) };
 
     #[test]
@@ -2080,6 +2085,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "backend-bitmap")]
     fn test_volatile_slice_dirty_tracking() {
         let val = 123u64;
         let dirty_offset = 0x1000;
@@ -2170,6 +2176,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "backend-bitmap")]
     fn test_volatile_ref_dirty_tracking() {
         let val = 123u64;
         let mut buf = vec![val];
@@ -2184,6 +2191,7 @@ mod tests {
         assert!(range_is_dirty(vref.bitmap(), 0, vref.len()));
     }
 
+    #[cfg(feature = "backend-bitmap")]
     fn test_volatile_array_ref_copy_from_tracking<T>(
         buf: &mut [T],
         index: usize,
@@ -2210,6 +2218,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "backend-bitmap")]
     fn test_volatile_array_ref_dirty_tracking() {
         let val = 123u64;
         let dirty_len = size_of_val(&val);

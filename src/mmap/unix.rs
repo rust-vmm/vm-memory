@@ -438,11 +438,11 @@ mod tests {
     use super::*;
 
     use std::io::Write;
-    use std::num::NonZeroUsize;
     use std::slice;
     use std::sync::Arc;
     use vmm_sys_util::tempfile::TempFile;
 
+    #[cfg(feature = "backend-bitmap")]
     use crate::bitmap::AtomicBitmap;
 
     type MmapRegion = super::MmapRegion<()>;
@@ -535,6 +535,7 @@ mod tests {
 
     #[test]
     #[cfg(not(miri))] // Miri cannot mmap files
+    #[cfg(feature = "backend-bitmap")]
     fn test_mmap_region_build() {
         let a = Arc::new(TempFile::new().unwrap().into_file());
 
@@ -586,7 +587,9 @@ mod tests {
         assert!(r.owned());
 
         let region_size = 0x10_0000;
-        let bitmap = AtomicBitmap::new(region_size, unsafe { NonZeroUsize::new_unchecked(0x1000) });
+        let bitmap = AtomicBitmap::new(region_size, unsafe {
+            std::num::NonZeroUsize::new_unchecked(0x1000)
+        });
         let builder = MmapRegionBuilder::new_with_bitmap(region_size, bitmap)
             .with_hugetlbfs(true)
             .with_mmap_prot(libc::PROT_READ | libc::PROT_WRITE);
@@ -648,6 +651,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "backend-bitmap")]
     fn test_dirty_tracking() {
         // Using the `crate` prefix because we aliased `MmapRegion` to `MmapRegion<()>` for
         // the rest of the unit tests above.

@@ -221,12 +221,11 @@ mod tests {
 
     use super::*;
 
-    use crate::bitmap::tests::test_guest_memory_and_region;
+    #[cfg(feature = "backend-bitmap")]
     use crate::bitmap::AtomicBitmap;
     use crate::{Bytes, GuestMemory, GuestMemoryError};
 
     use std::io::Write;
-    use std::mem;
     #[cfg(feature = "rawfd")]
     use std::{fs::File, path::Path};
     use vmm_sys_util::tempfile::TempFile;
@@ -432,6 +431,8 @@ mod tests {
     #[test]
     #[cfg(feature = "rawfd")]
     fn read_to_and_write_from_mem() {
+        use std::mem;
+
         let f = TempFile::new().unwrap().into_file();
         f.set_len(0x400).unwrap();
 
@@ -633,8 +634,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "backend-bitmap")]
     fn test_dirty_tracking() {
-        test_guest_memory_and_region(|| {
+        crate::bitmap::tests::test_guest_memory_and_region(|| {
             crate::GuestMemoryMmap::<AtomicBitmap>::from_ranges(&[(GuestAddress(0), 0x1_0000)])
                 .unwrap()
         });
