@@ -477,8 +477,8 @@ impl<B: NewBitmap> GuestRegionMmap<B> {
         size: usize,
         file: Option<FileOffset>,
     ) -> result::Result<Self, FromRangesError> {
-        let region = if let Some(ref f_off) = file {
-            MmapRegion::from_file(f_off.clone(), size)?
+        let region = if let Some(f_off) = file {
+            MmapRegion::from_file(f_off, size)?
         } else {
             MmapRegion::new(size)?
         };
