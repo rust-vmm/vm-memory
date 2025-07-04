@@ -217,7 +217,7 @@ impl<B: Bitmap> MmapRegionBuilder<B> {
 /// When running a 64-bit virtual machine on a 32-bit hypervisor, only part of the guest's
 /// physical memory may be mapped into the current process due to the limited virtual address
 /// space size of the process.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MmapRegion<B = ()> {
     addr: *mut u8,
     size: usize,

@@ -9,8 +9,8 @@
 
 use bitflags::bitflags;
 use libc::{c_int, c_void, MAP_SHARED, _SC_PAGESIZE};
+use std::sync::Arc;
 use std::{io, mem::size_of, os::raw::c_ulong, os::unix::io::AsRawFd, ptr::null_mut, result};
-
 use vmm_sys_util::{
     fam::{Error as FamError, FamStruct, FamStructWrapper},
     generate_fam_struct_impl,
@@ -26,28 +26,23 @@ use tests::ioctl_with_ref;
 
 use crate::bitmap::{Bitmap, NewBitmap, BS};
 use crate::guest_memory::{FileOffset, GuestAddress};
+use crate::mmap::unix::MmapRegion as MmapUnix;
 use crate::volatile_memory::{self, VolatileMemory, VolatileSlice};
 use crate::{
     guest_memory, Address, GuestMemoryRegion, GuestMemoryRegionBytes, GuestRegionCollection,
-    GuestUsize, MemoryRegionAddress,
+    GuestUsize, MemoryRegionAddress, MmapRegionBuilder,
 };
 
 /// Error conditions that may arise when creating a new `MmapRegion` object.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// The specified file offset and length cause overflow when added.
-    #[error("The specified file offset and length cause overflow when added")]
-    InvalidOffsetLength,
     /// The forbidden `MAP_FIXED` flag was specified.
     #[error("The forbidden `MAP_FIXED` flag was specified")]
     MapFixed,
-    /// A mapping with offset + length > EOF was attempted.
-    #[error("The specified file offset and length is greater then file length")]
-    MappingPastEof,
     /// The `mmap` call returned an error.
     #[error("{0}")]
     Mmap(io::Error),
-    /// Invalid file offset.
+    /// Invalid file offset (non-zero of missing altogether).
     #[error("Invalid file offset")]
     InvalidFileOffset,
     /// Memory mapped in advance.
@@ -62,6 +57,9 @@ pub enum Error {
     /// Unexpected error.
     #[error("Unexpected error")]
     Unexpected,
+    /// Error establishing normal unix mapping
+    #[error["{0}"]]
+    Unix(#[from] crate::mmap::unix::Error),
 }
 
 type Result<T> = result::Result<T, Error>;
@@ -427,45 +425,6 @@ impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct MmapUnix {
-    addr: *mut u8,
-    size: usize,
-}
-
-impl MmapUnix {
-    fn new(size: usize, prot: i32, flags: i32, fd: i32, f_offset: u64) -> Result<Self> {
-        let addr =
-        // SAFETY: This is safe because we're not allowing MAP_FIXED, and invalid parameters
-        // cannot break Rust safety guarantees (things may change if we're mapping /dev/mem or
-        // some wacky file).
-            unsafe { libc::mmap(null_mut(), size, prot, flags, fd, f_offset as libc::off_t) };
-
-        if addr == libc::MAP_FAILED {
-            return Err(Error::Mmap(io::Error::last_os_error()));
-        }
-
-        Ok(Self {
-            addr: addr as *mut u8,
-            size,
-        })
-    }
-
-    fn addr(&self) -> *mut u8 {
-        self.addr
-    }
-}
-
-impl Drop for MmapUnix {
-    fn drop(&mut self) {
-        // SAFETY: This is safe because we mmap the area at addr ourselves, and nobody
-        // else is holding a reference to it.
-        unsafe {
-            libc::munmap(self.addr as *mut libc::c_void, self.size);
-        }
-    }
-}
-
 // Bit mask for the vhost-user xen mmap message.
 bitflags! {
     /// Flags for the Xen mmap message.
@@ -531,21 +490,18 @@ fn pages(size: usize) -> (usize, usize) {
     (num, page_size * num)
 }
 
-fn validate_file(file_offset: &Option<FileOffset>) -> Result<(i32, u64)> {
+fn validate_file(file_offset: Option<FileOffset>) -> Result<FileOffset> {
     let file_offset = match file_offset {
         Some(f) => f,
         None => return Err(Error::InvalidFileOffset),
     };
 
-    let fd = file_offset.file().as_raw_fd();
-    let f_offset = file_offset.start();
-
     // We don't allow file offsets with Xen foreign mappings.
-    if f_offset != 0 {
-        return Err(Error::InvalidOffsetLength);
+    if file_offset.start() != 0 {
+        return Err(Error::InvalidFileOffset);
     }
 
-    Ok((fd, f_offset))
+    Ok(file_offset)
 }
 
 // Xen Foreign memory mapping interface.
@@ -556,27 +512,22 @@ trait MmapXenTrait: std::fmt::Debug {
 }
 
 // Standard Unix memory mapping for testing other crates.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 struct MmapXenUnix(MmapUnix, GuestAddress);
 
 impl MmapXenUnix {
     fn new(range: &MmapRange) -> Result<Self> {
-        let (fd, offset) = if let Some(ref f_off) = range.file_offset {
-            (f_off.file().as_raw_fd(), f_off.start())
-        } else {
-            (-1, 0)
-        };
+        let mut builder = MmapRegionBuilder::new(range.size)
+            .with_mmap_prot(range.prot.ok_or(Error::Unexpected)?)
+            .with_mmap_flags(range.flags.ok_or(Error::Unexpected)?);
 
-        Ok(Self(
-            MmapUnix::new(
-                range.size,
-                range.prot.ok_or(Error::Unexpected)?,
-                range.flags.ok_or(Error::Unexpected)?,
-                fd,
-                offset,
-            )?,
-            range.addr,
-        ))
+        if let Some(ref file_offset) = range.file_offset {
+            builder = builder.with_file_offset(file_offset.clone());
+        }
+
+        let mmap_unix = builder.build()?;
+
+        Ok(MmapXenUnix(mmap_unix, range.addr))
     }
 }
 
@@ -587,7 +538,7 @@ impl MmapXenTrait for MmapXenUnix {
     }
 
     fn addr(&self) -> *mut u8 {
-        self.0.addr()
+        self.0.as_ptr()
     }
 
     fn guest_base(&self) -> GuestAddress {
@@ -626,7 +577,7 @@ fn ioctl_privcmd_mmapbatch_v2() -> c_ulong {
 }
 
 // Xen foreign memory specific implementation.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 struct MmapXenForeign {
     domid: u32,
     guest_base: GuestAddress,
@@ -642,16 +593,15 @@ impl AsRawFd for MmapXenForeign {
 
 impl MmapXenForeign {
     fn new(range: &MmapRange) -> Result<Self> {
-        let (fd, f_offset) = validate_file(&range.file_offset)?;
         let (count, size) = pages(range.size);
+        let file_offset = validate_file(range.file_offset.clone())?;
+        let fd = file_offset.file().as_raw_fd();
 
-        let unix_mmap = MmapUnix::new(
-            size,
-            range.prot.ok_or(Error::Unexpected)?,
-            range.flags.ok_or(Error::Unexpected)? | MAP_SHARED,
-            fd,
-            f_offset,
-        )?;
+        let unix_mmap = MmapRegionBuilder::new(size)
+            .with_mmap_prot(range.prot.ok_or(Error::Unexpected)?)
+            .with_mmap_flags(range.flags.ok_or(Error::Unexpected)? | MAP_SHARED)
+            .with_file_offset(file_offset)
+            .build()?;
 
         let foreign = Self {
             domid: range.mmap_data,
@@ -701,7 +651,7 @@ impl MmapXenTrait for MmapXenForeign {
     }
 
     fn addr(&self) -> *mut u8 {
-        self.unix_mmap.addr()
+        self.unix_mmap.as_ptr()
     }
 
     fn guest_base(&self) -> GuestAddress {
@@ -855,12 +805,12 @@ impl AsRawFd for MmapXenGrant {
 
 impl MmapXenGrant {
     fn new(range: &MmapRange, mmap_flags: MmapXenFlags) -> Result<Self> {
-        validate_file(&range.file_offset)?;
+        let file_offset = validate_file(range.file_offset.clone())?;
 
         let mut grant = Self {
             guest_base: range.addr,
             unix_mmap: None,
-            file_offset: range.file_offset.as_ref().unwrap().clone(),
+            file_offset,
             flags: range.flags.ok_or(Error::Unexpected)?,
             size: 0,
             index: 0,
@@ -884,7 +834,15 @@ impl MmapXenGrant {
     fn mmap_range(&self, addr: GuestAddress, size: usize, prot: i32) -> Result<(MmapUnix, u64)> {
         let (count, size) = pages(size);
         let index = self.mmap_ioctl(addr, count)?;
-        let unix_mmap = MmapUnix::new(size, prot, self.flags, self.as_raw_fd(), index)?;
+
+        let unix_mmap = MmapRegionBuilder::new(size)
+            .with_mmap_prot(prot)
+            .with_mmap_flags(self.flags)
+            .with_file_offset(FileOffset::from_arc(
+                Arc::clone(self.file_offset.arc()),
+                index,
+            ))
+            .build()?;
 
         Ok((unix_mmap, index))
     }
@@ -934,7 +892,7 @@ impl MmapXenTrait for MmapXenGrant {
 
     fn addr(&self) -> *mut u8 {
         if let Some(ref unix_mmap) = self.unix_mmap {
-            unix_mmap.addr()
+            unix_mmap.as_ptr()
         } else {
             null_mut()
         }
@@ -983,7 +941,7 @@ impl MmapXenSlice {
         let (unix_mmap, index) = grant.mmap_range(GuestAddress(addr), size, prot)?;
 
         // SAFETY: We have already mapped the range including offset.
-        let addr = unsafe { unix_mmap.addr().add(offset) };
+        let addr = unsafe { unix_mmap.as_ptr().add(offset) };
 
         Ok(Self {
             grant: Some(grant),
@@ -1086,6 +1044,7 @@ mod tests {
         fn raw_os_error(&self) -> i32 {
             match self {
                 Error::Mmap(e) => e.raw_os_error().unwrap(),
+                Error::Unix(crate::mmap::unix::Error::Mmap(e)) => e.raw_os_error().unwrap(),
                 _ => i32::MIN,
             }
         }
@@ -1180,7 +1139,7 @@ mod tests {
         let mut range = MmapRange::initialized(true);
         range.file_offset = Some(FileOffset::new(TempFile::new().unwrap().into_file(), 1));
         let r = MmapXenForeign::new(&range);
-        assert_matches!(r.unwrap_err(), Error::InvalidOffsetLength);
+        assert_matches!(r.unwrap_err(), Error::InvalidFileOffset);
 
         let mut range = MmapRange::initialized(true);
         range.size = 0;
@@ -1217,7 +1176,7 @@ mod tests {
         let mut range = MmapRange::initialized(true);
         range.file_offset = Some(FileOffset::new(TempFile::new().unwrap().into_file(), 1));
         let r = MmapXenGrant::new(&range, MmapXenFlags::NO_ADVANCE_MAP);
-        assert_matches!(r.unwrap_err(), Error::InvalidOffsetLength);
+        assert_matches!(r.unwrap_err(), Error::InvalidFileOffset);
 
         let mut range = MmapRange::initialized(true);
         range.size = 0;
