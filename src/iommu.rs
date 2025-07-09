@@ -658,3 +658,859 @@ where
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Error, IotlbIterator, IovaRange, MappedRange};
+    #[cfg(all(feature = "backend-bitmap", feature = "backend-mmap"))]
+    use crate::bitmap::AtomicBitmap;
+    #[cfg(feature = "backend-mmap")]
+    use crate::bitmap::NewBitmap;
+    #[cfg(all(feature = "backend-bitmap", feature = "backend-mmap"))]
+    use crate::GuestMemoryRegion;
+    #[cfg(feature = "backend-mmap")]
+    use crate::{
+        Bytes, GuestMemoryError, GuestMemoryMmap, GuestMemoryResult, IoMemory, IommuMemory,
+    };
+    use crate::{GuestAddress, Iommu, Iotlb, Permissions};
+    use std::fmt::Debug;
+    #[cfg(all(feature = "backend-bitmap", feature = "backend-mmap"))]
+    use std::num::NonZeroUsize;
+    use std::ops::Deref;
+    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+    use std::sync::{RwLock, RwLockReadGuard};
+
+    #[derive(Debug)]
+    struct SimpleIommu {
+        iotlb: RwLock<Iotlb>,
+        /// Records the last fail event's base IOVA
+        fail_base: AtomicU64,
+        /// Records the last fail event's length
+        fail_len: AtomicUsize,
+        /// Records whether the last fail event was a miss
+        fail_was_miss: AtomicBool,
+        /// What base physical address to map to on the next fail event (0 means return error)
+        next_map_to: AtomicU64,
+    }
+
+    impl SimpleIommu {
+        #[cfg(feature = "backend-mmap")]
+        fn new() -> Self {
+            SimpleIommu {
+                iotlb: Iotlb::new().into(),
+                fail_base: 0.into(),
+                fail_len: 0.into(),
+                fail_was_miss: false.into(),
+                next_map_to: 0.into(),
+            }
+        }
+
+        #[cfg(feature = "backend-mmap")]
+        fn expect_mapping_request(&self, to_phys: GuestAddress) {
+            // Clear failed range info so it can be tested after the request
+            self.fail_base.store(0, Ordering::Relaxed);
+            self.fail_len.store(0, Ordering::Relaxed);
+            self.next_map_to.store(to_phys.0, Ordering::Relaxed);
+        }
+
+        #[cfg(feature = "backend-mmap")]
+        fn verify_mapping_request(&self, virt: GuestAddress, len: usize, was_miss: bool) {
+            assert_eq!(self.fail_base.load(Ordering::Relaxed), virt.0);
+            assert_eq!(self.fail_len.load(Ordering::Relaxed), len);
+            assert_eq!(self.fail_was_miss.load(Ordering::Relaxed), was_miss);
+        }
+    }
+
+    impl Iommu for SimpleIommu {
+        type IotlbGuard<'a> = RwLockReadGuard<'a, Iotlb>;
+
+        fn translate(
+            &self,
+            iova: GuestAddress,
+            length: usize,
+            access: Permissions,
+        ) -> Result<IotlbIterator<Self::IotlbGuard<'_>>, Error> {
+            loop {
+                let mut fails =
+                    match Iotlb::lookup(self.iotlb.read().unwrap(), iova, length, access) {
+                        Ok(success) => return Ok(success),
+                        Err(fails) => fails,
+                    };
+                let miss = !fails.misses.is_empty();
+                let fail = fails
+                    .misses
+                    .pop()
+                    .or_else(|| fails.access_fails.pop())
+                    .expect("No failure reported, even though a failure happened");
+                self.fail_base.store(fail.base.0, Ordering::Relaxed);
+                self.fail_len.store(fail.length, Ordering::Relaxed);
+                self.fail_was_miss.store(miss, Ordering::Relaxed);
+
+                if !fails.misses.is_empty() || !fails.access_fails.is_empty() {
+                    return Err(Error::CannotResolve {
+                        iova_range: IovaRange { base: iova, length },
+                        reason: "This IOMMU can only handle one failure per access".into(),
+                    });
+                }
+
+                let map_to = self.next_map_to.swap(0, Ordering::Relaxed);
+                if map_to == 0 {
+                    return Err(Error::CannotResolve {
+                        iova_range: IovaRange {
+                            base: fail.base,
+                            length: fail.length,
+                        },
+                        reason: "No mapping provided for failed range".into(),
+                    });
+                }
+
+                self.iotlb.write().unwrap().set_mapping(
+                    fail.base,
+                    GuestAddress(map_to),
+                    fail.length,
+                    access,
+                )?;
+            }
+        }
+    }
+
+    /// Verify that `iova`+`length` is mapped to `expected`.
+    fn verify_hit(
+        iotlb: impl Deref<Target = Iotlb> + Debug,
+        iova: GuestAddress,
+        length: usize,
+        permissions: Permissions,
+        expected: impl IntoIterator<Item = MappedRange>,
+    ) {
+        let mut iter = Iotlb::lookup(iotlb, iova, length, permissions)
+            .inspect_err(|err| panic!("Unexpected lookup error {err:?}"))
+            .unwrap();
+
+        for e in expected {
+            assert_eq!(iter.next(), Some(e));
+        }
+        assert_eq!(iter.next(), None);
+    }
+
+    /// Verify that trying to look up `iova`+`length` results in misses at `expected_misses` and
+    /// access failures (permission-related) at `expected_access_fails`.
+    fn verify_fail(
+        iotlb: impl Deref<Target = Iotlb> + Debug,
+        iova: GuestAddress,
+        length: usize,
+        permissions: Permissions,
+        expected_misses: impl IntoIterator<Item = IovaRange>,
+        expected_access_fails: impl IntoIterator<Item = IovaRange>,
+    ) {
+        let fails = Iotlb::lookup(iotlb, iova, length, permissions)
+            .inspect(|hits| panic!("Expected error on lookup, found {hits:?}"))
+            .unwrap_err();
+
+        let mut miss_iter = fails.misses.into_iter();
+        for e in expected_misses {
+            assert_eq!(miss_iter.next(), Some(e));
+        }
+        assert_eq!(miss_iter.next(), None);
+
+        let mut accf_iter = fails.access_fails.into_iter();
+        for e in expected_access_fails {
+            assert_eq!(accf_iter.next(), Some(e));
+        }
+        assert_eq!(accf_iter.next(), None);
+    }
+
+    /// Enter adjacent IOTLB entries and verify they are merged into a single one.
+    #[test]
+    fn test_iotlb_merge() -> Result<(), Error> {
+        const IOVA: GuestAddress = GuestAddress(42);
+        const PHYS: GuestAddress = GuestAddress(87);
+        const LEN_1: usize = 123;
+        const LEN_2: usize = 234;
+
+        let mut iotlb = Iotlb::new();
+        iotlb.set_mapping(IOVA, PHYS, LEN_1, Permissions::ReadWrite)?;
+        iotlb.set_mapping(
+            GuestAddress(IOVA.0 + LEN_1 as u64),
+            GuestAddress(PHYS.0 + LEN_1 as u64),
+            LEN_2,
+            Permissions::ReadWrite,
+        )?;
+
+        verify_hit(
+            &iotlb,
+            IOVA,
+            LEN_1 + LEN_2,
+            Permissions::ReadWrite,
+            [MappedRange {
+                base: PHYS,
+                length: LEN_1 + LEN_2,
+            }],
+        );
+
+        // Also check just a partial range
+        verify_hit(
+            &iotlb,
+            GuestAddress(IOVA.0 + LEN_1 as u64 - 1),
+            2,
+            Permissions::ReadWrite,
+            [MappedRange {
+                base: GuestAddress(PHYS.0 + LEN_1 as u64 - 1),
+                length: 2,
+            }],
+        );
+
+        Ok(())
+    }
+
+    /// Test that adjacent IOTLB entries that map to the same physical address are not merged into
+    /// a single entry.
+    #[test]
+    fn test_iotlb_nomerge_same_phys() -> Result<(), Error> {
+        const IOVA: GuestAddress = GuestAddress(42);
+        const PHYS: GuestAddress = GuestAddress(87);
+        const LEN_1: usize = 123;
+        const LEN_2: usize = 234;
+
+        let mut iotlb = Iotlb::new();
+        iotlb.set_mapping(IOVA, PHYS, LEN_1, Permissions::ReadWrite)?;
+        iotlb.set_mapping(
+            GuestAddress(IOVA.0 + LEN_1 as u64),
+            PHYS,
+            LEN_2,
+            Permissions::ReadWrite,
+        )?;
+
+        verify_hit(
+            &iotlb,
+            IOVA,
+            LEN_1 + LEN_2,
+            Permissions::ReadWrite,
+            [
+                MappedRange {
+                    base: PHYS,
+                    length: LEN_1,
+                },
+                MappedRange {
+                    base: PHYS,
+                    length: LEN_2,
+                },
+            ],
+        );
+
+        Ok(())
+    }
+
+    /// Test permission handling
+    #[test]
+    fn test_iotlb_perms() -> Result<(), Error> {
+        const IOVA_R: GuestAddress = GuestAddress(42);
+        const PHYS_R: GuestAddress = GuestAddress(87);
+        const LEN_R: usize = 123;
+        const IOVA_W: GuestAddress = GuestAddress(IOVA_R.0 + LEN_R as u64);
+        const PHYS_W: GuestAddress = GuestAddress(PHYS_R.0 + LEN_R as u64);
+        const LEN_W: usize = 234;
+        const IOVA_FULL: GuestAddress = IOVA_R;
+        const LEN_FULL: usize = LEN_R + LEN_W;
+
+        let mut iotlb = Iotlb::new();
+        iotlb.set_mapping(IOVA_R, PHYS_R, LEN_R, Permissions::Read)?;
+        iotlb.set_mapping(IOVA_W, PHYS_W, LEN_W, Permissions::Write)?;
+
+        // Test 1: Access whole range as R+W, should completely fail
+        verify_fail(
+            &iotlb,
+            IOVA_FULL,
+            LEN_FULL,
+            Permissions::ReadWrite,
+            [],
+            [
+                IovaRange {
+                    base: IOVA_R,
+                    length: LEN_R,
+                },
+                IovaRange {
+                    base: IOVA_W,
+                    length: LEN_W,
+                },
+            ],
+        );
+
+        // Test 2: Access whole range as R-only, should fail on second part
+        verify_fail(
+            &iotlb,
+            IOVA_FULL,
+            LEN_FULL,
+            Permissions::Read,
+            [],
+            [IovaRange {
+                base: IOVA_W,
+                length: LEN_W,
+            }],
+        );
+
+        // Test 3: Access whole range W-only, should fail on second part
+        verify_fail(
+            &iotlb,
+            IOVA_FULL,
+            LEN_FULL,
+            Permissions::Write,
+            [],
+            [IovaRange {
+                base: IOVA_R,
+                length: LEN_R,
+            }],
+        );
+
+        // Test 4: Access whole range w/o perms, should succeed
+        verify_hit(
+            &iotlb,
+            IOVA_FULL,
+            LEN_FULL,
+            Permissions::No,
+            [
+                MappedRange {
+                    base: PHYS_R,
+                    length: LEN_R,
+                },
+                MappedRange {
+                    base: PHYS_W,
+                    length: LEN_W,
+                },
+            ],
+        );
+
+        // Test 5: Access R range as R, should succeed
+        verify_hit(
+            &iotlb,
+            IOVA_R,
+            LEN_R,
+            Permissions::Read,
+            [MappedRange {
+                base: PHYS_R,
+                length: LEN_R,
+            }],
+        );
+
+        // Test 6: Access W range as W, should succeed
+        verify_hit(
+            &iotlb,
+            IOVA_W,
+            LEN_W,
+            Permissions::Write,
+            [MappedRange {
+                base: PHYS_W,
+                length: LEN_W,
+            }],
+        );
+
+        Ok(())
+    }
+
+    /// Test IOTLB invalidation
+    #[test]
+    fn test_iotlb_invalidation() -> Result<(), Error> {
+        const IOVA: GuestAddress = GuestAddress(42);
+        const PHYS: GuestAddress = GuestAddress(87);
+        const LEN: usize = 123;
+        const INVAL_OFS: usize = LEN / 2;
+        const INVAL_LEN: usize = 3;
+        const IOVA_AT_INVAL: GuestAddress = GuestAddress(IOVA.0 + INVAL_OFS as u64);
+        const PHYS_AT_INVAL: GuestAddress = GuestAddress(PHYS.0 + INVAL_OFS as u64);
+        const IOVA_POST_INVAL: GuestAddress = GuestAddress(IOVA_AT_INVAL.0 + INVAL_LEN as u64);
+        const PHYS_POST_INVAL: GuestAddress = GuestAddress(PHYS_AT_INVAL.0 + INVAL_LEN as u64);
+        const POST_INVAL_LEN: usize = LEN - INVAL_OFS - INVAL_LEN;
+
+        let mut iotlb = Iotlb::new();
+        iotlb.set_mapping(IOVA, PHYS, LEN, Permissions::ReadWrite)?;
+        verify_hit(
+            &iotlb,
+            IOVA,
+            LEN,
+            Permissions::ReadWrite,
+            [MappedRange {
+                base: PHYS,
+                length: LEN,
+            }],
+        );
+
+        // Invalidate something in the middle; expect mapping at the start, then miss, then further
+        // mapping
+        iotlb.invalidate_mapping(IOVA_AT_INVAL, INVAL_LEN);
+        verify_hit(
+            &iotlb,
+            IOVA,
+            INVAL_OFS,
+            Permissions::ReadWrite,
+            [MappedRange {
+                base: PHYS,
+                length: INVAL_OFS,
+            }],
+        );
+        verify_fail(
+            &iotlb,
+            IOVA,
+            LEN,
+            Permissions::ReadWrite,
+            [IovaRange {
+                base: IOVA_AT_INVAL,
+                length: INVAL_LEN,
+            }],
+            [],
+        );
+        verify_hit(
+            &iotlb,
+            IOVA_POST_INVAL,
+            POST_INVAL_LEN,
+            Permissions::ReadWrite,
+            [MappedRange {
+                base: PHYS_POST_INVAL,
+                length: POST_INVAL_LEN,
+            }],
+        );
+
+        // And invalidate everything; expect full miss
+        iotlb.invalidate_all();
+        verify_fail(
+            &iotlb,
+            IOVA,
+            LEN,
+            Permissions::ReadWrite,
+            [IovaRange {
+                base: IOVA,
+                length: LEN,
+            }],
+            [],
+        );
+
+        Ok(())
+    }
+
+    /// Create `IommuMemory` backed by multiple physical regions, all mapped into a single virtual
+    /// region (if `virt_start`/`virt_perm` are given).
+    ///
+    /// Memory is filled with incrementing (overflowing) bytes, starting with value `value_offset`.
+    #[cfg(feature = "backend-mmap")]
+    fn create_virt_memory<B: NewBitmap>(
+        virt_mapping: Option<(GuestAddress, Permissions)>,
+        value_offset: u8,
+        phys_regions: impl IntoIterator<Item = MappedRange>,
+        bitmap: B,
+    ) -> IommuMemory<GuestMemoryMmap<B>, SimpleIommu> {
+        let phys_ranges = phys_regions
+            .into_iter()
+            .map(|range| (range.base, range.length))
+            .collect::<Vec<(GuestAddress, usize)>>();
+        let phys_mem = GuestMemoryMmap::<B>::from_ranges(&phys_ranges).unwrap();
+
+        let mut byte_val = value_offset;
+        for (base, len) in &phys_ranges {
+            let mut slices = phys_mem
+                .get_slices(*base, *len, Permissions::Write)
+                .inspect_err(|err| panic!("Failed to access memory: {err}"))
+                .unwrap();
+            let slice = slices
+                .next()
+                .unwrap()
+                .inspect_err(|err| panic!("Failed to access memory: {err}"))
+                .unwrap();
+            assert!(slices.next().is_none(), "Expected single slice");
+
+            for i in 0..*len {
+                slice.write(&[byte_val], i).unwrap();
+                byte_val = byte_val.wrapping_add(1);
+            }
+        }
+
+        let mem = IommuMemory::new(phys_mem, SimpleIommu::new(), true, bitmap);
+
+        // IOMMU is in use, this will be `None`
+        assert!(mem.physical_memory().is_none());
+
+        if let Some((mut virt, perm)) = virt_mapping {
+            for (base, len) in phys_ranges {
+                let mut iotlb = mem.iommu().iotlb.write().unwrap();
+                iotlb.set_mapping(virt, base, len, perm).unwrap();
+                virt = GuestAddress(virt.0 + len as u64);
+            }
+        }
+
+        mem
+    }
+
+    /// Verify the byte contents at `start`+`len`.  Assume the initial byte value to be
+    /// `value_offset`.
+    ///
+    /// Each byte is expected to be incremented over the last (as created by
+    /// `create_virt_memory()`).
+    ///
+    /// Return an error if mapping fails, but just panic if there is a content mismatch.
+    #[cfg(feature = "backend-mmap")]
+    fn check_virt_mem_content(
+        mem: &impl IoMemory,
+        start: GuestAddress,
+        len: usize,
+        value_offset: u8,
+    ) -> GuestMemoryResult<()> {
+        let mut ref_value = value_offset;
+        for slice in mem.get_slices(start, len, Permissions::Read)? {
+            let slice = slice?;
+
+            let count = slice.len();
+            let mut data = vec![0u8; count];
+            slice.read(&mut data, 0).unwrap();
+            for val in data {
+                assert_eq!(val, ref_value);
+                ref_value = ref_value.wrapping_add(1);
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "backend-mmap")]
+    fn verify_virt_mem_content(
+        m: &impl IoMemory,
+        start: GuestAddress,
+        len: usize,
+        value_offset: u8,
+    ) {
+        check_virt_mem_content(m, start, len, value_offset).unwrap();
+    }
+
+    /// Verify that trying to read from `start`+`len` fails (because of `CannotResolve`).
+    ///
+    /// The reported failed-to-map range is checked to be `fail_start`+`fail_len`.  `fail_start`
+    /// defaults to `start`, `fail_len` defaults to the remaining length of the whole mapping
+    /// starting at `fail_start` (i.e. `start + len - fail_start`).
+    #[cfg(feature = "backend-mmap")]
+    fn verify_virt_mem_error(
+        m: &impl IoMemory,
+        start: GuestAddress,
+        len: usize,
+        fail_start: Option<GuestAddress>,
+        fail_len: Option<usize>,
+    ) {
+        let fail_start = fail_start.unwrap_or(start);
+        let fail_len = fail_len.unwrap_or(len - (fail_start.0 - start.0) as usize);
+        let err = check_virt_mem_content(m, start, len, 0).unwrap_err();
+        let GuestMemoryError::IommuError(Error::CannotResolve {
+            iova_range: failed_range,
+            reason: _,
+        }) = err
+        else {
+            panic!("Unexpected error: {err:?}");
+        };
+        assert_eq!(
+            failed_range,
+            IovaRange {
+                base: fail_start,
+                length: fail_len,
+            }
+        );
+    }
+
+    /// Test `IommuMemory`, with pre-filled mappings.
+    #[cfg(feature = "backend-mmap")]
+    #[test]
+    fn test_iommu_memory_pre_mapped() {
+        const PHYS_START_1: GuestAddress = GuestAddress(0x4000);
+        const PHYS_START_2: GuestAddress = GuestAddress(0x8000);
+        const PHYS_LEN: usize = 128;
+        const VIRT_START: GuestAddress = GuestAddress(0x2a000);
+        const VIRT_LEN: usize = PHYS_LEN * 2;
+        const VIRT_POST_MAP: GuestAddress = GuestAddress(VIRT_START.0 + VIRT_LEN as u64);
+
+        let mem = create_virt_memory(
+            Some((VIRT_START, Permissions::Read)),
+            0,
+            [
+                MappedRange {
+                    base: PHYS_START_1,
+                    length: PHYS_LEN,
+                },
+                MappedRange {
+                    base: PHYS_START_2,
+                    length: PHYS_LEN,
+                },
+            ],
+            (),
+        );
+
+        assert!(mem.check_range(VIRT_START, VIRT_LEN, Permissions::No));
+        assert!(mem.check_range(VIRT_START, VIRT_LEN, Permissions::Read));
+        assert!(!mem.check_range(VIRT_START, VIRT_LEN, Permissions::Write));
+        assert!(!mem.check_range(VIRT_START, VIRT_LEN, Permissions::ReadWrite));
+        assert!(!mem.check_range(GuestAddress(VIRT_START.0 - 1), 1, Permissions::No));
+        assert!(!mem.check_range(VIRT_POST_MAP, 1, Permissions::No));
+
+        verify_virt_mem_content(&mem, VIRT_START, VIRT_LEN, 0);
+        verify_virt_mem_error(&mem, GuestAddress(VIRT_START.0 - 1), 1, None, None);
+        verify_virt_mem_error(&mem, VIRT_POST_MAP, 1, None, None);
+        verify_virt_mem_error(&mem, VIRT_START, VIRT_LEN + 1, Some(VIRT_POST_MAP), None);
+    }
+
+    /// Test `IommuMemory`, with mappings created through the IOMMU on the fly.
+    #[cfg(feature = "backend-mmap")]
+    #[test]
+    fn test_iommu_memory_live_mapped() {
+        const PHYS_START_1: GuestAddress = GuestAddress(0x4000);
+        const PHYS_START_2: GuestAddress = GuestAddress(0x8000);
+        const PHYS_LEN: usize = 128;
+        const VIRT_START: GuestAddress = GuestAddress(0x2a000);
+        const VIRT_START_1: GuestAddress = VIRT_START;
+        const VIRT_START_2: GuestAddress = GuestAddress(VIRT_START.0 + PHYS_LEN as u64);
+        const VIRT_LEN: usize = PHYS_LEN * 2;
+        const VIRT_POST_MAP: GuestAddress = GuestAddress(VIRT_START.0 + VIRT_LEN as u64);
+
+        let mem = create_virt_memory(
+            None,
+            0,
+            [
+                MappedRange {
+                    base: PHYS_START_1,
+                    length: PHYS_LEN,
+                },
+                MappedRange {
+                    base: PHYS_START_2,
+                    length: PHYS_LEN,
+                },
+            ],
+            (),
+        );
+
+        assert!(!mem.check_range(VIRT_START, VIRT_LEN, Permissions::No));
+        assert!(!mem.check_range(VIRT_START, VIRT_LEN, Permissions::Read));
+        assert!(!mem.check_range(VIRT_START, VIRT_LEN, Permissions::Write));
+        assert!(!mem.check_range(VIRT_START, VIRT_LEN, Permissions::ReadWrite));
+        assert!(!mem.check_range(GuestAddress(VIRT_START.0 - 1), 1, Permissions::No));
+        assert!(!mem.check_range(VIRT_POST_MAP, 1, Permissions::No));
+
+        verify_virt_mem_error(&mem, VIRT_START, VIRT_LEN, None, None);
+        verify_virt_mem_error(&mem, GuestAddress(VIRT_START.0 - 1), 1, None, None);
+        verify_virt_mem_error(&mem, VIRT_POST_MAP, 1, None, None);
+        verify_virt_mem_error(&mem, VIRT_START, VIRT_LEN + 1, None, None);
+
+        let iommu = mem.iommu();
+
+        // Can only map one region at a time (with `SimpleIommu`), so only access `PHYS_LEN` first,
+        // not `VIRT_LEN`
+        iommu.expect_mapping_request(PHYS_START_1);
+        verify_virt_mem_content(&mem, VIRT_START, PHYS_LEN, 0);
+        iommu.verify_mapping_request(VIRT_START_1, PHYS_LEN, true);
+
+        iommu.expect_mapping_request(PHYS_START_2);
+        verify_virt_mem_content(&mem, VIRT_START, VIRT_LEN, 0);
+        iommu.verify_mapping_request(VIRT_START_2, PHYS_LEN, true);
+
+        // Also check invalid access failure
+        iommu
+            .iotlb
+            .write()
+            .unwrap()
+            .set_mapping(VIRT_START_1, PHYS_START_1, PHYS_LEN, Permissions::Write)
+            .unwrap();
+
+        iommu.expect_mapping_request(PHYS_START_1);
+        verify_virt_mem_content(&mem, VIRT_START, VIRT_LEN, 0);
+        iommu.verify_mapping_request(VIRT_START_1, PHYS_LEN, false);
+    }
+
+    /// Test replacing the physical memory of an `IommuMemory`.
+    #[cfg(feature = "backend-mmap")]
+    #[test]
+    fn test_mem_replace() {
+        const PHYS_START_1: GuestAddress = GuestAddress(0x4000);
+        const PHYS_START_2: GuestAddress = GuestAddress(0x8000);
+        const PHYS_LEN: usize = 128;
+        const VIRT_START: GuestAddress = GuestAddress(0x2a000);
+
+        // Note only one physical region.  `mem2` will have two, to see that this pattern
+        // (`with_replaced_backend()`) can be used to e.g. extend physical memory.
+        let mem = create_virt_memory(
+            Some((VIRT_START, Permissions::Read)),
+            0,
+            [MappedRange {
+                base: PHYS_START_1,
+                length: PHYS_LEN,
+            }],
+            (),
+        );
+
+        verify_virt_mem_content(&mem, VIRT_START, PHYS_LEN, 0);
+        verify_virt_mem_error(
+            &mem,
+            VIRT_START,
+            PHYS_LEN * 2,
+            Some(GuestAddress(VIRT_START.0 + PHYS_LEN as u64)),
+            None,
+        );
+
+        let mut mem2 = create_virt_memory(
+            Some((VIRT_START, Permissions::Read)),
+            42,
+            [
+                MappedRange {
+                    base: PHYS_START_1,
+                    length: PHYS_LEN,
+                },
+                MappedRange {
+                    base: PHYS_START_2,
+                    length: PHYS_LEN,
+                },
+            ],
+            (),
+        );
+
+        verify_virt_mem_content(&mem2, VIRT_START, PHYS_LEN * 2, 42);
+
+        // Clone `mem` before replacing its physical memory, to see that works
+        let mem_cloned = mem.clone();
+
+        // Use `mem2`'s physical memory for `mem`
+        mem2.set_iommu_enabled(false);
+        let pmem2 = mem2.physical_memory().unwrap();
+        assert!(std::ptr::eq(pmem2, mem2.get_backend()));
+        let mem = mem.with_replaced_backend(pmem2.clone());
+
+        // The physical memory has been replaced, but `mem` still uses its old IOMMU, so the
+        // mapping for everything past VIRT_START + PHYS_LEN does not yet exist.
+        mem.iommu().expect_mapping_request(PHYS_START_2);
+        verify_virt_mem_content(&mem, VIRT_START, PHYS_LEN * 2, 42);
+        mem.iommu().verify_mapping_request(
+            GuestAddress(VIRT_START.0 + PHYS_LEN as u64),
+            PHYS_LEN,
+            true,
+        );
+
+        // Verify `mem`'s clone still is the same (though it does use the same IOMMU)
+        verify_virt_mem_content(&mem_cloned, VIRT_START, PHYS_LEN, 0);
+        // See, it's the same IOMMU (i.e. it has a mapping PHYS_START_2):
+        verify_hit(
+            mem_cloned.iommu().iotlb.read().unwrap(),
+            VIRT_START,
+            PHYS_LEN * 2,
+            Permissions::Read,
+            [
+                MappedRange {
+                    base: PHYS_START_1,
+                    length: PHYS_LEN,
+                },
+                MappedRange {
+                    base: PHYS_START_2,
+                    length: PHYS_LEN,
+                },
+            ],
+        );
+        // (But we cannot access that mapping because `mem_cloned`'s physical memory does not
+        // contain that physical range.)
+    }
+
+    /// In `mem`'s dirty bitmap, verify that the given `clean` addresses are clean, and the `dirty`
+    /// addresses are dirty.  Auto-clear the dirty addresses checked.
+    ///
+    /// Cannot import `GuestMemory` in this module, as that would interfere with `IoMemory` for
+    /// methods that have the same name between the two.
+    #[cfg(all(feature = "backend-bitmap", feature = "backend-mmap"))]
+    fn verify_mem_bitmap<
+        M: crate::GuestMemory<R = R>,
+        R: GuestMemoryRegion<B = AtomicBitmap>,
+        I: Iommu,
+    >(
+        mem: &IommuMemory<M, I>,
+        clean: impl IntoIterator<Item = usize>,
+        dirty: impl IntoIterator<Item = usize>,
+    ) {
+        let bitmap = mem.bitmap();
+        for addr in clean {
+            if bitmap.is_addr_set(addr) {
+                panic!("Expected addr {addr:#x} to be clean, but is dirty");
+            }
+        }
+        for addr in dirty {
+            if !bitmap.is_addr_set(addr) {
+                panic!("Expected addr {addr:#x} to be dirty, but is clean");
+            }
+            bitmap.reset_addr_range(addr, 1);
+        }
+    }
+
+    #[cfg(all(feature = "backend-bitmap", feature = "backend-mmap"))]
+    #[test]
+    fn test_dirty_bitmap() {
+        const PAGE_SIZE: usize = 4096;
+        const PHYS_START: GuestAddress = GuestAddress(0x4000);
+        const PHYS_LEN: usize = PAGE_SIZE * 2;
+        const PHYS_PAGE_0: usize = PHYS_START.0 as usize;
+        const PHYS_PAGE_1: usize = PHYS_START.0 as usize + PAGE_SIZE;
+        const VIRT_START: GuestAddress = GuestAddress(0x2a000);
+        const VIRT_PAGE_0: usize = VIRT_START.0 as usize;
+        const VIRT_PAGE_1: usize = VIRT_START.0 as usize + PAGE_SIZE;
+
+        let bitmap = AtomicBitmap::new(
+            VIRT_START.0 as usize + PHYS_LEN,
+            NonZeroUsize::new(PAGE_SIZE).unwrap(),
+        );
+
+        let mem = create_virt_memory(
+            Some((VIRT_START, Permissions::ReadWrite)),
+            0,
+            [MappedRange {
+                base: PHYS_START,
+                length: PHYS_LEN,
+            }],
+            bitmap,
+        );
+
+        // Check bitmap is cleared before everything -- through the whole test, the physical ranges
+        // should remain clean as the bitmap is only supposed to track IOVAs
+        verify_mem_bitmap(
+            &mem,
+            [PHYS_PAGE_0, PHYS_PAGE_1, VIRT_PAGE_0, VIRT_PAGE_1],
+            [],
+        );
+
+        // Just to be sure, check that PHYS_PAGE_0 and PHYS_PAGE_1 technically can be dirtied,
+        // though, or testing them would not be really useful
+        mem.bitmap().set_addr_range(PHYS_PAGE_0, 2 * PAGE_SIZE);
+        verify_mem_bitmap(&mem, [VIRT_PAGE_0, VIRT_PAGE_1], [PHYS_PAGE_0, PHYS_PAGE_1]);
+
+        // Just read from memory, should not dirty bitmap
+        verify_virt_mem_content(&mem, VIRT_START, PHYS_LEN, 0);
+        verify_mem_bitmap(
+            &mem,
+            [PHYS_PAGE_0, PHYS_PAGE_1, VIRT_PAGE_0, VIRT_PAGE_1],
+            [],
+        );
+
+        // Verify that writing to a writeable slice causes dirtying, i.e. that the `VolatileSlice`
+        // returned here correctly dirties the bitmap when written to
+        let mut slices = mem
+            .get_slices(VIRT_START, PHYS_LEN, Permissions::Write)
+            .inspect_err(|err| panic!("Failed to access memory: {err}"))
+            .unwrap();
+        let slice = slices
+            .next()
+            .unwrap()
+            .inspect_err(|err| panic!("Failed to access memory: {err}"))
+            .unwrap();
+        assert!(slices.next().is_none(), "Expected single slice");
+
+        verify_mem_bitmap(
+            &mem,
+            [PHYS_PAGE_0, PHYS_PAGE_1, VIRT_PAGE_0, VIRT_PAGE_1],
+            [],
+        );
+
+        slice
+            .store(42, 0, Ordering::Relaxed)
+            .inspect_err(|err| panic!("Writing to memory failed: {err}"))
+            .unwrap();
+        verify_mem_bitmap(&mem, [PHYS_PAGE_0, PHYS_PAGE_1, VIRT_PAGE_1], [VIRT_PAGE_0]);
+
+        slice
+            .store(23, PAGE_SIZE, Ordering::Relaxed)
+            .inspect_err(|err| panic!("Writing to memory failed: {err}"))
+            .unwrap();
+        verify_mem_bitmap(&mem, [PHYS_PAGE_0, PHYS_PAGE_1, VIRT_PAGE_0], [VIRT_PAGE_1]);
+    }
+}
