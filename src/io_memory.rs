@@ -190,3 +190,63 @@ impl<M: GuestMemory> IoMemory for M {
         Some(self)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Permissions;
+
+    // Note that `IoMemory` is tested primarily in src/iommu.rs via `IommuMemory`.
+
+    /// Test `Permissions & Permissions`.
+    #[test]
+    fn test_perm_and() {
+        use Permissions::*;
+
+        for p in [No, Read, Write, ReadWrite] {
+            assert_eq!(p & p, p);
+        }
+        for p1 in [No, Read, Write, ReadWrite] {
+            for p2 in [No, Read, Write, ReadWrite] {
+                assert_eq!(p1 & p2, p2 & p1);
+            }
+        }
+        for p in [No, Read, Write, ReadWrite] {
+            assert_eq!(No & p, No);
+        }
+        for p in [No, Read, Write, ReadWrite] {
+            assert_eq!(ReadWrite & p, p);
+        }
+        assert_eq!(Read & Write, No);
+    }
+
+    /// Test `Permissions | Permissions`.
+    #[test]
+    fn test_perm_or() {
+        use Permissions::*;
+
+        for p in [No, Read, Write, ReadWrite] {
+            assert_eq!(p | p, p);
+        }
+        for p1 in [No, Read, Write, ReadWrite] {
+            for p2 in [No, Read, Write, ReadWrite] {
+                assert_eq!(p1 | p2, p2 | p1);
+            }
+        }
+        for p in [No, Read, Write, ReadWrite] {
+            assert_eq!(No | p, p);
+        }
+        for p in [No, Read, Write, ReadWrite] {
+            assert_eq!(ReadWrite | p, ReadWrite);
+        }
+        assert_eq!(Read | Write, ReadWrite);
+    }
+
+    /// Test `Permissions::has_write()`.
+    #[test]
+    fn test_perm_has_write() {
+        assert!(!Permissions::No.has_write());
+        assert!(!Permissions::Read.has_write());
+        assert!(Permissions::Write.has_write());
+        assert!(Permissions::ReadWrite.has_write());
+    }
+}
