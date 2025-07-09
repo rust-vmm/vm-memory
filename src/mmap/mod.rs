@@ -733,4 +733,29 @@ mod tests {
                 .unwrap()
         });
     }
+
+    #[test]
+    fn test_change_region_addr() {
+        let addr1 = GuestAddress(0x1000);
+        let addr2 = GuestAddress(0x2000);
+        let gm = GuestMemoryMmap::from_ranges(&[(addr1, 0x1000)]).unwrap();
+
+        assert!(gm.find_region(addr1).is_some());
+        assert!(gm.find_region(addr2).is_none());
+
+        let (gm, region) = gm.remove_region(addr1, 0x1000).unwrap();
+
+        assert!(gm.find_region(addr1).is_none());
+        assert!(gm.find_region(addr2).is_none());
+
+        // Note that the `region` returned by `remove_region` is an `Arc<_>`, so users generally
+        // cannot mutate it (change its base address).  In this test, we can (we could unwrap the
+        // `Arc<_>`), but our users generally cannot, hence why this interface exists.
+        let region = GuestRegionMmap::with_arc(region.get_mmap(), addr2).unwrap();
+
+        let gm = gm.insert_region(Arc::new(region)).unwrap();
+
+        assert!(gm.find_region(addr1).is_none());
+        assert!(gm.find_region(addr2).is_some());
+    }
 }
