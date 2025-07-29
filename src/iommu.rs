@@ -12,13 +12,15 @@
 //! IOTLB misses require sending a notification to the front-end and awaiting a reply that supplies
 //! the desired mapping.
 
+use crate::bitmap::{self, Bitmap};
 use crate::guest_memory::{Error as GuestMemoryError, Result as GuestMemoryResult};
 use crate::{
-    bitmap, GuestAddress, GuestMemory, IoMemory, MemoryRegionAddress, Permissions, VolatileSlice,
+    GuestAddress, GuestMemory, GuestMemoryRegion, IoMemory, MemoryRegionAddress, Permissions,
+    VolatileSlice,
 };
 use rangemap::RangeMap;
 use std::cmp;
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 use std::num::Wrapping;
 use std::ops::{Deref, Range};
 use std::sync::Arc;
@@ -181,7 +183,6 @@ pub struct IotlbFails {
 /// The underlying [`GuestMemory`] is basically the physical memory, and the [`Iommu`] translates
 /// the I/O virtual address space that `IommuMemory` provides into that underlying physical address
 /// space.
-#[derive(Debug, Default)]
 pub struct IommuMemory<M: GuestMemory, I: Iommu> {
     /// Physical memory
     inner: M,
@@ -190,6 +191,8 @@ pub struct IommuMemory<M: GuestMemory, I: Iommu> {
     /// Whether the IOMMU is even to be used or not; disabling it makes this a pass-through to
     /// `inner`.
     use_iommu: bool,
+    /// Dirty bitmap to use for IOVA accesses
+    bitmap: Arc<<M::R as GuestMemoryRegion>::B>,
 }
 
 impl IommuMapping {
@@ -353,25 +356,34 @@ impl TryFrom<Range<u64>> for IovaRange {
 
 impl<M: GuestMemory, I: Iommu> IommuMemory<M, I> {
     /// Create a new `IommuMemory` instance.
-    pub fn new(inner: M, iommu: I, use_iommu: bool) -> Self {
+    pub fn new(inner: M, iommu: I, use_iommu: bool, bitmap: <Self as IoMemory>::Bitmap) -> Self {
         IommuMemory {
             inner,
             iommu: Arc::new(iommu),
             use_iommu,
+            bitmap: Arc::new(bitmap),
         }
     }
 
     /// Create a new version of `self` with the underlying physical memory replaced.
     ///
-    /// Note that the inner `Arc` reference to the IOMMU is cloned, i.e. both the existing and the
-    /// new `IommuMemory` object will share an IOMMU instance.  (The `use_iommu` flag however is
-    /// copied, so is independent between the two instances.)
+    /// Note that the inner `Arc` references to the IOMMU and bitmap are cloned, i.e. both the
+    /// existing and the new `IommuMemory` object will share the IOMMU and bitmap instances.  (The
+    /// `use_iommu` flag however is copied, so is independent between the two instances.)
     pub fn inner_replaced(&self, inner: M) -> Self {
         IommuMemory {
             inner,
             iommu: Arc::clone(&self.iommu),
             use_iommu: self.use_iommu,
+            bitmap: Arc::clone(&self.bitmap),
         }
+    }
+
+    /// Return a reference to the IOVA address space's dirty bitmap.
+    ///
+    /// This bitmap tracks write accesses done while the IOMMU is enabled.
+    pub fn bitmap(&self) -> &Arc<<Self as IoMemory>::Bitmap> {
+        &self.bitmap
     }
 
     /// Enable or disable the IOMMU.
@@ -399,12 +411,42 @@ impl<M: GuestMemory + Clone, I: Iommu> Clone for IommuMemory<M, I> {
             inner: self.inner.clone(),
             iommu: Arc::clone(&self.iommu),
             use_iommu: self.use_iommu,
+            bitmap: Arc::clone(&self.bitmap),
+        }
+    }
+}
+
+impl<M: GuestMemory + Debug, I: Iommu> Debug for IommuMemory<M, I>
+where
+    <M::R as GuestMemoryRegion>::B: Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IommuMemory")
+            .field("inner", &self.inner)
+            .field("iommu", &self.iommu)
+            .field("use_iommu", &self.use_iommu)
+            .field("bitmap", &self.bitmap)
+            .finish()
+    }
+}
+
+impl<M: GuestMemory + Default, I: Iommu + Default> Default for IommuMemory<M, I>
+where
+    <M::R as GuestMemoryRegion>::B: Default,
+{
+    fn default() -> Self {
+        IommuMemory {
+            inner: Default::default(),
+            iommu: Default::default(),
+            use_iommu: Default::default(),
+            bitmap: Default::default(),
         }
     }
 }
 
 impl<M: GuestMemory, I: Iommu> IoMemory for IommuMemory<M, I> {
     type PhysicalMemory = M;
+    type Bitmap = <M::R as GuestMemoryRegion>::B;
 
     fn range_accessible(&self, addr: GuestAddress, count: usize, access: Permissions) -> bool {
         if !self.use_iommu {
@@ -457,7 +499,13 @@ impl<M: GuestMemory, I: Iommu> IoMemory for IommuMemory<M, I> {
 
             if handled == 0 {
                 break;
-            } else if handled > count {
+            }
+
+            if access.has_write() {
+                self.bitmap.mark_dirty(addr.0 as usize + total, handled);
+            }
+
+            if handled > count {
                 return Err(GuestMemoryError::CallbackOutOfRange);
             }
 
@@ -477,7 +525,7 @@ impl<M: GuestMemory, I: Iommu> IoMemory for IommuMemory<M, I> {
         addr: GuestAddress,
         count: usize,
         access: Permissions,
-    ) -> GuestMemoryResult<VolatileSlice<bitmap::MS<M>>> {
+    ) -> GuestMemoryResult<VolatileSlice<bitmap::BS<Self::Bitmap>>> {
         if !self.use_iommu {
             return self.inner.get_slice(addr, count);
         }
@@ -502,7 +550,10 @@ impl<M: GuestMemory, I: Iommu> IoMemory for IommuMemory<M, I> {
         }
 
         assert!(mapping.length == count || (count == 0 && mapping.length == 1));
-        self.inner.get_slice(mapping.base, count)
+        Ok(self
+            .inner
+            .get_slice(mapping.base, count)?
+            .replace_bitmap(self.bitmap.slice_at(addr.0 as usize)))
     }
 
     fn physical_memory(&self) -> Option<&Self::PhysicalMemory> {

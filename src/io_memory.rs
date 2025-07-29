@@ -13,8 +13,9 @@
 //! In addition, any access to virtual memory must be annotated with the intended access mode (i.e.
 //! reading and/or writing).
 
+use crate::bitmap::{self, Bitmap};
 use crate::guest_memory::Result;
-use crate::{bitmap, GuestAddress, GuestMemory, MemoryRegionAddress, VolatileSlice};
+use crate::{GuestAddress, GuestMemory, GuestMemoryRegion, MemoryRegionAddress, VolatileSlice};
 
 /// Permissions for accessing virtual memory.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,6 +34,11 @@ impl Permissions {
     /// Check whether the permissions `self` allow the given `access`.
     pub fn allow(&self, access: Self) -> bool {
         *self & access == access
+    }
+
+    /// Check whether the permissions `self` include write access.
+    pub fn has_write(&self) -> bool {
+        *self & Permissions::Write == Permissions::Write
     }
 }
 
@@ -87,6 +93,8 @@ impl std::ops::BitAnd for Permissions {
 pub trait IoMemory {
     /// Underlying `GuestMemory` type.
     type PhysicalMemory: GuestMemory;
+    /// Dirty bitmap type for tracking writes to the IOVA address space.
+    type Bitmap: Bitmap;
 
     /// Return `true` if `addr..(addr + count)` is accessible with `access`.
     fn range_accessible(&self, addr: GuestAddress, count: usize, access: Permissions) -> bool;
@@ -127,7 +135,7 @@ pub trait IoMemory {
         addr: GuestAddress,
         count: usize,
         access: Permissions,
-    ) -> Result<VolatileSlice<bitmap::MS<Self::PhysicalMemory>>>;
+    ) -> Result<VolatileSlice<bitmap::BS<Self::Bitmap>>>;
 
     /// If this virtual memory is just a plain `GuestMemory` object underneath without an IOMMU
     /// translation layer in between, return that `GuestMemory` object.
@@ -138,6 +146,7 @@ pub trait IoMemory {
 
 impl<M: GuestMemory> IoMemory for M {
     type PhysicalMemory = M;
+    type Bitmap = <M::R as GuestMemoryRegion>::B;
 
     fn range_accessible(&self, addr: GuestAddress, count: usize, _access: Permissions) -> bool {
         if count <= 1 {
