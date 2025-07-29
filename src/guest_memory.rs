@@ -52,7 +52,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::address::{Address, AddressValue};
-use crate::bitmap::{BitmapSlice, MS};
+use crate::bitmap::{Bitmap, BitmapSlice, BS, MS};
 use crate::bytes::{AtomicAccess, Bytes};
 use crate::io::{ReadVolatile, WriteVolatile};
 #[cfg(feature = "iommu")]
@@ -771,6 +771,11 @@ impl Permissions {
     pub fn allow(&self, access: Self) -> bool {
         *self & access == access
     }
+
+    /// Check whether the permissions `self` include write access.
+    pub fn has_write(&self) -> bool {
+        *self & Permissions::Write == Permissions::Write
+    }
 }
 
 impl std::ops::BitOr for Permissions {
@@ -806,6 +811,8 @@ impl std::ops::BitAnd for Permissions {
 pub trait IoMemory {
     /// Underlying `GuestMemory` type.
     type PhysicalMemory: GuestMemory + ?Sized;
+    /// Dirty bitmap type for tracking writes to the IOVA address space.
+    type Bitmap: Bitmap;
 
     /// Return `true` if `addr..(addr + count)` is accessible with `access`.
     fn check_range(&self, addr: GuestAddress, count: usize, access: Permissions) -> bool;
@@ -828,7 +835,7 @@ pub trait IoMemory {
         addr: GuestAddress,
         count: usize,
         access: Permissions,
-    ) -> Result<impl IoMemorySliceIterator<'a, MS<'a, Self::PhysicalMemory>>>;
+    ) -> Result<impl IoMemorySliceIterator<'a, BS<'a, Self::Bitmap>>>;
 
     /// If this virtual memory is just a plain `GuestMemory` object underneath without an IOMMU
     /// translation layer in between, return that `GuestMemory` object.
@@ -867,6 +874,7 @@ pub trait IoMemorySliceIterator<'a, B: BitmapSlice>:
 /// the same [`GuestMemory`] methods (if available), discarding the `access` parameter.
 impl<M: GuestMemory + ?Sized> IoMemory for M {
     type PhysicalMemory = M;
+    type Bitmap = <M::R as GuestMemoryRegion>::B;
 
     fn check_range(&self, addr: GuestAddress, count: usize, _access: Permissions) -> bool {
         <M as GuestMemory>::check_range(self, addr, count)
@@ -877,7 +885,7 @@ impl<M: GuestMemory + ?Sized> IoMemory for M {
         addr: GuestAddress,
         count: usize,
         _access: Permissions,
-    ) -> Result<impl IoMemorySliceIterator<'a, MS<'a, Self::PhysicalMemory>>> {
+    ) -> Result<impl IoMemorySliceIterator<'a, BS<'a, Self::Bitmap>>> {
         Ok(<M as GuestMemory>::get_slices(self, addr, count))
     }
 

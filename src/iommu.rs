@@ -12,14 +12,18 @@
 //! IOTLB misses require sending a notification to the front-end and awaiting a reply that supplies
 //! the desired mapping.
 
+use crate::bitmap::{self, Bitmap};
 use crate::guest_memory::{
     Error as GuestMemoryError, GuestMemorySliceIterator, IoMemorySliceIterator,
     Result as GuestMemoryResult,
 };
-use crate::{bitmap, GuestAddress, GuestMemory, IoMemory, Permissions, VolatileSlice};
+use crate::{
+    Address, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, IoMemory, Permissions,
+    VolatileSlice,
+};
 use rangemap::RangeMap;
 use std::cmp;
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 use std::iter::FusedIterator;
 use std::num::Wrapping;
 use std::ops::{Deref, Range};
@@ -183,7 +187,19 @@ pub struct IotlbFails {
 /// The underlying [`GuestMemory`] is basically the physical memory, and the [`Iommu`] translates
 /// the I/O virtual address space that `IommuMemory` provides into that underlying physical address
 /// space.
-#[derive(Debug, Default)]
+///
+/// Note that this type’s implementation of memory write tracking (“logging”) is specific to what
+/// is required by vhost-user:
+/// - When the IOMMU is disabled ([`IommuMemory::set_iommu_enabled()`]), writes to memory are
+///   tracked by the underlying [`GuestMemory`] in its bitmap(s).
+/// - When it is enabled, they are instead tracked in the [`IommuMemory`]’s dirty bitmap; the
+///   offset in the bitmap is calculated from the write’s IOVA.
+///
+/// That is, there are two bitmap levels, one in the underlying [`GuestMemory`], and one in
+/// [`IommuMemory`].  The former is used when the IOMMU is disabled, the latter when it is enabled.
+///
+/// If you need a different model (e.g. always use the [`GuestMemory`] bitmaps), you should not use
+/// this type.
 pub struct IommuMemory<M: GuestMemory, I: Iommu> {
     /// Physical memory
     backend: M,
@@ -192,6 +208,8 @@ pub struct IommuMemory<M: GuestMemory, I: Iommu> {
     /// Whether the IOMMU is even to be used or not; disabling it makes this a pass-through to
     /// `backend`.
     use_iommu: bool,
+    /// Dirty bitmap to use for IOVA accesses
+    bitmap: Arc<<M::R as GuestMemoryRegion>::B>,
 }
 
 impl IommuMapping {
@@ -355,25 +373,34 @@ impl TryFrom<Range<u64>> for IovaRange {
 
 impl<M: GuestMemory, I: Iommu> IommuMemory<M, I> {
     /// Create a new `IommuMemory` instance.
-    pub fn new(backend: M, iommu: I, use_iommu: bool) -> Self {
+    pub fn new(backend: M, iommu: I, use_iommu: bool, bitmap: <Self as IoMemory>::Bitmap) -> Self {
         IommuMemory {
             backend,
             iommu: Arc::new(iommu),
             use_iommu,
+            bitmap: Arc::new(bitmap),
         }
     }
 
     /// Create a new version of `self` with the underlying physical memory replaced.
     ///
-    /// Note that the inner `Arc` reference to the IOMMU is cloned, i.e. both the existing and the
-    /// new `IommuMemory` object will share an IOMMU instance.  (The `use_iommu` flag however is
-    /// copied, so is independent between the two instances.)
+    /// Note that the inner `Arc` references to the IOMMU and bitmap are cloned, i.e. both the
+    /// existing and the new `IommuMemory` object will share the IOMMU and bitmap instances.  (The
+    /// `use_iommu` flag however is copied, so is independent between the two instances.)
     pub fn with_replaced_backend(&self, new_backend: M) -> Self {
         IommuMemory {
             backend: new_backend,
             iommu: Arc::clone(&self.iommu),
             use_iommu: self.use_iommu,
+            bitmap: Arc::clone(&self.bitmap),
         }
+    }
+
+    /// Return a reference to the IOVA address space's dirty bitmap.
+    ///
+    /// This bitmap tracks write accesses done while the IOMMU is enabled.
+    pub fn bitmap(&self) -> &Arc<<Self as IoMemory>::Bitmap> {
+        &self.bitmap
     }
 
     /// Enable or disable the IOMMU.
@@ -409,12 +436,42 @@ impl<M: GuestMemory + Clone, I: Iommu> Clone for IommuMemory<M, I> {
             backend: self.backend.clone(),
             iommu: Arc::clone(&self.iommu),
             use_iommu: self.use_iommu,
+            bitmap: Arc::clone(&self.bitmap),
+        }
+    }
+}
+
+impl<M: GuestMemory + Debug, I: Iommu> Debug for IommuMemory<M, I>
+where
+    <M::R as GuestMemoryRegion>::B: Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IommuMemory")
+            .field("backend", &self.backend)
+            .field("iommu", &self.iommu)
+            .field("use_iommu", &self.use_iommu)
+            .field("bitmap", &self.bitmap)
+            .finish()
+    }
+}
+
+impl<M: GuestMemory + Default, I: Iommu + Default> Default for IommuMemory<M, I>
+where
+    <M::R as GuestMemoryRegion>::B: Default,
+{
+    fn default() -> Self {
+        IommuMemory {
+            backend: Default::default(),
+            iommu: Default::default(),
+            use_iommu: Default::default(),
+            bitmap: Default::default(),
         }
     }
 }
 
 impl<M: GuestMemory, I: Iommu> IoMemory for IommuMemory<M, I> {
     type PhysicalMemory = M;
+    type Bitmap = <M::R as GuestMemoryRegion>::B;
 
     fn check_range(&self, addr: GuestAddress, count: usize, access: Permissions) -> bool {
         if !self.use_iommu {
@@ -434,7 +491,7 @@ impl<M: GuestMemory, I: Iommu> IoMemory for IommuMemory<M, I> {
         addr: GuestAddress,
         count: usize,
         access: Permissions,
-    ) -> GuestMemoryResult<impl IoMemorySliceIterator<'a, bitmap::MS<'a, M>>> {
+    ) -> GuestMemoryResult<impl IoMemorySliceIterator<'a, bitmap::BS<'a, Self::Bitmap>>> {
         if self.use_iommu {
             IommuMemorySliceIterator::virt(self, addr, count, access)
                 .map_err(GuestMemoryError::IommuError)
@@ -455,8 +512,11 @@ impl<M: GuestMemory, I: Iommu> IoMemory for IommuMemory<M, I> {
 /// Iterates over [`VolatileSlice`]s that together form an area in an `IommuMemory`.
 ///
 /// Returned by [`IommuMemory::get_slices()`]
-#[derive(Debug)]
 pub struct IommuMemorySliceIterator<'a, M: GuestMemory, I: Iommu + 'a> {
+    /// Current IOVA (needed to access the right slice of the IOVA space dirty bitmap)
+    iova: GuestAddress,
+    /// IOVA space dirty bitmap
+    bitmap: Option<&'a <M::R as GuestMemoryRegion>::B>,
     /// Underlying physical memory (i.e. not the `IommuMemory`)
     phys_mem: &'a M,
     /// IOMMU translation result (i.e. remaining physical regions to visit)
@@ -473,6 +533,8 @@ impl<'a, M: GuestMemory, I: Iommu> IommuMemorySliceIterator<'a, M, I> {
     /// the underlying physical memory for the given address range.
     fn phys(mem: &'a IommuMemory<M, I>, addr: GuestAddress, count: usize) -> Self {
         IommuMemorySliceIterator {
+            iova: addr,
+            bitmap: None,
             phys_mem: &mem.backend,
             translation: None,
             current_translated_iter: Some(mem.backend.get_slices(addr, count)),
@@ -491,6 +553,8 @@ impl<'a, M: GuestMemory, I: Iommu> IommuMemorySliceIterator<'a, M, I> {
     ) -> Result<Self, Error> {
         let translation = mem.iommu.translate(addr, count, access)?;
         Ok(IommuMemorySliceIterator {
+            iova: addr,
+            bitmap: Some(mem.bitmap.as_ref()),
             phys_mem: &mem.backend,
             translation: Some(translation),
             current_translated_iter: None,
@@ -522,7 +586,22 @@ impl<'a, M: GuestMemory, I: Iommu> IommuMemorySliceIterator<'a, M, I> {
                 .as_mut()
                 .and_then(|iter| iter.next())
             {
-                return Some(item);
+                let mut item = match item {
+                    Ok(item) => item,
+                    Err(err) => return Some(Err(err)),
+                };
+
+                if let Some(bitmap) = self.bitmap.as_ref() {
+                    let bitmap_slice = bitmap.slice_at(self.iova.0 as usize);
+                    item = item.replace_bitmap(bitmap_slice);
+                }
+
+                self.iova = match self.iova.overflowing_add(item.len() as GuestUsize) {
+                    (x @ GuestAddress(0), _) | (x, false) => x,
+                    (_, true) => return Some(Err(GuestMemoryError::GuestAddressOverflow)),
+                };
+
+                return Some(Ok(item));
             }
 
             let next_mapping = self.translation.as_mut()?.next()?;
@@ -562,4 +641,20 @@ impl<M: GuestMemory, I: Iommu> FusedIterator for IommuMemorySliceIterator<'_, M,
 impl<'a, M: GuestMemory, I: Iommu> IoMemorySliceIterator<'a, bitmap::MS<'a, M>>
     for IommuMemorySliceIterator<'a, M, I>
 {
+}
+
+impl<'a, M: GuestMemory + Debug, I: Iommu> Debug for IommuMemorySliceIterator<'a, M, I>
+where
+    I::IotlbGuard<'a>: Debug,
+    <M::R as GuestMemoryRegion>::B: Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IommuMemorySliceIterator")
+            .field("iova", &self.iova)
+            .field("bitmap", &self.bitmap)
+            .field("phys_mem", &self.phys_mem)
+            .field("translation", &self.translation)
+            .field("current_translated_iter", &self.current_translated_iter)
+            .finish()
+    }
 }
