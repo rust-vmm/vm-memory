@@ -13,8 +13,9 @@
 //! In addition, any access to virtual memory must be annotated with the intended access mode (i.e.
 //! reading and/or writing).
 
+use crate::bitmap::{self, Bitmap};
 use crate::guest_memory::Result;
-use crate::{bitmap, GuestAddress, GuestMemory, MemoryRegionAddress, VolatileSlice};
+use crate::{GuestAddress, GuestMemory, GuestMemoryRegion, MemoryRegionAddress, VolatileSlice};
 
 /// Permissions for accessing virtual memory.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -52,6 +53,11 @@ impl Permissions {
     pub fn allow(&self, access: Self) -> bool {
         *self & access == access
     }
+
+    /// Check whether the permissions `self` include write access.
+    pub fn has_write(&self) -> bool {
+        *self & Permissions::Write == Permissions::Write
+    }
 }
 
 impl std::ops::BitOr for Permissions {
@@ -87,6 +93,8 @@ impl std::ops::BitAnd for Permissions {
 pub trait IoMemory {
     /// Underlying `GuestMemory` type.
     type PhysicalMemory: GuestMemory + ?Sized;
+    /// Dirty bitmap type for tracking writes to the IOVA address space.
+    type Bitmap: Bitmap;
 
     /// Return `true` if `addr..(addr + count)` is accessible with `access`.
     fn range_accessible(&self, addr: GuestAddress, count: usize, access: Permissions) -> bool;
@@ -138,7 +146,7 @@ pub trait IoMemory {
         addr: GuestAddress,
         count: usize,
         access: Permissions,
-    ) -> Result<impl Iterator<Item = Result<VolatileSlice<'a, bitmap::MS<'a, Self::PhysicalMemory>>>>>;
+    ) -> Result<impl Iterator<Item = Result<VolatileSlice<'a, bitmap::BS<'a, Self::Bitmap>>>>>;
 
     /// If this virtual memory is just a plain `GuestMemory` object underneath without an IOMMU
     /// translation layer in between, return that `GuestMemory` object.
@@ -159,6 +167,7 @@ pub trait IoMemory {
 /// the same [`GuestMemory`] methods (if available), discarding the `access` parameter.
 impl<M: GuestMemory + ?Sized> IoMemory for M {
     type PhysicalMemory = M;
+    type Bitmap = <M::R as GuestMemoryRegion>::B;
 
     fn range_accessible(&self, addr: GuestAddress, count: usize, _access: Permissions) -> bool {
         if let Ok(done) = <M as GuestMemory>::try_access(self, count, addr, |_, len, _, _| Ok(len))
@@ -192,8 +201,7 @@ impl<M: GuestMemory + ?Sized> IoMemory for M {
         addr: GuestAddress,
         count: usize,
         _access: Permissions,
-    ) -> Result<impl Iterator<Item = Result<VolatileSlice<'a, bitmap::MS<'a, Self::PhysicalMemory>>>>>
-    {
+    ) -> Result<impl Iterator<Item = Result<VolatileSlice<'a, bitmap::BS<'a, Self::Bitmap>>>>> {
         Ok(<M as GuestMemory>::get_slices(self, addr, count))
     }
 
