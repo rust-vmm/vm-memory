@@ -1469,7 +1469,7 @@ mod tests {
     use crate::bitmap::{AtomicBitmap, RefSlice};
 
     #[cfg(feature = "backend-bitmap")]
-    const DEFAULT_PAGE_SIZE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(0x1000) };
+    const DEFAULT_PAGE_SIZE: NonZeroUsize = NonZeroUsize::new(0x1000).unwrap();
 
     #[test]
     fn test_compute_end_offset() {
