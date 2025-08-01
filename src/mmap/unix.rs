@@ -247,7 +247,7 @@ impl<B: NewBitmap> MmapRegion<B> {
     ///
     /// # Arguments
     /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
-    ///                   referred to by `file_offset.file`.
+    ///   referred to by `file_offset.file`.
     /// * `size` - The size of the memory region in bytes.
     pub fn from_file(file_offset: FileOffset, size: usize) -> Result<Self> {
         MmapRegionBuilder::new_with_bitmap(size, B::with_len(size))
@@ -261,12 +261,12 @@ impl<B: NewBitmap> MmapRegion<B> {
     ///
     /// # Arguments
     /// * `file_offset` - if provided, the method will create a file mapping at offset
-    ///                   `file_offset.start` in the file referred to by `file_offset.file`.
+    ///   `file_offset.start` in the file referred to by `file_offset.file`.
     /// * `size` - The size of the memory region in bytes.
     /// * `prot` - The desired memory protection of the mapping.
     /// * `flags` - This argument determines whether updates to the mapping are visible to other
-    ///             processes mapping the same region, and whether updates are carried through to
-    ///             the underlying file.
+    ///   processes mapping the same region, and whether updates are carried through to
+    ///   the underlying file.
     pub fn build(
         file_offset: Option<FileOffset>,
         size: usize,
@@ -293,7 +293,7 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// * `size` - The size of the memory region in bytes.
     /// * `prot` - Must correspond to the memory protection attributes of the existing mapping.
     /// * `flags` - Must correspond to the flags that were passed to `mmap` for the creation of
-    ///             the existing mapping.
+    ///   the existing mapping.
     ///
     /// # Safety
     ///
@@ -587,9 +587,7 @@ mod tests {
         assert!(r.owned());
 
         let region_size = 0x10_0000;
-        let bitmap = AtomicBitmap::new(region_size, unsafe {
-            std::num::NonZeroUsize::new_unchecked(0x1000)
-        });
+        let bitmap = AtomicBitmap::new(region_size, std::num::NonZeroUsize::new(0x1000).unwrap());
         let builder = MmapRegionBuilder::new_with_bitmap(region_size, bitmap)
             .with_hugetlbfs(true)
             .with_mmap_prot(libc::PROT_READ | libc::PROT_WRITE);

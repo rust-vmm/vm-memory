@@ -184,7 +184,7 @@ impl Bitmap for AtomicBitmap {
 impl Default for AtomicBitmap {
     fn default() -> Self {
         // SAFETY: Safe as `0x1000` is non-zero.
-        AtomicBitmap::new(0, unsafe { NonZeroUsize::new_unchecked(0x1000) })
+        AtomicBitmap::new(0, const { NonZeroUsize::new(0x1000).unwrap() })
     }
 }
 
@@ -221,7 +221,7 @@ mod tests {
     use crate::bitmap::tests::test_bitmap;
 
     #[allow(clippy::undocumented_unsafe_blocks)]
-    const DEFAULT_PAGE_SIZE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(128) };
+    const DEFAULT_PAGE_SIZE: NonZeroUsize = NonZeroUsize::new(128).unwrap();
 
     #[test]
     fn test_bitmap_basic() {

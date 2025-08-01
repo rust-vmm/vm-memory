@@ -219,8 +219,8 @@ impl<R: GuestMemoryRegion> GuestRegionCollection<R> {
     /// # Arguments
     ///
     /// * `regions` - The vector of regions.
-    ///               The regions shouldn't overlap, and they should be sorted
-    ///               by the starting address.
+    ///   The regions shouldn't overlap, and they should be sorted
+    ///   by the starting address.
     pub fn from_regions(
         mut regions: Vec<R>,
     ) -> std::result::Result<Self, GuestRegionCollectionError> {
@@ -237,8 +237,8 @@ impl<R: GuestMemoryRegion> GuestRegionCollection<R> {
     /// # Arguments
     ///
     /// * `regions` - The vector of `Arc` regions.
-    ///               The regions shouldn't overlap and they should be sorted
-    ///               by the starting address.
+    ///   The regions shouldn't overlap and they should be sorted
+    ///   by the starting address.
     pub fn from_arc_regions(
         regions: Vec<Arc<R>>,
     ) -> std::result::Result<Self, GuestRegionCollectionError> {
