@@ -1020,6 +1020,7 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use super::*;
+    use matches::assert_matches;
     use vmm_sys_util::tempfile::TempFile;
 
     // Adding a helper method to extract the errno within an Error::Mmap(e), or return a
@@ -1069,19 +1070,15 @@ mod tests {
         range.mmap_flags = 16;
 
         let r = MmapXen::new(&range);
-        assert!(matches!(r.unwrap_err(), Error::MmapFlags(flags) if flags == range.mmap_flags));
+        assert_matches!(r.unwrap_err(), Error::MmapFlags(flags) if flags == range.mmap_flags);
 
         range.mmap_flags = MmapXenFlags::FOREIGN.bits() | MmapXenFlags::GRANT.bits();
         let r = MmapXen::new(&range);
-        assert!(
-            matches!(r.unwrap_err(), Error::MmapFlags(flags) if flags == MmapXenFlags::ALL.bits())
-        );
+        assert_matches!(r.unwrap_err(), Error::MmapFlags(flags) if flags == MmapXenFlags::ALL.bits());
 
         range.mmap_flags = MmapXenFlags::FOREIGN.bits() | MmapXenFlags::NO_ADVANCE_MAP.bits();
         let r = MmapXen::new(&range);
-        assert!(
-            matches!(r.unwrap_err(), Error::MmapFlags(flags) if flags ==  MmapXenFlags::NO_ADVANCE_MAP.bits() | MmapXenFlags::FOREIGN.bits())
-        );
+        assert_matches!(r.unwrap_err(), Error::MmapFlags(flags) if flags ==  MmapXenFlags::NO_ADVANCE_MAP.bits() | MmapXenFlags::FOREIGN.bits());
     }
 
     #[test]
@@ -1116,17 +1113,17 @@ mod tests {
         range.file_offset = Some(FileOffset::new(TempFile::new().unwrap().into_file(), 0));
         range.prot = None;
         let r = MmapXenForeign::new(&range);
-        assert!(matches!(r.unwrap_err(), Error::UnexpectedError));
+        assert_matches!(r.unwrap_err(), Error::UnexpectedError);
 
         let mut range = MmapRange::initialized(true);
         range.flags = None;
         let r = MmapXenForeign::new(&range);
-        assert!(matches!(r.unwrap_err(), Error::UnexpectedError));
+        assert_matches!(r.unwrap_err(), Error::UnexpectedError);
 
         let mut range = MmapRange::initialized(true);
         range.file_offset = Some(FileOffset::new(TempFile::new().unwrap().into_file(), 1));
         let r = MmapXenForeign::new(&range);
-        assert!(matches!(r.unwrap_err(), Error::InvalidOffsetLength));
+        assert_matches!(r.unwrap_err(), Error::InvalidOffsetLength);
 
         let mut range = MmapRange::initialized(true);
         range.size = 0;
@@ -1148,7 +1145,7 @@ mod tests {
         let mut range = MmapRange::initialized(true);
         range.prot = None;
         let r = MmapXenGrant::new(&range, MmapXenFlags::empty());
-        assert!(matches!(r.unwrap_err(), Error::UnexpectedError));
+        assert_matches!(r.unwrap_err(), Error::UnexpectedError);
 
         let mut range = MmapRange::initialized(true);
         range.prot = None;
@@ -1158,12 +1155,12 @@ mod tests {
         let mut range = MmapRange::initialized(true);
         range.flags = None;
         let r = MmapXenGrant::new(&range, MmapXenFlags::NO_ADVANCE_MAP);
-        assert!(matches!(r.unwrap_err(), Error::UnexpectedError));
+        assert_matches!(r.unwrap_err(), Error::UnexpectedError);
 
         let mut range = MmapRange::initialized(true);
         range.file_offset = Some(FileOffset::new(TempFile::new().unwrap().into_file(), 1));
         let r = MmapXenGrant::new(&range, MmapXenFlags::NO_ADVANCE_MAP);
-        assert!(matches!(r.unwrap_err(), Error::InvalidOffsetLength));
+        assert_matches!(r.unwrap_err(), Error::InvalidOffsetLength);
 
         let mut range = MmapRange::initialized(true);
         range.size = 0;

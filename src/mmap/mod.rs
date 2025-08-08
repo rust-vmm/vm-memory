@@ -230,6 +230,8 @@ mod tests {
     use std::{fs::File, path::Path};
     use vmm_sys_util::tempfile::TempFile;
 
+    use matches::assert_matches;
+
     type GuestRegionMmap = super::GuestRegionMmap<()>;
     type GuestMemoryMmap = super::GuestRegionCollection<GuestRegionMmap>;
     type MmapRegion = super::MmapRegion<()>;
@@ -379,13 +381,13 @@ mod tests {
         for gm in gm_list.iter() {
             let val1: u64 = 0xaa55_aa55_aa55_aa55;
             let val2: u64 = 0x55aa_55aa_55aa_55aa;
-            assert!(matches!(
+            assert_matches!(
                 gm.write_obj(val1, bad_addr).unwrap_err(),
                 GuestMemoryError::InvalidGuestAddress(addr) if addr == bad_addr
-            ));
-            assert!(matches!(
+            );
+            assert_matches!(
                 gm.write_obj(val1, bad_addr2).unwrap_err(),
-                GuestMemoryError::PartialBuffer { expected, completed} if expected == size_of::<u64>() && completed == max_addr.checked_offset_from(bad_addr2).unwrap() as usize));
+                GuestMemoryError::PartialBuffer { expected, completed } if expected == size_of::<u64>() && completed == max_addr.checked_offset_from(bad_addr2).unwrap() as usize);
 
             gm.write_obj(val1, GuestAddress(0x500)).unwrap();
             gm.write_obj(val2, GuestAddress(0x1000 + 32)).unwrap();
