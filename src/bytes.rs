@@ -246,15 +246,16 @@ pub trait Bytes<A> {
     ///
     /// ```rust
     /// # use vm_memory::{Bytes, VolatileMemoryError, VolatileSlice};
+    /// # use matches::assert_matches;
     /// let mut arr = [1, 2, 3, 4, 5];
     /// let slice = VolatileSlice::from(arr.as_mut_slice());
     ///
     /// assert_eq!(slice.write(&[1, 2, 3], 0).unwrap(), 3);
     /// assert_eq!(slice.write(&[1, 2, 3], 3).unwrap(), 2);
-    /// assert!(matches!(
+    /// assert_matches!(
     ///     slice.write(&[1, 2, 3], 5).unwrap_err(),
     ///     VolatileMemoryError::OutOfBounds { addr: 5 }
-    /// ));
+    /// );
     /// assert_eq!(slice.write(&[], 5).unwrap(), 0);
     /// ```
     fn write(&self, buf: &[u8], addr: A) -> Result<usize, Self::E>;

@@ -445,6 +445,8 @@ mod tests {
     #[cfg(feature = "backend-bitmap")]
     use crate::bitmap::AtomicBitmap;
 
+    use matches::assert_matches;
+
     type MmapRegion = super::MmapRegion<()>;
 
     impl Error {
@@ -551,9 +553,7 @@ mod tests {
             prot,
             flags,
         );
-        assert!(
-            matches!(r.unwrap_err(), Error::Mmap(err) if err.raw_os_error() == Some(libc::EINVAL))
-        );
+        assert_matches!(r.unwrap_err(), Error::Mmap(err) if err.raw_os_error() == Some(libc::EINVAL));
 
         // MAP_FIXED was specified among the flags.
         let r = MmapRegion::build(
@@ -562,7 +562,7 @@ mod tests {
             prot,
             flags | libc::MAP_FIXED,
         );
-        assert!(matches!(r.unwrap_err(), Error::MapFixed));
+        assert_matches!(r.unwrap_err(), Error::MapFixed);
 
         // Let's resize the file.
         assert_eq!(unsafe { libc::ftruncate(a.as_raw_fd(), 1024 * 10) }, 0);
@@ -607,7 +607,7 @@ mod tests {
         let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
 
         let r = unsafe { MmapRegion::build_raw((addr + 1) as *mut u8, size, prot, flags) };
-        assert!(matches!(r.unwrap_err(), Error::InvalidPointer));
+        assert_matches!(r.unwrap_err(), Error::InvalidPointer);
 
         let r = unsafe { MmapRegion::build_raw(addr as *mut u8, size, prot, flags).unwrap() };
 
