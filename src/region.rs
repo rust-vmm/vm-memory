@@ -478,6 +478,7 @@ pub(crate) mod tests {
     use crate::{
         Address, GuestAddress, GuestMemory, GuestMemoryRegion, GuestRegionCollection, GuestUsize,
     };
+    use matches::assert_matches;
     use std::sync::Arc;
 
     #[derive(Debug, PartialEq, Eq)]
@@ -556,42 +557,42 @@ pub(crate) mod tests {
     fn test_no_memory_region() {
         let regions_summary = [];
 
-        assert!(matches!(
+        assert_matches!(
             new_guest_memory_collection_from_regions(&regions_summary).unwrap_err(),
             GuestRegionCollectionError::NoMemoryRegion
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             new_guest_memory_collection_from_arc_regions(&regions_summary).unwrap_err(),
             GuestRegionCollectionError::NoMemoryRegion
-        ));
+        );
     }
 
     #[test]
     fn test_overlapping_memory_regions() {
         let regions_summary = [(GuestAddress(0), 100), (GuestAddress(99), 100)];
 
-        assert!(matches!(
+        assert_matches!(
             new_guest_memory_collection_from_regions(&regions_summary).unwrap_err(),
             GuestRegionCollectionError::MemoryRegionOverlap
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             new_guest_memory_collection_from_arc_regions(&regions_summary).unwrap_err(),
             GuestRegionCollectionError::MemoryRegionOverlap
-        ));
+        );
     }
 
     #[test]
     fn test_unsorted_memory_regions() {
         let regions_summary = [(GuestAddress(100), 100), (GuestAddress(0), 100)];
 
-        assert!(matches!(
+        assert_matches!(
             new_guest_memory_collection_from_regions(&regions_summary).unwrap_err(),
             GuestRegionCollectionError::UnsortedMemoryRegions
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             new_guest_memory_collection_from_arc_regions(&regions_summary).unwrap_err(),
             GuestRegionCollectionError::UnsortedMemoryRegions
-        ));
+        );
     }
 
     #[test]
