@@ -219,7 +219,7 @@ impl FileOffset {
 /// # }
 /// # }
 /// ```
-pub trait GuestAddressSpace {
+pub trait GuestAddressSpace: Clone {
     /// The type that will be used to access guest memory.
     type M: GuestMemory;
 
