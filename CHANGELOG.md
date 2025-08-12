@@ -8,6 +8,7 @@
 - \[[#312](https://github.com/rust-vmm/vm-memory/pull/312)\] `GuestRegionContainer`, a generic container of `GuestMemoryRegion`s, generalizing `GuestMemoryMmap` (which 
   is now a type alias for `GuestRegionContainer<GuestRegionMmap>`).
 - \[[#338](https://github.com/rust-vmm/vm-memory/pull/338)\] Make `GuestMemoryAtomic` always implement `Clone`.
+- \[[#338](https://github.com/rust-vmm/vm-memory/pull/338)\] Make `GuestAddressSpace` a subtrait of `Clone`.
 
 ### Changed
 
