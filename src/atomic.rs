@@ -24,7 +24,7 @@ use crate::{GuestAddressSpace, GuestMemory};
 /// readers will not be blocked because the copies they retrieved will be collected once
 /// no one can access them anymore.  Under the assumption that updates to the memory map
 /// are rare, this allows a very efficient implementation of the `memory()` method.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct GuestMemoryAtomic<M: GuestMemory> {
     // GuestAddressSpace<M>, which we want to implement, is basically a drop-in
     // replacement for &M.  Therefore, we need to pass to devices the `GuestMemoryAtomic`
@@ -71,6 +71,14 @@ impl<M: GuestMemory> GuestMemoryAtomic<M> {
                 parent: self,
                 _guard: err.into_inner(),
             })),
+        }
+    }
+}
+
+impl<M: GuestMemory> Clone for GuestMemoryAtomic<M> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
         }
     }
 }
@@ -196,6 +204,15 @@ mod tests {
         assert_eq!(mem3.num_regions(), 2);
         assert!(mem3.find_region(GuestAddress(0x1000)).is_some());
         assert!(mem3.find_region(GuestAddress(0x10000)).is_none());
+
+        let gm2 = gm.clone();
+        let mem4 = gm2.memory();
+        for region in mem4.iter() {
+            assert_eq!(region.len(), region_size as GuestUsize);
+        }
+        assert_eq!(mem4.num_regions(), 2);
+        assert!(mem4.find_region(GuestAddress(0x1000)).is_some());
+        assert!(mem4.find_region(GuestAddress(0x10000)).is_none());
     }
 
     #[test]
