@@ -2,7 +2,7 @@
 // Copyright (C) 2020 Red Hat, Inc. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! A wrapper over an `ArcSwap<GuestMemory>` struct to support RCU-style mutability.
+//! A wrapper over an `ArcSwap<IoMemory>` struct to support RCU-style mutability.
 //!
 //! With the `backend-atomic` feature enabled, simply replacing `GuestMemoryMmap`
 //! with `GuestMemoryAtomic<GuestMemoryMmap>` will enable support for mutable memory maps.
@@ -15,17 +15,17 @@ use arc_swap::{ArcSwap, Guard};
 use std::ops::Deref;
 use std::sync::{Arc, LockResult, Mutex, MutexGuard, PoisonError};
 
-use crate::{GuestAddressSpace, GuestMemory};
+use crate::{GuestAddressSpace, IoMemory};
 
 /// A fast implementation of a mutable collection of memory regions.
 ///
 /// This implementation uses `ArcSwap` to provide RCU-like snapshotting of the memory map:
-/// every update of the memory map creates a completely new `GuestMemory` object, and
+/// every update of the memory map creates a completely new `IoMemory` object, and
 /// readers will not be blocked because the copies they retrieved will be collected once
 /// no one can access them anymore.  Under the assumption that updates to the memory map
 /// are rare, this allows a very efficient implementation of the `memory()` method.
 #[derive(Debug)]
-pub struct GuestMemoryAtomic<M: GuestMemory> {
+pub struct GuestMemoryAtomic<M: IoMemory> {
     // GuestAddressSpace<M>, which we want to implement, is basically a drop-in
     // replacement for &M.  Therefore, we need to pass to devices the `GuestMemoryAtomic`
     // rather than a reference to it.  To obtain this effect we wrap the actual fields
@@ -34,9 +34,9 @@ pub struct GuestMemoryAtomic<M: GuestMemory> {
     inner: Arc<(ArcSwap<M>, Mutex<()>)>,
 }
 
-impl<M: GuestMemory> From<Arc<M>> for GuestMemoryAtomic<M> {
+impl<M: IoMemory> From<Arc<M>> for GuestMemoryAtomic<M> {
     /// create a new `GuestMemoryAtomic` object whose initial contents come from
-    /// the `map` reference counted `GuestMemory`.
+    /// the `map` reference counted `IoMemory`.
     fn from(map: Arc<M>) -> Self {
         let inner = (ArcSwap::new(map), Mutex::new(()));
         GuestMemoryAtomic {
@@ -45,9 +45,9 @@ impl<M: GuestMemory> From<Arc<M>> for GuestMemoryAtomic<M> {
     }
 }
 
-impl<M: GuestMemory> GuestMemoryAtomic<M> {
+impl<M: IoMemory> GuestMemoryAtomic<M> {
     /// create a new `GuestMemoryAtomic` object whose initial contents come from
-    /// the `map` `GuestMemory`.
+    /// the `map` `IoMemory`.
     pub fn new(map: M) -> Self {
         Arc::new(map).into()
     }
@@ -75,7 +75,7 @@ impl<M: GuestMemory> GuestMemoryAtomic<M> {
     }
 }
 
-impl<M: GuestMemory> Clone for GuestMemoryAtomic<M> {
+impl<M: IoMemory> Clone for GuestMemoryAtomic<M> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -83,7 +83,7 @@ impl<M: GuestMemory> Clone for GuestMemoryAtomic<M> {
     }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for GuestMemoryAtomic<M> {
+impl<M: IoMemory> GuestAddressSpace for GuestMemoryAtomic<M> {
     type T = GuestMemoryLoadGuard<M>;
     type M = M;
 
@@ -94,14 +94,14 @@ impl<M: GuestMemory> GuestAddressSpace for GuestMemoryAtomic<M> {
 
 /// A guard that provides temporary access to a `GuestMemoryAtomic`.  This
 /// object is returned from the `memory()` method.  It dereference to
-/// a snapshot of the `GuestMemory`, so it can be used transparently to
+/// a snapshot of the `IoMemory`, so it can be used transparently to
 /// access memory.
 #[derive(Debug)]
-pub struct GuestMemoryLoadGuard<M: GuestMemory> {
+pub struct GuestMemoryLoadGuard<M: IoMemory> {
     guard: Guard<Arc<M>>,
 }
 
-impl<M: GuestMemory> GuestMemoryLoadGuard<M> {
+impl<M: IoMemory> GuestMemoryLoadGuard<M> {
     /// Make a clone of the held pointer and returns it.  This is more
     /// expensive than just using the snapshot, but it allows to hold on
     /// to the snapshot outside the scope of the guard.  It also allows
@@ -112,7 +112,7 @@ impl<M: GuestMemory> GuestMemoryLoadGuard<M> {
     }
 }
 
-impl<M: GuestMemory> Clone for GuestMemoryLoadGuard<M> {
+impl<M: IoMemory> Clone for GuestMemoryLoadGuard<M> {
     fn clone(&self) -> Self {
         GuestMemoryLoadGuard {
             guard: Guard::from_inner(Arc::clone(&*self.guard)),
@@ -120,7 +120,7 @@ impl<M: GuestMemory> Clone for GuestMemoryLoadGuard<M> {
     }
 }
 
-impl<M: GuestMemory> Deref for GuestMemoryLoadGuard<M> {
+impl<M: IoMemory> Deref for GuestMemoryLoadGuard<M> {
     type Target = M;
 
     fn deref(&self) -> &Self::Target {
@@ -133,12 +133,12 @@ impl<M: GuestMemory> Deref for GuestMemoryLoadGuard<M> {
 /// possibly after updating the memory map represented by the
 /// `GuestMemoryAtomic` that created the guard.
 #[derive(Debug)]
-pub struct GuestMemoryExclusiveGuard<'a, M: GuestMemory> {
+pub struct GuestMemoryExclusiveGuard<'a, M: IoMemory> {
     parent: &'a GuestMemoryAtomic<M>,
     _guard: MutexGuard<'a, ()>,
 }
 
-impl<M: GuestMemory> GuestMemoryExclusiveGuard<'_, M> {
+impl<M: IoMemory> GuestMemoryExclusiveGuard<'_, M> {
     /// Replace the memory map in the `GuestMemoryAtomic` that created the guard
     /// with the new memory map, `map`.  The lock is then dropped since this
     /// method consumes the guard.
