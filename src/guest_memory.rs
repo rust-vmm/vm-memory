@@ -222,7 +222,7 @@ impl FileOffset {
 /// ```
 pub trait GuestAddressSpace: Clone {
     /// The type that will be used to access guest memory.
-    type M: GuestMemory;
+    type M: IoMemory;
 
     /// A type that provides access to the memory.
     type T: Clone + Deref<Target = Self::M>;
@@ -233,7 +233,7 @@ pub trait GuestAddressSpace: Clone {
     fn memory(&self) -> Self::T;
 }
 
-impl<M: GuestMemory> GuestAddressSpace for &M {
+impl<M: IoMemory> GuestAddressSpace for &M {
     type M = M;
     type T = Self;
 
@@ -242,7 +242,7 @@ impl<M: GuestMemory> GuestAddressSpace for &M {
     }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
+impl<M: IoMemory> GuestAddressSpace for Rc<M> {
     type M = M;
     type T = Self;
 
@@ -251,7 +251,7 @@ impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
     }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for Arc<M> {
+impl<M: IoMemory> GuestAddressSpace for Arc<M> {
     type M = M;
     type T = Self;
 
