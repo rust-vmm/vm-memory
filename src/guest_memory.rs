@@ -44,6 +44,7 @@
 use std::convert::From;
 use std::fs::File;
 use std::io;
+use std::mem::size_of;
 use std::ops::{BitAnd, BitOr, Deref};
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
@@ -53,8 +54,10 @@ use crate::address::{Address, AddressValue};
 use crate::bitmap::MS;
 use crate::bytes::{AtomicAccess, Bytes};
 use crate::io::{ReadVolatile, WriteVolatile};
+#[cfg(feature = "iommu")]
+use crate::iommu::Error as IommuError;
 use crate::volatile_memory::{self, VolatileSlice};
-use crate::GuestMemoryRegion;
+use crate::{GuestMemoryRegion, IoMemory, Permissions};
 
 /// Errors associated with handling guest memory accesses.
 #[allow(missing_docs)]
@@ -83,6 +86,10 @@ pub enum Error {
     /// The address to be read by `try_access` is outside the address range.
     #[error("The address to be read by `try_access` is outside the address range")]
     GuestAddressOverflow,
+    #[cfg(feature = "iommu")]
+    /// IOMMU translation error
+    #[error("IOMMU failed to translate guest address: {0}")]
+    IommuError(IommuError),
 }
 
 impl From<volatile_memory::Error> for Error {
@@ -221,7 +228,7 @@ impl FileOffset {
 /// ```
 pub trait GuestAddressSpace: Clone {
     /// The type that will be used to access guest memory.
-    type M: GuestMemory;
+    type M: IoMemory;
 
     /// A type that provides access to the memory.
     type T: Clone + Deref<Target = Self::M>;
@@ -232,7 +239,7 @@ pub trait GuestAddressSpace: Clone {
     fn memory(&self) -> Self::T;
 }
 
-impl<M: GuestMemory> GuestAddressSpace for &M {
+impl<M: IoMemory> GuestAddressSpace for &M {
     type M = M;
     type T = Self;
 
@@ -241,7 +248,7 @@ impl<M: GuestMemory> GuestAddressSpace for &M {
     }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
+impl<M: IoMemory> GuestAddressSpace for Rc<M> {
     type M = M;
     type T = Self;
 
@@ -250,7 +257,7 @@ impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
     }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for Arc<M> {
+impl<M: IoMemory> GuestAddressSpace for Arc<M> {
     type M = M;
     type T = Self;
 
@@ -455,17 +462,110 @@ pub trait GuestMemory {
             .ok_or(Error::InvalidGuestAddress(addr))
             .and_then(|(r, addr)| r.get_slice(addr, count))
     }
+
+    /// Returns an iterator over [`VolatileSlice`](struct.VolatileSlice.html)s, together covering
+    /// `count` bytes starting at `addr`.
+    ///
+    /// Iterating in this way is necessary because the given address range may be fragmented across
+    /// multiple [`GuestMemoryRegion`]s.
+    ///
+    /// The iterator’s items are wrapped in [`Result`], i.e. errors are reported on individual
+    /// items.  If there is no such error, the cumulative length of all items will be equal to
+    /// `count`.  If `count` is 0, an empty iterator will be returned.
+    fn get_slices<'a>(
+        &'a self,
+        addr: GuestAddress,
+        count: usize,
+    ) -> GuestMemorySliceIterator<'a, Self> {
+        GuestMemorySliceIterator {
+            mem: self,
+            addr,
+            count,
+        }
+    }
 }
 
-impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
+/// Iterates over [`VolatileSlice`]s that together form a guest memory area.
+///
+/// Returned by [`GuestMemory::get_slices()`].
+#[derive(Debug)]
+pub struct GuestMemorySliceIterator<'a, M: GuestMemory + ?Sized> {
+    /// Underlying memory
+    mem: &'a M,
+    /// Next address in the guest memory area
+    addr: GuestAddress,
+    /// Remaining bytes in the guest memory area
+    count: usize,
+}
+
+impl<'a, M: GuestMemory + ?Sized> GuestMemorySliceIterator<'a, M> {
+    /// Helper function for [`<Self as Iterator>::next()`].
+    ///
+    /// Get the next slice (i.e. the one starting from `self.addr` with a length up to
+    /// `self.count`) and update the internal state.
+    ///
+    /// # Safety
+    ///
+    /// This function does not reset to `self.count` to 0 in case of error, i.e. will not stop
+    /// iterating.  Actual behavior after an error is ill-defined, so the caller must check the
+    /// return value, and in case of an error, reset `self.count` to 0.
+    ///
+    /// (This is why this function exists, so this resetting can be done in a single central
+    /// location.)
+    unsafe fn do_next(&mut self) -> Option<Result<VolatileSlice<'a, MS<'a, M>>>> {
+        if self.count == 0 {
+            return None;
+        }
+
+        let Some((region, start)) = self.mem.to_region_addr(self.addr) else {
+            return Some(Err(Error::InvalidGuestAddress(self.addr)));
+        };
+
+        let cap = region.len() - start.raw_value();
+        let len = std::cmp::min(cap, self.count as GuestUsize);
+
+        self.count -= len as usize;
+        self.addr = match self.addr.overflowing_add(len as GuestUsize) {
+            (x @ GuestAddress(0), _) | (x, false) => x,
+            (_, true) => return Some(Err(Error::GuestAddressOverflow)),
+        };
+
+        Some(region.get_slice(start, len as usize))
+    }
+}
+
+impl<'a, M: GuestMemory + ?Sized> Iterator for GuestMemorySliceIterator<'a, M> {
+    type Item = Result<VolatileSlice<'a, MS<'a, M>>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // SAFETY:
+        // We reset `self.count` to 0 on error
+        match unsafe { self.do_next() } {
+            Some(Ok(slice)) => Some(Ok(slice)),
+            other => {
+                // On error (or end), reset to 0 so iteration remains stopped
+                self.count = 0;
+                other
+            }
+        }
+    }
+}
+
+/// Allow accessing [`IoMemory`] (and [`GuestMemory`]) objects via [`Bytes`].
+///
+/// Thanks to the [blanket implementation of `IoMemory` for all `GuestMemory`
+/// types](../io_memory/trait.IoMemory.html#impl-IoMemory-for-M), this blanket implementation
+/// extends to all [`GuestMemory`] types.
+impl<T: IoMemory + ?Sized> Bytes<GuestAddress> for T {
     type E = Error;
 
     fn write(&self, buf: &[u8], addr: GuestAddress) -> Result<usize> {
         self.try_access(
             buf.len(),
             addr,
-            |offset, _count, caddr, region| -> Result<usize> {
-                region.write(&buf[offset..], caddr)
+            Permissions::Write,
+            |offset, count, caddr, region| -> Result<usize> {
+                region.write(&buf[offset..(offset + count)], caddr)
             },
         )
     }
@@ -474,8 +574,9 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
         self.try_access(
             buf.len(),
             addr,
-            |offset, _count, caddr, region| -> Result<usize> {
-                region.read(&mut buf[offset..], caddr)
+            Permissions::Read,
+            |offset, count, caddr, region| -> Result<usize> {
+                region.read(&mut buf[offset..(offset + count)], caddr)
             },
         )
     }
@@ -541,9 +642,12 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: ReadVolatile,
     {
-        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
-            region.read_volatile_from(caddr, src, len)
-        })
+        self.try_access(
+            count,
+            addr,
+            Permissions::Write,
+            |_, len, caddr, region| -> Result<usize> { region.read_volatile_from(caddr, src, len) },
+        )
     }
 
     fn read_exact_volatile_from<F>(
@@ -569,11 +673,16 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: WriteVolatile,
     {
-        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
-            // For a non-RAM region, reading could have side effects, so we
-            // must use write_all().
-            region.write_all_volatile_to(caddr, dst, len).map(|()| len)
-        })
+        self.try_access(
+            count,
+            addr,
+            Permissions::Read,
+            |_, len, caddr, region| -> Result<usize> {
+                // For a non-RAM region, reading could have side effects, so we
+                // must use write_all().
+                region.write_all_volatile_to(caddr, dst, len).map(|()| len)
+            },
+        )
     }
 
     fn write_all_volatile_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<()>
@@ -591,17 +700,64 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     }
 
     fn store<O: AtomicAccess>(&self, val: O, addr: GuestAddress, order: Ordering) -> Result<()> {
-        // `find_region` should really do what `to_region_addr` is doing right now, except
-        // it should keep returning a `Result`.
-        self.to_region_addr(addr)
-            .ok_or(Error::InvalidGuestAddress(addr))
-            .and_then(|(region, region_addr)| region.store(val, region_addr, order))
+        let expected = size_of::<O>();
+
+        let completed = self.try_access(
+            expected,
+            addr,
+            Permissions::Write,
+            |offset, len, region_addr, region| -> Result<usize> {
+                assert_eq!(offset, 0);
+                if len < expected {
+                    return Err(Error::PartialBuffer {
+                        expected,
+                        completed: 0,
+                    });
+                }
+                region.store(val, region_addr, order).map(|()| expected)
+            },
+        )?;
+
+        if completed < expected {
+            Err(Error::PartialBuffer {
+                expected,
+                completed,
+            })
+        } else {
+            Ok(())
+        }
     }
 
     fn load<O: AtomicAccess>(&self, addr: GuestAddress, order: Ordering) -> Result<O> {
-        self.to_region_addr(addr)
-            .ok_or(Error::InvalidGuestAddress(addr))
-            .and_then(|(region, region_addr)| region.load(region_addr, order))
+        let expected = size_of::<O>();
+        let mut result = None::<O>;
+
+        let completed = self.try_access(
+            expected,
+            addr,
+            Permissions::Read,
+            |offset, len, region_addr, region| -> Result<usize> {
+                assert_eq!(offset, 0);
+                if len < expected {
+                    return Err(Error::PartialBuffer {
+                        expected,
+                        completed: 0,
+                    });
+                }
+                result = Some(region.load(region_addr, order)?);
+                Ok(expected)
+            },
+        )?;
+
+        if completed < expected {
+            Err(Error::PartialBuffer {
+                expected,
+                completed,
+            })
+        } else {
+            // Must be set because `completed == expected`
+            Ok(result.unwrap())
+        }
     }
 }
 

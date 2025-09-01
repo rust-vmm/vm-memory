@@ -58,6 +58,14 @@ pub use region::{
 pub mod io;
 pub use io::{ReadVolatile, WriteVolatile};
 
+pub mod io_memory;
+pub use io_memory::{IoMemory, Permissions};
+
+#[cfg(feature = "iommu")]
+pub mod iommu;
+#[cfg(feature = "iommu")]
+pub use iommu::{Iommu, IommuMemory, Iotlb};
+
 #[cfg(feature = "backend-mmap")]
 pub mod mmap;
 

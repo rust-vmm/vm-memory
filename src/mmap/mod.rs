@@ -15,6 +15,7 @@
 use std::borrow::Borrow;
 use std::ops::Deref;
 use std::result;
+use std::sync::Arc;
 
 use crate::address::Address;
 use crate::bitmap::{Bitmap, BS};
@@ -54,7 +55,7 @@ pub use windows::MmapRegion;
 /// in the virtual address space of the calling process.
 #[derive(Debug)]
 pub struct GuestRegionMmap<B = ()> {
-    mapping: MmapRegion<B>,
+    mapping: Arc<MmapRegion<B>>,
     guest_base: GuestAddress,
 }
 
@@ -62,7 +63,7 @@ impl<B> Deref for GuestRegionMmap<B> {
     type Target = MmapRegion<B>;
 
     fn deref(&self) -> &MmapRegion<B> {
-        &self.mapping
+        self.mapping.as_ref()
     }
 }
 
@@ -71,6 +72,11 @@ impl<B: Bitmap> GuestRegionMmap<B> {
     ///
     /// Returns `None` if `guest_base` + `mapping.len()` would overflow.
     pub fn new(mapping: MmapRegion<B>, guest_base: GuestAddress) -> Option<Self> {
+        Self::with_arc(Arc::new(mapping), guest_base)
+    }
+
+    /// Same as [`Self::new()`], but takes an `Arc`-wrapped `mapping`.
+    pub fn with_arc(mapping: Arc<MmapRegion<B>>, guest_base: GuestAddress) -> Option<Self> {
         guest_base
             .0
             .checked_add(mapping.size() as u64)
@@ -78,6 +84,16 @@ impl<B: Bitmap> GuestRegionMmap<B> {
                 mapping,
                 guest_base,
             })
+    }
+
+    /// Return a reference to the inner `Arc<MmapRegion>` (as opposed to
+    /// [`.deref()`](Self::deref()), which does not reference the `Arc`).
+    ///
+    /// The returned reference can be cloned to construct a new `GuestRegionMmap` with a different
+    /// base address (e.g. when switching between memory address spaces based on the guest physical
+    /// address vs. the VMM userspace virtual address).
+    pub fn get_mapping(&self) -> &Arc<MmapRegion<B>> {
+        &self.mapping
     }
 }
 
@@ -625,6 +641,56 @@ mod tests {
     }
 
     #[test]
+    fn test_guest_memory_get_slices() {
+        let start_addr1 = GuestAddress(0);
+        let start_addr2 = GuestAddress(0x800);
+        let start_addr3 = GuestAddress(0xc00);
+        let guest_mem = GuestMemoryMmap::from_ranges(&[
+            (start_addr1, 0x400),
+            (start_addr2, 0x400),
+            (start_addr3, 0x400),
+        ])
+        .unwrap();
+
+        // Same cases as `test_guest_memory_get_slice()`, just with `get_slices()`.
+        let slice_size = 0x200;
+        let mut slices = guest_mem.get_slices(GuestAddress(0x100), slice_size);
+        let slice = slices.next().unwrap().unwrap();
+        assert!(slices.next().is_none());
+        assert_eq!(slice.len(), slice_size);
+
+        let slice_size = 0x400;
+        let mut slices = guest_mem.get_slices(GuestAddress(0x800), slice_size);
+        let slice = slices.next().unwrap().unwrap();
+        assert!(slices.next().is_none());
+        assert_eq!(slice.len(), slice_size);
+
+        // Empty iterator.
+        assert!(guest_mem
+            .get_slices(GuestAddress(0x900), 0)
+            .next()
+            .is_none());
+
+        // Error cases, wrong size or base address.
+        let mut slices = guest_mem.get_slices(GuestAddress(0), 0x500);
+        assert_eq!(slices.next().unwrap().unwrap().len(), 0x400);
+        assert!(slices.next().unwrap().is_err());
+        assert!(slices.next().is_none());
+        let mut slices = guest_mem.get_slices(GuestAddress(0x600), 0x100);
+        assert!(slices.next().unwrap().is_err());
+        assert!(slices.next().is_none());
+        let mut slices = guest_mem.get_slices(GuestAddress(0x1000), 0x100);
+        assert!(slices.next().unwrap().is_err());
+        assert!(slices.next().is_none());
+
+        // Test fragmented case
+        let mut slices = guest_mem.get_slices(GuestAddress(0xa00), 0x400);
+        assert_eq!(slices.next().unwrap().unwrap().len(), 0x200);
+        assert_eq!(slices.next().unwrap().unwrap().len(), 0x200);
+        assert!(slices.next().is_none());
+    }
+
+    #[test]
     fn test_atomic_accesses() {
         let region = GuestRegionMmap::from_range(GuestAddress(0), 0x1000, None).unwrap();
 
@@ -642,5 +708,30 @@ mod tests {
             crate::GuestMemoryMmap::<AtomicBitmap>::from_ranges(&[(GuestAddress(0), 0x1_0000)])
                 .unwrap()
         });
+    }
+
+    #[test]
+    fn test_change_region_addr() {
+        let addr1 = GuestAddress(0x1000);
+        let addr2 = GuestAddress(0x2000);
+        let gm = GuestMemoryMmap::from_ranges(&[(addr1, 0x1000)]).unwrap();
+
+        assert!(gm.find_region(addr1).is_some());
+        assert!(gm.find_region(addr2).is_none());
+
+        let (gm, region) = gm.remove_region(addr1, 0x1000).unwrap();
+
+        assert!(gm.find_region(addr1).is_none());
+        assert!(gm.find_region(addr2).is_none());
+
+        // Note that the `region` returned by `remove_region` is an `Arc<_>`, so users generally
+        // cannot mutate it (change its base address).  In this test, we can (we could unwrap the
+        // `Arc<_>`), but our users generally cannot, hence why this interface exists.
+        let region = GuestRegionMmap::with_arc(Arc::clone(region.get_mapping()), addr2).unwrap();
+
+        let gm = gm.insert_region(Arc::new(region)).unwrap();
+
+        assert!(gm.find_region(addr1).is_none());
+        assert!(gm.find_region(addr2).is_some());
     }
 }
