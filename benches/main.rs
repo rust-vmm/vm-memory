@@ -4,7 +4,7 @@
 
 extern crate criterion;
 
-pub use criterion::{black_box, criterion_group, criterion_main, Criterion};
+pub use criterion::{criterion_group, criterion_main, Criterion};
 #[cfg(feature = "backend-mmap")]
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
