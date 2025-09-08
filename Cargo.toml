@@ -13,23 +13,16 @@ autobenches = false
 
 [features]
 default = ["rawfd"]
-backend-bitmap = ["dep:libc", "dep:winapi"]
-backend-mmap = ["dep:libc", "dep:winapi"]
-backend-atomic = ["arc-swap"]
-rawfd = ["dep:libc"]
-xen = ["backend-mmap", "bitflags", "vmm-sys-util"]
+backend-bitmap = ["vm-memory-new/backend-bitmap"]
+backend-mmap = ["vm-memory-new/backend-mmap"]
+backend-atomic = ["vm-memory-new/backend-atomic"]
+rawfd = ["vm-memory-new/rawfd"]
+xen = ["vm-memory-new/xen"]
 
-[dependencies]
-libc = { version = "0.2.39", optional = true }
-arc-swap = { version = "1.0.0", optional = true }
-bitflags = { version = "2.4.0", optional = true }
-thiserror = "2.0.16"
-vmm-sys-util = { version = ">=0.12.1, <=0.15.0", optional = true }
-
-[target.'cfg(target_family = "windows")'.dependencies.winapi]
-version = "0.3"
-features = ["errhandlingapi", "sysinfoapi"]
-optional = true
+[dependencies.vm-memory-new]
+package = "vm-memory"
+version = "0.18.0"
+default-features = false
 
 [dev-dependencies]
 criterion = "0.7.0"
@@ -39,10 +32,6 @@ vmm-sys-util = "0.15.0"
 [[bench]]
 name = "main"
 harness = false
-
-[profile.bench]
-lto = true
-codegen-units = 1
 
 [package.metadata.docs.rs]
 all-features = true
