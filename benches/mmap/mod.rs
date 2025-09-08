@@ -11,7 +11,8 @@ use std::fs::{File, OpenOptions};
 use std::mem::size_of;
 use std::path::Path;
 
-use criterion::{black_box, Criterion};
+use core::hint::black_box;
+use criterion::Criterion;
 
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory};
 

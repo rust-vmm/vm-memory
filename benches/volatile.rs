@@ -2,7 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-pub use criterion::{black_box, Criterion};
+use core::hint::black_box;
+pub use criterion::Criterion;
 use vm_memory::volatile_memory::VolatileMemory;
 use vm_memory::VolatileSlice;
 
