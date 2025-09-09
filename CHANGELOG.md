@@ -9,6 +9,7 @@
   is now a type alias for `GuestRegionContainer<GuestRegionMmap>`).
 - \[[#338](https://github.com/rust-vmm/vm-memory/pull/338)\] Make `GuestMemoryAtomic` always implement `Clone`.
 - \[[#338](https://github.com/rust-vmm/vm-memory/pull/338)\] Make `GuestAddressSpace` a subtrait of `Clone`.
+- \[[#339](https://github.com/rust-vmm/vm-memory/pull/339)\] Add `GuestMemory::get_slices()`
 
 ### Changed
 
@@ -22,6 +23,8 @@
   and `GuestRegionMmap::from_range` to be separate from the error type returned by `GuestRegionCollection` functions.
   Change return type of `GuestRegionMmap::new` from `Result` to `Option`.
 - \[#324](https:////github.com/rust-vmm/vm-memory/pull/324)\] `GuestMemoryRegion::bitmap()` now returns a `BitmapSlice`. Accessing the full bitmap is now possible only if the type of the memory region is know, for example with `MmapRegion::bitmap()`.
+- \[[#339](https://github.com/rust-vmm/vm-memory/pull/339)\] Fix `Bytes::read()` and `Bytes::write()` not to ignore `try_access()`'s `count` parameter
+- \[[#339](https://github.com/rust-vmm/vm-memory/pull/339)\] Implement `Bytes::load()` and `Bytes::store()` with `try_access()` instead of `to_region_addr()`
 
 ### Removed
 
