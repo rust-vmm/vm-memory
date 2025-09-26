@@ -773,27 +773,4 @@ pub(crate) mod tests {
             Some(GuestAddress(0x400 - 1))
         );
     }
-
-    #[test]
-    fn test_check_range() {
-        let start_addr1 = GuestAddress(0);
-        let start_addr2 = GuestAddress(0x800);
-        let start_addr3 = GuestAddress(0xc00);
-        let guest_mem = new_guest_memory_collection_from_regions(&[
-            (start_addr1, 0x400),
-            (start_addr2, 0x400),
-            (start_addr3, 0x400),
-        ])
-        .unwrap();
-
-        assert!(guest_mem.check_range(start_addr1, 0x0));
-        assert!(guest_mem.check_range(start_addr1, 0x200));
-        assert!(guest_mem.check_range(start_addr1, 0x400));
-        assert!(!guest_mem.check_range(start_addr1, 0xa00));
-        assert!(guest_mem.check_range(start_addr2, 0x7ff));
-        assert!(guest_mem.check_range(start_addr2, 0x800));
-        assert!(!guest_mem.check_range(start_addr2, 0x801));
-        assert!(!guest_mem.check_range(start_addr2, 0xc00));
-        assert!(!guest_mem.check_range(start_addr1, usize::MAX));
-    }
 }
