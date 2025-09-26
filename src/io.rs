@@ -474,7 +474,7 @@ mod tests {
     }
 
     // ---- Test ReadVolatile for File ----
-    #[cfg(feature = "rawfd")]
+    #[cfg(all(feature = "rawfd", not(miri)))]
     fn read_4_bytes_from_file(source: Vec<u8>, expected_output: [u8; 5]) {
         let mut temp_file = TempFile::new().unwrap().into_file();
         temp_file.write_all(source.as_ref()).unwrap();
@@ -518,7 +518,7 @@ mod tests {
 
         for (input, output) in test_cases {
             read_4_bytes_to_5_byte_memory(input.clone(), output);
-            #[cfg(feature = "rawfd")]
+            #[cfg(all(feature = "rawfd", not(miri)))]
             read_4_bytes_from_file(input, output);
         }
     }
@@ -559,7 +559,7 @@ mod tests {
     }
 
     // ---- Test ẂriteVolatile for File works ----
-    #[cfg(feature = "rawfd")]
+    #[cfg(all(feature = "rawfd", not(miri)))]
     fn write_5_bytes_to_file(mut source: Vec<u8>) {
         // Test write_volatile for File works
         let mut temp_file = TempFile::new().unwrap().into_file();
@@ -603,7 +603,7 @@ mod tests {
 
         for (input, output) in test_cases {
             write_4_bytes_to_5_byte_vec(input.clone(), output);
-            #[cfg(feature = "rawfd")]
+            #[cfg(all(feature = "rawfd", not(miri)))]
             write_5_bytes_to_file(input);
         }
     }
