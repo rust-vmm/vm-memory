@@ -4,6 +4,13 @@
       "test_name": "miri",
       "command": "RUST_BACKTRACE=1 MIRIFLAGS='-Zmiri-disable-isolation -Zmiri-backtrace=full' cargo +nightly miri test --features backend-mmap,backend-bitmap",
       "platform": ["x86_64", "aarch64"]
+    },
+    {
+      "test_name": "check-windows-build",
+      "command": "printf '\ndenylist=[\"rawfd\", \"xen\"]' >> Cargo.toml; RUSTFLAGS=\"-D warnings\" cargo all-features check --all-targets --target x86_64-pc-windows-gnu",
+      "platform": [
+        "x86_64"
+      ]
     }
   ]
 }
