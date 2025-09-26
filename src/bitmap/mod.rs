@@ -288,16 +288,10 @@ pub(crate) mod tests {
 
         // Finally, let's invoke the generic tests for `Bytes`.
         let check_range_closure = |m: &M, start: usize, len: usize, clean: bool| -> bool {
-            let mut check_result = true;
-            m.try_access(len, GuestAddress(start as u64), |_, size, reg_addr, reg| {
-                if !check_range(&reg.bitmap(), reg_addr.0 as usize, size, clean) {
-                    check_result = false;
-                }
-                Ok(size)
+            m.get_slices(GuestAddress(start as u64), len).all(|r| {
+                let slice = r.unwrap();
+                check_range(slice.bitmap(), 0, slice.len(), clean)
             })
-            .unwrap();
-
-            check_result
         };
 
         test_bytes(

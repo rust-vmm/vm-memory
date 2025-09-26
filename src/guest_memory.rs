@@ -355,10 +355,9 @@ pub trait GuestMemory {
 
     /// Check whether the range [base, base + len) is valid.
     fn check_range(&self, base: GuestAddress, len: usize) -> bool {
-        match self.try_access(len, base, |_, count, _, _| -> Result<usize> { Ok(count) }) {
-            Ok(count) => count == len,
-            _ => false,
-        }
+        // get_slices() ensures that if no error happens, the cumulative length of all slices
+        // equal `len`.
+        self.get_slices(base, len).all(|r| r.is_ok())
     }
 
     /// Returns the address plus the offset if it is present within the memory of the guest.
@@ -376,6 +375,10 @@ pub trait GuestMemory {
     /// - the error code returned by the callback 'f'
     /// - the size of the already handled data when encountering the first hole
     /// - the size of the already handled data when the whole range has been handled
+    #[deprecated(
+        since = "0.17.0",
+        note = "supplemented by external iterator `get_slices()`"
+    )]
     fn try_access<F>(&self, count: usize, addr: GuestAddress, mut f: F) -> Result<usize>
     where
         F: FnMut(usize, usize, MemoryRegionAddress, &Self::R) -> Result<usize>,
@@ -533,6 +536,17 @@ impl<'a, M: GuestMemory + ?Sized> GuestMemorySliceIterator<'a, M> {
             )
         }))
     }
+
+    /// Adapts this [`GuestMemorySliceIterator`] to return `None` (e.g. gracefully terminate)
+    /// when it encounters an error after successfully producing at least one slice.
+    /// Return an error if requesting the first slice returns an error.
+    pub fn stop_on_error(self) -> Result<impl Iterator<Item = VolatileSlice<'a, MS<'a, M>>>> {
+        let mut peek = self.peekable();
+        if let Some(err) = peek.next_if(Result::is_err) {
+            return Err(err.unwrap_err());
+        }
+        Ok(peek.filter_map(Result::ok))
+    }
 }
 
 impl<'a, M: GuestMemory + ?Sized> Iterator for GuestMemorySliceIterator<'a, M> {
@@ -562,23 +576,15 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     type E = Error;
 
     fn write(&self, buf: &[u8], addr: GuestAddress) -> Result<usize> {
-        self.try_access(
-            buf.len(),
-            addr,
-            |offset, count, caddr, region| -> Result<usize> {
-                region.write(&buf[offset..(offset + count)], caddr)
-            },
-        )
+        self.get_slices(addr, buf.len())
+            .stop_on_error()?
+            .try_fold(0, |acc, slice| Ok(acc + slice.write(&buf[acc..], 0)?))
     }
 
     fn read(&self, buf: &mut [u8], addr: GuestAddress) -> Result<usize> {
-        self.try_access(
-            buf.len(),
-            addr,
-            |offset, count, caddr, region| -> Result<usize> {
-                region.read(&mut buf[offset..(offset + count)], caddr)
-            },
-        )
+        self.get_slices(addr, buf.len())
+            .stop_on_error()?
+            .try_fold(0, |acc, slice| Ok(acc + slice.read(&mut buf[acc..], 0)?))
     }
 
     /// # Examples
@@ -642,9 +648,11 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: ReadVolatile,
     {
-        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
-            region.read_volatile_from(caddr, src, len)
-        })
+        self.get_slices(addr, count)
+            .stop_on_error()?
+            .try_fold(0, |acc, slice| {
+                Ok(acc + slice.read_volatile_from(0, src, slice.len())?)
+            })
     }
 
     fn read_exact_volatile_from<F>(
@@ -670,11 +678,14 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: WriteVolatile,
     {
-        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
-            // For a non-RAM region, reading could have side effects, so we
-            // must use write_all().
-            region.write_all_volatile_to(caddr, dst, len).map(|()| len)
-        })
+        self.get_slices(addr, count)
+            .stop_on_error()?
+            .try_fold(0, |acc, slice| {
+                // For a non-RAM region, reading could have side effects, so we
+                // must use write_all().
+                slice.write_all_volatile_to(0, dst, slice.len())?;
+                Ok(acc + slice.len())
+            })
     }
 
     fn write_all_volatile_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<()>

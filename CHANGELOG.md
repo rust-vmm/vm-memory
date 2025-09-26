@@ -39,6 +39,10 @@
 
 - \[[#339](https://github.com/rust-vmm/vm-memory/pull/339)\] Fix `Bytes::read()` and `Bytes::write()` not to ignore `try_access()`'s `count` parameter
 
+### Deprecated
+
+- \[[#349](https://github.com/rust-vmm/vm-memory/pull/349)\] Deprecate `GuestMemory::try_access()`. Use `GuestMemory::get_slices()` instead.
+
 ## \[v0.16.1\]
 
 ### Added
