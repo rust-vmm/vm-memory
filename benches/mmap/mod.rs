@@ -7,8 +7,11 @@
 extern crate criterion;
 extern crate vm_memory;
 
+#[cfg(feature = "rawfd")]
 use std::fs::{File, OpenOptions};
 use std::mem::size_of;
+
+#[cfg(feature = "rawfd")]
 use std::path::Path;
 
 use core::hint::black_box;
@@ -84,7 +87,10 @@ pub fn benchmark_for_mmap(c: &mut Criterion) {
 
     let mut image = make_image(ACCESS_SIZE);
     let buf = &mut [0u8; ACCESS_SIZE];
+
+    #[cfg(feature = "rawfd")]
     let mut file = File::open(Path::new("/dev/zero")).expect("Could not open /dev/zero");
+    #[cfg(feature = "rawfd")]
     let mut file_to_write = OpenOptions::new()
         .write(true)
         .open("/dev/null")
@@ -110,6 +116,7 @@ pub fn benchmark_for_mmap(c: &mut Criterion) {
             })
         });
 
+        #[cfg(feature = "rawfd")]
         c.bench_function(format!("read_from_file_{:#0X}", offset).as_str(), |b| {
             b.iter(|| {
                 black_box(&memory)
@@ -159,6 +166,7 @@ pub fn benchmark_for_mmap(c: &mut Criterion) {
             })
         });
 
+        #[cfg(feature = "rawfd")]
         c.bench_function(format!("write_to_file_{:#0X}", offset).as_str(), |b| {
             b.iter(|| {
                 black_box(&memory)
