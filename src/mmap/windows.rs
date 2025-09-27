@@ -245,6 +245,7 @@ impl<B> Drop for MmapRegion<B> {
 mod tests {
     use std::os::windows::io::FromRawHandle;
 
+    #[cfg(feature = "backend-bitmap")]
     use crate::bitmap::AtomicBitmap;
     use crate::guest_memory::FileOffset;
     use crate::mmap::windows::INVALID_HANDLE_VALUE;
@@ -260,6 +261,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "backend-bitmap")]
     fn test_dirty_tracking() {
         // Using the `crate` prefix because we aliased `MmapRegion` to `MmapRegion<()>` for
         // the rest of the unit tests above.
