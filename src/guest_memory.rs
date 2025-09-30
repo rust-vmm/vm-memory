@@ -55,8 +55,10 @@ use crate::address::{Address, AddressValue};
 use crate::bitmap::MS;
 use crate::bytes::{AtomicAccess, Bytes};
 use crate::io::{ReadVolatile, WriteVolatile};
+#[cfg(feature = "iommu")]
+use crate::iommu::Error as IommuError;
 use crate::volatile_memory::{self, VolatileSlice};
-use crate::GuestMemoryRegion;
+use crate::{GuestMemoryRegion, IoMemory, Permissions};
 
 /// Errors associated with handling guest memory accesses.
 #[allow(missing_docs)]
@@ -85,6 +87,10 @@ pub enum Error {
     /// The address to be read by `try_access` is outside the address range.
     #[error("The address to be read by `try_access` is outside the address range")]
     GuestAddressOverflow,
+    #[cfg(feature = "iommu")]
+    /// IOMMU translation error
+    #[error("IOMMU failed to translate guest address: {0}")]
+    IommuError(IommuError),
 }
 
 impl From<volatile_memory::Error> for Error {
@@ -223,7 +229,7 @@ impl FileOffset {
 /// ```
 pub trait GuestAddressSpace: Clone {
     /// The type that will be used to access guest memory.
-    type M: GuestMemory;
+    type M: IoMemory;
 
     /// A type that provides access to the memory.
     type T: Clone + Deref<Target = Self::M>;
@@ -234,7 +240,7 @@ pub trait GuestAddressSpace: Clone {
     fn memory(&self) -> Self::T;
 }
 
-impl<M: GuestMemory> GuestAddressSpace for &M {
+impl<M: IoMemory> GuestAddressSpace for &M {
     type M = M;
     type T = Self;
 
@@ -243,7 +249,7 @@ impl<M: GuestMemory> GuestAddressSpace for &M {
     }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
+impl<M: IoMemory> GuestAddressSpace for Rc<M> {
     type M = M;
     type T = Self;
 
@@ -252,7 +258,7 @@ impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
     }
 }
 
-impl<M: GuestMemory> GuestAddressSpace for Arc<M> {
+impl<M: IoMemory> GuestAddressSpace for Arc<M> {
     type M = M;
     type T = Self;
 
@@ -552,13 +558,19 @@ impl<'a, M: GuestMemory + ?Sized> Iterator for GuestMemorySliceIterator<'a, M> {
 /// returning `None`, ensuring that it will only return `None` from that point on.
 impl<M: GuestMemory + ?Sized> FusedIterator for GuestMemorySliceIterator<'_, M> {}
 
-impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
+/// Allow accessing [`IoMemory`] (and [`GuestMemory`]) objects via [`Bytes`].
+///
+/// Thanks to the [blanket implementation of `IoMemory` for all `GuestMemory`
+/// types](../io_memory/trait.IoMemory.html#impl-IoMemory-for-M), this blanket implementation
+/// extends to all [`GuestMemory`] types.
+impl<T: IoMemory + ?Sized> Bytes<GuestAddress> for T {
     type E = Error;
 
     fn write(&self, buf: &[u8], addr: GuestAddress) -> Result<usize> {
         self.try_access(
             buf.len(),
             addr,
+            Permissions::Write,
             |offset, count, caddr, region| -> Result<usize> {
                 region.write(&buf[offset..(offset + count)], caddr)
             },
@@ -569,6 +581,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
         self.try_access(
             buf.len(),
             addr,
+            Permissions::Read,
             |offset, count, caddr, region| -> Result<usize> {
                 region.read(&mut buf[offset..(offset + count)], caddr)
             },
@@ -636,9 +649,12 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: ReadVolatile,
     {
-        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
-            region.read_volatile_from(caddr, src, len)
-        })
+        self.try_access(
+            count,
+            addr,
+            Permissions::Write,
+            |_, len, caddr, region| -> Result<usize> { region.read_volatile_from(caddr, src, len) },
+        )
     }
 
     fn read_exact_volatile_from<F>(
@@ -664,11 +680,16 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     where
         F: WriteVolatile,
     {
-        self.try_access(count, addr, |_, len, caddr, region| -> Result<usize> {
-            // For a non-RAM region, reading could have side effects, so we
-            // must use write_all().
-            region.write_all_volatile_to(caddr, dst, len).map(|()| len)
-        })
+        self.try_access(
+            count,
+            addr,
+            Permissions::Read,
+            |_, len, caddr, region| -> Result<usize> {
+                // For a non-RAM region, reading could have side effects, so we
+                // must use write_all().
+                region.write_all_volatile_to(caddr, dst, len).map(|()| len)
+            },
+        )
     }
 
     fn write_all_volatile_to<F>(&self, addr: GuestAddress, dst: &mut F, count: usize) -> Result<()>
@@ -688,7 +709,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     fn store<O: AtomicAccess>(&self, val: O, addr: GuestAddress, order: Ordering) -> Result<()> {
         // No need to check past the first iterator item: It either has the size of `O`, then there
         // can be no further items; or it does not, and then `VolatileSlice::store()` will fail.
-        self.get_slices(addr, size_of::<O>())
+        self.get_slices(addr, size_of::<O>(), Permissions::Write)?
             .next()
             .unwrap()? // count > 0 never produces an empty iterator
             .store(val, 0, order)
@@ -698,7 +719,7 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     fn load<O: AtomicAccess>(&self, addr: GuestAddress, order: Ordering) -> Result<O> {
         // No need to check past the first iterator item: It either has the size of `O`, then there
         // can be no further items; or it does not, and then `VolatileSlice::store()` will fail.
-        self.get_slices(addr, size_of::<O>())
+        self.get_slices(addr, size_of::<O>(), Permissions::Read)?
             .next()
             .unwrap()? // count > 0 never produces an empty iterator
             .load(0, order)

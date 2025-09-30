@@ -435,6 +435,17 @@ impl<'a, B: BitmapSlice> VolatileSlice<'a, B> {
         }
     }
 
+    /// Replaces the bitmap in `self` by `new_bitmap`.
+    #[cfg(feature = "iommu")]
+    pub(crate) fn replace_bitmap<NB: BitmapSlice>(self, new_bitmap: NB) -> VolatileSlice<'a, NB> {
+        VolatileSlice {
+            addr: self.addr,
+            size: self.size,
+            bitmap: new_bitmap,
+            mmap: self.mmap,
+        }
+    }
+
     /// Returns a guard for the pointer to the underlying memory.
     pub fn ptr_guard(&self) -> PtrGuard {
         PtrGuard::read(self.mmap, self.addr, self.len())
