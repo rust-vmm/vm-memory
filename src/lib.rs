@@ -68,7 +68,7 @@ pub use io::{ReadVolatile, WriteVolatile};
 pub mod mmap;
 
 #[cfg(all(feature = "xen", target_family = "unix"))]
-pub use mmap::xen::{GuestMemoryXen, MmapRange, MmapRegion as MmapRegionXen, MmapXenFlags};
+pub use mmap::xen::{GuestMemoryXen, GuestRegionXen, MmapRange, MmapXenFlags};
 
 #[cfg(all(feature = "backend-mmap", target_family = "unix"))]
 pub use mmap::unix::{

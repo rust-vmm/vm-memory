@@ -28,7 +28,7 @@ pub(super) mod windows;
 pub use unix::{Error as MmapRegionError, MmapRegion, MmapRegionBuilder};
 
 #[cfg(all(feature = "xen", target_family = "unix"))]
-pub use xen::{Error as MmapRegionError, MmapRange, MmapRegion, MmapXenFlags};
+pub use xen::{Error as MmapRegionError, GuestRegionXen, MmapRange, MmapXenFlags};
 
 #[cfg(target_family = "windows")]
 pub use std::io::Error as MmapRegionError;
@@ -112,7 +112,7 @@ pub(crate) mod tests {
         #[cfg(all(unix, feature = "backend-mmap"))]
         Mmap[crate::mmap::unix::GuestRegionMmap<()>],
         #[cfg(all(unix, feature = "backend-mmap", feature = "xen"))]
-        Xen[crate::mmap::xen::MmapRegion]
+        Xen[crate::mmap::xen::GuestRegionXen]
     }
 
     // The cfgs make using vec![...] instead more unreadable, so suppress the lint here.
@@ -138,7 +138,7 @@ pub(crate) mod tests {
             ));
             #[cfg(all(unix, feature = "backend-mmap", feature = "xen"))]
             regions.push(AnyRegion::Xen(
-                crate::MmapRegionXen::from_range(crate::MmapRange::new_unix(
+                crate::GuestRegionXen::from_range(crate::MmapRange::new_unix(
                     size,
                     Some(f_off.clone()),
                     addr,
@@ -172,7 +172,7 @@ pub(crate) mod tests {
             ));
             #[cfg(all(unix, feature = "backend-mmap", feature = "xen"))]
             regions.push(AnyRegion::Xen(
-                crate::MmapRegionXen::from_range(crate::MmapRange::new_unix(size, None, addr))
+                crate::GuestRegionXen::from_range(crate::MmapRange::new_unix(size, None, addr))
                     .unwrap(),
             ));
             regions

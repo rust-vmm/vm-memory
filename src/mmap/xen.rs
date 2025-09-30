@@ -143,7 +143,7 @@ impl MmapRange {
 /// physical memory may be mapped into the current process due to the limited virtual address
 /// space size of the process.
 #[derive(Debug)]
-pub struct MmapRegion<B = ()> {
+pub struct GuestRegionXen<B = ()> {
     bitmap: B,
     size: usize,
     prot: i32,
@@ -153,7 +153,7 @@ pub struct MmapRegion<B = ()> {
     mmap: MmapXen,
 }
 
-impl<B: Bitmap> GuestMemoryRegion for MmapRegion<B> {
+impl<B: Bitmap> GuestMemoryRegion for GuestRegionXen<B> {
     type B = B;
 
     fn len(&self) -> GuestUsize {
@@ -195,23 +195,23 @@ impl<B: Bitmap> GuestMemoryRegion for MmapRegion<B> {
     }
 }
 
-impl<B: Bitmap> GuestMemoryRegionBytes for MmapRegion<B> {}
+impl<B: Bitmap> GuestMemoryRegionBytes for GuestRegionXen<B> {}
 
 /// A collection of Xen guest memory regions.
 ///
 /// Represents the entire physical memory of the guest by tracking all its memory regions.
-/// Each region is an instance of [`MmapRegionXen`].
-pub type GuestMemoryXen<B> = GuestRegionCollection<MmapRegion<B>>;
+/// Each region is an instance of [`GuestRegionXen`].
+pub type GuestMemoryXen<B> = GuestRegionCollection<GuestRegionXen<B>>;
 
 // SAFETY: Send and Sync aren't automatically inherited for the raw address pointer.
 // Accessing that pointer is only done through the stateless interface which
 // allows the object to be shared by multiple threads without a decrease in
 // safety.
-unsafe impl<B: Send> Send for MmapRegion<B> {}
+unsafe impl<B: Send> Send for GuestRegionXen<B> {}
 // SAFETY: See comment above.
-unsafe impl<B: Sync> Sync for MmapRegion<B> {}
+unsafe impl<B: Sync> Sync for GuestRegionXen<B> {}
 
-impl<B: NewBitmap> MmapRegion<B> {
+impl<B: NewBitmap> GuestRegionXen<B> {
     /// Creates a shared anonymous mapping of `size` bytes.
     ///
     /// # Arguments
@@ -224,7 +224,7 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// use std::fs::File;
     /// use std::path::Path;
     /// use vm_memory::{
-    ///     Bytes, FileOffset, GuestAddress, GuestMemoryXen, MmapRange, MmapRegionXen, MmapXenFlags,
+    ///     Bytes, FileOffset, GuestAddress, GuestMemoryXen, GuestRegionXen, MmapRange, MmapXenFlags,
     /// };
     /// # use vmm_sys_util::tempfile::TempFile;
     ///
@@ -240,7 +240,7 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// # // We need a UNIX mapping for tests to succeed.
     /// # let range = MmapRange::new_unix(0x400, None, addr);
     ///
-    /// let r = MmapRegionXen::<()>::from_range(range).expect("Could not create mmap region");
+    /// let r = GuestRegionXen::<()>::from_range(range).expect("Could not create mmap region");
     ///
     /// let mut gm = GuestMemoryXen::from_regions(vec![r]).expect("Could not create guest memory");
     /// let res = gm
@@ -255,7 +255,7 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// use std::fs::File;
     /// use std::path::Path;
     /// use vm_memory::{
-    ///     Bytes, FileOffset, GuestAddress, GuestMemoryXen, MmapRange, MmapRegionXen, MmapXenFlags,
+    ///     Bytes, FileOffset, GuestAddress, GuestMemoryXen, GuestRegionXen, MmapRange, MmapXenFlags,
     /// };
     /// # use vmm_sys_util::tempfile::TempFile;
     ///
@@ -271,7 +271,7 @@ impl<B: NewBitmap> MmapRegion<B> {
     /// # // We need a UNIX mapping for tests to succeed.
     /// # let range = MmapRange::new_unix(0x400, None, addr);
     ///
-    /// let r = MmapRegionXen::<()>::from_range(range).expect("Could not create mmap region");
+    /// let r = GuestRegionXen::<()>::from_range(range).expect("Could not create mmap region");
     ///
     /// let mut gm = GuestMemoryXen::from_regions(vec![r]).expect("Could not create guest memory");
     /// let res = gm
@@ -297,7 +297,7 @@ impl<B: NewBitmap> MmapRegion<B> {
 
         let mmap = MmapXen::new(&range)?;
 
-        Ok(MmapRegion {
+        Ok(GuestRegionXen {
             bitmap: B::with_len(range.size),
             size: range.size,
             prot: range.prot.ok_or(Error::Unexpected)?,
@@ -309,7 +309,7 @@ impl<B: NewBitmap> MmapRegion<B> {
     }
 }
 
-impl<B: Bitmap> MmapRegion<B> {
+impl<B: Bitmap> GuestRegionXen<B> {
     /// Returns a pointer to the beginning of the memory region. Mutable accesses performed
     /// using the resulting pointer are not automatically accounted for by the dirty bitmap
     /// tracking functionality.
@@ -344,7 +344,7 @@ impl<B: Bitmap> MmapRegion<B> {
     ///
     /// This is mostly a sanity check available for convenience, as different file descriptors
     /// can alias the same file.
-    pub fn fds_overlap<T: Bitmap>(&self, other: &MmapRegion<T>) -> bool {
+    pub fn fds_overlap<T: Bitmap>(&self, other: &GuestRegionXen<T>) -> bool {
         if let Some(f_off1) = self.file_offset() {
             if let Some(f_off2) = other.file_offset() {
                 if f_off1.file().as_raw_fd() == f_off2.file().as_raw_fd() {
@@ -390,7 +390,7 @@ impl<B: Bitmap> MmapRegion<B> {
     }
 }
 
-impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
+impl<B: Bitmap> VolatileMemory for GuestRegionXen<B> {
     type B = B;
 
     fn len(&self) -> usize {
@@ -1035,6 +1035,7 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use super::*;
+    use crate::mmap::GuestRegionXen;
     use matches::assert_matches;
     use vmm_sys_util::tempfile::TempFile;
 
@@ -1071,7 +1072,7 @@ mod tests {
         }
     }
 
-    impl MmapRegion {
+    impl GuestRegionXen {
         /// Create an `MmapRegion` with specified `size` at GuestAdress(0)
         pub fn new(size: usize) -> Result<Self> {
             let range = MmapRange::new_unix(size, None, GuestAddress(0));
