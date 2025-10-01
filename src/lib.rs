@@ -24,6 +24,12 @@
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("vm-memory only supports 64-bit targets!");
 
+#[cfg(all(target_family = "windows", feature = "rawfd"))]
+compile_error!("rawfd feature is not supported on Windows targets!");
+
+#[cfg(all(target_family = "windows", feature = "xen"))]
+compile_error!("xen feature is not supported on Windows targets!");
+
 #[macro_use]
 pub mod address;
 pub use address::{Address, AddressValue};
