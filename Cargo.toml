@@ -13,7 +13,7 @@ autobenches = false
 
 [features]
 default = ["rawfd"]
-backend-bitmap = ["dep:libc"]
+backend-bitmap = ["dep:libc", "dep:winapi"]
 backend-mmap = ["dep:libc", "dep:winapi"]
 backend-atomic = ["arc-swap"]
 rawfd = ["dep:libc"]
