@@ -171,7 +171,7 @@ impl<B: Bitmap> GuestMemoryRegionBytes for GuestRegionMmap<B> {}
 /// virtual address space of the calling process.
 pub type GuestMemoryMmap<B = ()> = GuestRegionCollection<GuestRegionMmap<B>>;
 
-/// Errors that can happen during [`GuestMemoryMap::from_ranges`] and related functions.
+/// Errors that can happen during [`GuestMemoryMmap::from_ranges`] and related functions.
 #[derive(Debug, thiserror::Error)]
 pub enum FromRangesError {
     /// Error during construction of [`GuestMemoryMmap`]
