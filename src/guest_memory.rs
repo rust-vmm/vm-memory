@@ -525,7 +525,13 @@ impl<'a, M: GuestMemory + ?Sized> GuestMemorySliceIterator<'a, M> {
             (_, true) => return Some(Err(Error::GuestAddressOverflow)),
         };
 
-        Some(region.get_slice(start, len))
+        Some(region.get_slice(start, len).inspect(|s| {
+            assert_eq!(
+                s.len(),
+                len,
+                "get_slice() returned a slice with wrong length"
+            )
+        }))
     }
 }
 
