@@ -47,3 +47,6 @@ codegen-units = 1
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[package.metadata.cargo-all-features]
+skip_optional_dependencies = true
