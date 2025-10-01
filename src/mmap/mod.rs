@@ -326,6 +326,29 @@ mod tests {
     }
 
     #[test]
+    fn test_check_range() {
+        let start_addr1 = GuestAddress(0);
+        let start_addr2 = GuestAddress(0x800);
+        let start_addr3 = GuestAddress(0xc00);
+        let guest_mem = GuestMemoryMmap::from_ranges(&[
+            (start_addr1, 0x400),
+            (start_addr2, 0x400),
+            (start_addr3, 0x400),
+        ])
+        .unwrap();
+
+        assert!(guest_mem.check_range(start_addr1, 0x0));
+        assert!(guest_mem.check_range(start_addr1, 0x200));
+        assert!(guest_mem.check_range(start_addr1, 0x400));
+        assert!(!guest_mem.check_range(start_addr1, 0xa00));
+        assert!(guest_mem.check_range(start_addr2, 0x7ff));
+        assert!(guest_mem.check_range(start_addr2, 0x800));
+        assert!(!guest_mem.check_range(start_addr2, 0x801));
+        assert!(!guest_mem.check_range(start_addr2, 0xc00));
+        assert!(!guest_mem.check_range(start_addr1, usize::MAX));
+    }
+
+    #[test]
     fn test_deref() {
         let f = TempFile::new().unwrap().into_file();
         f.set_len(0x400).unwrap();
@@ -432,6 +455,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "rawfd")]
+    #[cfg(not(miri))]
     fn read_to_and_write_from_mem() {
         use std::mem;
 
