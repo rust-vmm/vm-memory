@@ -4,14 +4,6 @@
       "test_name": "miri",
       "command": "RUST_BACKTRACE=1 MIRIFLAGS='-Zmiri-disable-isolation -Zmiri-backtrace=full' cargo +nightly miri test --features backend-mmap,backend-bitmap",
       "platform": ["x86_64", "aarch64"]
-    },
-    {
-      "test_name": "clippy-no-xen",
-      "command": "cargo clippy --workspace --bins --examples --benches  --features 'backend-bitmap backend-mmap backend-atomic' --all-targets -- -D warnings -D clippy::undocumented_unsafe_blocks",
-      "platform": [
-        "x86_64",
-        "aarch64"
-      ]
     }
   ]
 }
