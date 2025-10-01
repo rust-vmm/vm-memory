@@ -517,15 +517,15 @@ impl<'a, M: GuestMemory + ?Sized> GuestMemorySliceIterator<'a, M> {
         };
 
         let cap = region.len() - start.raw_value();
-        let len = std::cmp::min(cap, self.count as GuestUsize);
+        let len = std::cmp::min(cap as usize, self.count);
 
-        self.count -= len as usize;
+        self.count -= len;
         self.addr = match self.addr.overflowing_add(len as GuestUsize) {
             (x @ GuestAddress(0), _) | (x, false) => x,
             (_, true) => return Some(Err(Error::GuestAddressOverflow)),
         };
 
-        Some(region.get_slice(start, len as usize))
+        Some(region.get_slice(start, len))
     }
 }
 
