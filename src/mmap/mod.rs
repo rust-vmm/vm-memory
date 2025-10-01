@@ -455,6 +455,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "rawfd")]
+    #[cfg(not(miri))]
     fn read_to_and_write_from_mem() {
         use std::mem;
 
