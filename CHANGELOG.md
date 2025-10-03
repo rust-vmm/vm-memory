@@ -24,6 +24,9 @@
   Change return type of `GuestRegionMmap::new` from `Result` to `Option`.
 - \[#324](https:////github.com/rust-vmm/vm-memory/pull/324)\] `GuestMemoryRegion::bitmap()` now returns a `BitmapSlice`. Accessing the full bitmap is now possible only if the type of the memory region is know, for example with `MmapRegion::bitmap()`.
 - \[[#339](https://github.com/rust-vmm/vm-memory/pull/339)\] Implement `Bytes::load()` and `Bytes::store()` with `get_slices()` instead of `to_region_addr()`
+- \[[#317](https://github.com/rust-vmm/vm-memory/pull/317)\]: Make `xen` feature additive, meaning enabling it
+  no longer disables the `mmap_unix` module at compile time. For this, various Xen-related structs had to be
+  renamed due to naming conflicts.
 
 ### Removed
 

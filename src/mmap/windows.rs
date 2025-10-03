@@ -12,9 +12,14 @@ use libc::{c_void, size_t};
 
 use winapi::um::errhandlingapi::GetLastError;
 
+use crate::address::Address;
 use crate::bitmap::{Bitmap, NewBitmap, BS};
 use crate::guest_memory::FileOffset;
 use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice};
+use crate::{
+    guest_memory, GuestAddress, GuestMemoryRegion, GuestMemoryRegionBytes, GuestRegionCollection,
+    GuestUsize, MemoryRegionAddress,
+};
 
 #[allow(non_snake_case)]
 #[link(name = "kernel32")]
@@ -240,6 +245,81 @@ impl<B> Drop for MmapRegion<B> {
         }
     }
 }
+
+/// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) implementation that mmaps the guest's
+/// memory region in the current process.
+///
+/// Represents a continuous region of the guest's physical memory that is backed by a mapping
+/// in the virtual address space of the calling process.
+#[derive(Debug)]
+pub struct GuestRegionWindows<B = ()> {
+    mapping: MmapRegion<B>,
+    guest_base: GuestAddress,
+}
+
+impl<B: Bitmap> GuestRegionWindows<B> {
+    /// Create a new memory-mapped memory region for the guest's physical memory.
+    pub fn new(mapping: MmapRegion<B>, guest_base: GuestAddress) -> Option<Self> {
+        guest_base
+            .0
+            .checked_add(mapping.size() as u64)
+            .map(|_| GuestRegionWindows {
+                mapping,
+                guest_base,
+            })
+    }
+}
+
+impl<B: Bitmap> GuestMemoryRegion for GuestRegionWindows<B> {
+    type B = B;
+
+    fn len(&self) -> GuestUsize {
+        self.mapping.size() as GuestUsize
+    }
+
+    fn start_addr(&self) -> GuestAddress {
+        self.guest_base
+    }
+
+    fn bitmap(&self) -> BS<'_, Self::B> {
+        self.mapping.bitmap().slice_at(0)
+    }
+
+    fn get_host_address(&self, addr: MemoryRegionAddress) -> guest_memory::Result<*mut u8> {
+        // Not sure why wrapping_offset is not unsafe.  Anyway this
+        // is safe because we've just range-checked addr using check_address.
+        self.check_address(addr)
+            .ok_or(guest_memory::Error::InvalidBackendAddress)
+            .map(|addr| {
+                self.mapping
+                    .as_ptr()
+                    .wrapping_offset(addr.raw_value() as isize)
+            })
+    }
+
+    fn file_offset(&self) -> Option<&FileOffset> {
+        self.mapping.file_offset()
+    }
+
+    fn get_slice(
+        &self,
+        offset: MemoryRegionAddress,
+        count: usize,
+    ) -> guest_memory::Result<VolatileSlice<BS<B>>> {
+        let slice = VolatileMemory::get_slice(&self.mapping, offset.raw_value() as usize, count)?;
+        Ok(slice)
+    }
+}
+
+impl<B: Bitmap> GuestMemoryRegionBytes for GuestRegionWindows<B> {}
+
+/// [`GuestMemory`](trait.GuestMemory.html) implementation that mmaps the guest's memory
+/// in the current process.
+///
+/// Represents the entire physical memory of the guest by tracking all its memory regions.
+/// Each region is an instance of `GuestRegionMmap`, being backed by a mapping in the
+/// virtual address space of the calling process.
+pub type GuestMemoryWindows<B = ()> = GuestRegionCollection<GuestRegionWindows<B>>;
 
 #[cfg(test)]
 mod tests {

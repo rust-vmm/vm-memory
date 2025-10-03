@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
-#![cfg(feature = "backend-mmap")]
+#![cfg(all(feature = "backend-mmap", not(target_family = "windows")))]
 #![allow(clippy::undocumented_unsafe_blocks)]
 
 extern crate criterion;

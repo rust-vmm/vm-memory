@@ -176,7 +176,7 @@ impl FileOffset {
 /// # Examples (uses the `backend-mmap` and `backend-atomic` features)
 ///
 /// ```
-/// # #[cfg(feature = "backend-mmap")]
+/// # #[cfg(all(feature = "backend-mmap", target_family = "unix"))]
 /// # {
 /// # use std::sync::Arc;
 /// # use vm_memory::{GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryMmap};
@@ -294,7 +294,7 @@ pub trait GuestMemory {
     ///   `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix"))]
     /// # {
     /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryRegion, GuestMemoryMmap};
     /// #
@@ -318,7 +318,7 @@ pub trait GuestMemory {
     /// # Examples (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix"))]
     /// # {
     /// # use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
     /// #
@@ -433,7 +433,7 @@ pub trait GuestMemory {
     /// # Examples (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix"))]
     /// # {
     /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
     /// #
@@ -592,9 +592,9 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     /// * Write a slice at guestaddress 0x1000. (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix"))]
     /// # {
-    /// # use vm_memory::{Bytes, GuestAddress, mmap::GuestMemoryMmap};
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// #
     /// # let start_addr = GuestAddress(0x1000);
     /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
@@ -620,9 +620,9 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     /// * Read a slice of length 16 at guestaddress 0x1000. (uses the `backend-mmap` feature)
     ///
     /// ```
-    /// # #[cfg(feature = "backend-mmap")]
+    /// # #[cfg(all(feature = "backend-mmap", target_family = "unix"))]
     /// # {
-    /// # use vm_memory::{Bytes, GuestAddress, mmap::GuestMemoryMmap};
+    /// # use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
     /// #
     /// let start_addr = GuestAddress(0x1000);
     /// let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
@@ -726,27 +726,16 @@ impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
+
     use super::*;
-    #[cfg(feature = "backend-mmap")]
-    use crate::bytes::ByteValued;
-    #[cfg(feature = "backend-mmap")]
-    use crate::GuestAddress;
     #[cfg(feature = "backend-mmap")]
     use std::time::{Duration, Instant};
 
+    #[cfg(feature = "backend-mmap")]
+    use crate::mmap::tests::AnyBackend;
+    #[cfg(feature = "backend-mmap")]
+    use crate::ByteValued;
     use vmm_sys_util::tempfile::TempFile;
-
-    #[cfg(feature = "backend-mmap")]
-    type GuestMemoryMmap = crate::GuestMemoryMmap<()>;
-
-    #[cfg(feature = "backend-mmap")]
-    fn make_image(size: u8) -> Vec<u8> {
-        let mut image: Vec<u8> = Vec::with_capacity(size as usize);
-        for i in 0..size {
-            image.push(i);
-        }
-        image
-    }
 
     #[test]
     fn test_file_offset() {
@@ -761,19 +750,29 @@ mod tests {
     }
 
     #[cfg(feature = "backend-mmap")]
+    fn make_image(size: u8) -> Vec<u8> {
+        let mut image: Vec<u8> = Vec::with_capacity(size as usize);
+        for i in 0..size {
+            image.push(i);
+        }
+        image
+    }
+
     #[test]
+    #[cfg(feature = "backend-mmap")]
     fn checked_read_from() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x40);
-        let mem = GuestMemoryMmap::from_ranges(&[(start_addr1, 64), (start_addr2, 64)]).unwrap();
-        let image = make_image(0x80);
-        let offset = GuestAddress(0x30);
-        let count: usize = 0x20;
-        assert_eq!(
-            0x20_usize,
-            mem.read_volatile_from(offset, &mut image.as_slice(), count)
-                .unwrap()
-        );
+        for mem in AnyBackend::all(&[(start_addr1, 64, None), (start_addr2, 64, None)]) {
+            let image = make_image(0x80);
+            let offset = GuestAddress(0x30);
+            let count: usize = 0x20;
+            assert_eq!(
+                0x20_usize,
+                mem.read_volatile_from(offset, &mut image.as_slice(), count)
+                    .unwrap()
+            );
+        }
     }
 
     // Runs the provided closure in a loop, until at least `duration` time units have elapsed.
@@ -802,8 +801,8 @@ mod tests {
     // flips all the bits of the member with every write, while the reader checks that every byte
     // has the same value (and thus it did not do a non-atomic access). The test succeeds if
     // no mismatch is detected after performing accesses for a pre-determined amount of time.
-    #[cfg(feature = "backend-mmap")]
     #[cfg(not(miri))] // This test simulates a race condition between guest and vmm
+    #[cfg(feature = "backend-mmap")]
     fn non_atomic_access_helper<T>()
     where
         T: ByteValued
@@ -840,69 +839,68 @@ mod tests {
         // The address where we start writing/reading a Data<T> value.
         let data_start = GuestAddress((region_len - mem::size_of::<T>()) as u64);
 
-        let mem = GuestMemoryMmap::from_ranges(&[
-            (start, region_len),
-            (start.unchecked_add(region_len as u64), region_len),
-        ])
-        .unwrap();
+        for mem in AnyBackend::all(&[
+            (start, region_len, None),
+            (start.unchecked_add(region_len as u64), region_len, None),
+        ]) {
+            // Need to clone this and move it into the new thread we create.
+            let mem2 = mem.clone();
+            // Just some bytes.
+            let some_bytes = [1u8, 2, 4, 16, 32, 64, 128, 255];
 
-        // Need to clone this and move it into the new thread we create.
-        let mem2 = mem.clone();
-        // Just some bytes.
-        let some_bytes = [1u8, 2, 4, 16, 32, 64, 128, 255];
+            let mut data = Data {
+                val: T::from(0u8),
+                some_bytes,
+            };
 
-        let mut data = Data {
-            val: T::from(0u8),
-            some_bytes,
-        };
-
-        // Simple check that cross-region write/read is ok.
-        mem.write_obj(data, data_start).unwrap();
-        let read_data = mem.read_obj::<Data<T>>(data_start).unwrap();
-        assert_eq!(read_data, data);
-
-        let t = thread::spawn(move || {
-            let mut count: u64 = 0;
-
-            loop_timed(Duration::from_secs(3), || {
-                let data = mem2.read_obj::<Data<T>>(data_start).unwrap();
-
-                // Every time data is written to memory by the other thread, the value of
-                // data.val alternates between 0 and T::MAX, so the inner bytes should always
-                // have the same value. If they don't match, it means we read a partial value,
-                // so the access was not atomic.
-                let bytes = data.val.into().to_le_bytes();
-                for i in 1..mem::size_of::<T>() {
-                    if bytes[0] != bytes[i] {
-                        panic!(
-                            "val bytes don't match {:?} after {} iterations",
-                            &bytes[..mem::size_of::<T>()],
-                            count
-                        );
-                    }
-                }
-                count += 1;
-            });
-        });
-
-        // Write the object while flipping the bits of data.val over and over again.
-        loop_timed(Duration::from_secs(3), || {
+            // Simple check that cross-region write/read is ok.
             mem.write_obj(data, data_start).unwrap();
-            data.val = !data.val;
-        });
+            let read_data = mem.read_obj::<Data<T>>(data_start).unwrap();
+            assert_eq!(read_data, data);
 
-        t.join().unwrap()
+            let t = thread::spawn(move || {
+                let mut count: u64 = 0;
+
+                loop_timed(Duration::from_secs(3), || {
+                    let data = mem2.read_obj::<Data<T>>(data_start).unwrap();
+
+                    // Every time data is written to memory by the other thread, the value of
+                    // data.val alternates between 0 and T::MAX, so the inner bytes should always
+                    // have the same value. If they don't match, it means we read a partial value,
+                    // so the access was not atomic.
+                    let bytes = data.val.into().to_le_bytes();
+                    for i in 1..mem::size_of::<T>() {
+                        if bytes[0] != bytes[i] {
+                            panic!(
+                                "val bytes don't match {:?} after {} iterations",
+                                &bytes[..mem::size_of::<T>()],
+                                count
+                            );
+                        }
+                    }
+                    count += 1;
+                });
+            });
+
+            // Write the object while flipping the bits of data.val over and over again.
+            loop_timed(Duration::from_secs(3), || {
+                mem.write_obj(data, data_start).unwrap();
+                data.val = !data.val;
+            });
+
+            t.join().unwrap()
+        }
     }
 
-    #[cfg(feature = "backend-mmap")]
     #[test]
     #[cfg(not(miri))]
+    #[cfg(feature = "backend-mmap")]
     fn test_non_atomic_access() {
         non_atomic_access_helper::<u16>()
     }
 
-    #[cfg(feature = "backend-mmap")]
     #[test]
+    #[cfg(feature = "backend-mmap")]
     fn test_zero_length_accesses() {
         #[derive(Default, Clone, Copy)]
         #[repr(C)]
@@ -913,57 +911,49 @@ mod tests {
         unsafe impl ByteValued for ZeroSizedStruct {}
 
         let addr = GuestAddress(0x1000);
-        let mem = GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
-        let obj = ZeroSizedStruct::default();
-        let mut image = make_image(0x80);
+        for mem in AnyBackend::all(&[(addr, 0x1000, None)]) {
+            let obj = ZeroSizedStruct::default();
+            let mut image = make_image(0x80);
 
-        assert_eq!(mem.write(&[], addr).unwrap(), 0);
-        assert_eq!(mem.read(&mut [], addr).unwrap(), 0);
+            assert_eq!(mem.write(&[], addr).unwrap(), 0);
+            assert_eq!(mem.read(&mut [], addr).unwrap(), 0);
 
-        assert!(mem.write_slice(&[], addr).is_ok());
-        assert!(mem.read_slice(&mut [], addr).is_ok());
+            assert!(mem.write_slice(&[], addr).is_ok());
+            assert!(mem.read_slice(&mut [], addr).is_ok());
 
-        assert!(mem.write_obj(obj, addr).is_ok());
-        assert!(mem.read_obj::<ZeroSizedStruct>(addr).is_ok());
+            assert!(mem.write_obj(obj, addr).is_ok());
+            assert!(mem.read_obj::<ZeroSizedStruct>(addr).is_ok());
 
-        assert_eq!(
-            mem.read_volatile_from(addr, &mut image.as_slice(), 0)
-                .unwrap(),
-            0
-        );
+            assert_eq!(
+                mem.read_volatile_from(addr, &mut image.as_slice(), 0)
+                    .unwrap(),
+                0
+            );
 
-        assert!(mem
-            .read_exact_volatile_from(addr, &mut image.as_slice(), 0)
-            .is_ok());
+            assert!(mem
+                .read_exact_volatile_from(addr, &mut image.as_slice(), 0)
+                .is_ok());
 
-        assert_eq!(
-            mem.write_volatile_to(addr, &mut image.as_mut_slice(), 0)
-                .unwrap(),
-            0
-        );
+            assert_eq!(
+                mem.write_volatile_to(addr, &mut image.as_mut_slice(), 0)
+                    .unwrap(),
+                0
+            );
 
-        assert!(mem
-            .write_all_volatile_to(addr, &mut image.as_mut_slice(), 0)
-            .is_ok());
+            assert!(mem
+                .write_all_volatile_to(addr, &mut image.as_mut_slice(), 0)
+                .is_ok());
+        }
     }
 
-    #[cfg(feature = "backend-mmap")]
-    #[test]
-    fn test_atomic_accesses() {
-        let addr = GuestAddress(0x1000);
-        let mem = GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
-        let bad_addr = addr.unchecked_add(0x1000);
-
-        crate::bytes::tests::check_atomic_accesses(mem, addr, bad_addr);
-    }
-
-    #[cfg(feature = "backend-mmap")]
     #[cfg(target_os = "linux")]
     #[test]
+    #[cfg(feature = "backend-mmap")]
     fn test_guest_memory_mmap_is_hugetlbfs() {
         let addr = GuestAddress(0x1000);
-        let mem = GuestMemoryMmap::from_ranges(&[(addr, 0x1000)]).unwrap();
-        let r = mem.find_region(addr).unwrap();
-        assert_eq!(r.is_hugetlbfs(), None);
+        for mem in AnyBackend::all(&[(addr, 0x1000, None)]) {
+            let r = mem.find_region(addr).unwrap();
+            assert_eq!(r.is_hugetlbfs(), None);
+        }
     }
 }

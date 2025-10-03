@@ -5,7 +5,7 @@
 extern crate criterion;
 
 pub use criterion::{criterion_group, criterion_main, Criterion};
-#[cfg(feature = "backend-mmap")]
+#[cfg(all(feature = "backend-mmap", not(target_os = "windows")))]
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 mod guest_memory;
@@ -14,7 +14,7 @@ mod volatile;
 
 use volatile::benchmark_for_volatile;
 
-#[cfg(feature = "backend-mmap")]
+#[cfg(all(feature = "backend-mmap", not(target_os = "windows")))]
 // Use this function with caution. It does not check against overflows
 // and `GuestMemoryMmap::from_ranges` errors.
 fn create_guest_memory_mmap(size: usize, count: u64) -> GuestMemoryMmap<()> {
@@ -27,12 +27,12 @@ fn create_guest_memory_mmap(size: usize, count: u64) -> GuestMemoryMmap<()> {
 }
 
 pub fn criterion_benchmark(_c: &mut Criterion) {
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(all(feature = "backend-mmap", not(target_os = "windows")))]
     mmap::benchmark_for_mmap(_c);
 }
 
 pub fn benchmark_guest_memory(_c: &mut Criterion) {
-    #[cfg(feature = "backend-mmap")]
+    #[cfg(all(feature = "backend-mmap", not(target_os = "windows")))]
     guest_memory::benchmark_for_guest_memory(_c)
 }
 
