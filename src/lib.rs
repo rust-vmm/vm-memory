@@ -18,7 +18,7 @@
 #![warn(clippy::doc_markdown)]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 // We only support 64bit. Fail build when attempting to build other targets
 #[cfg(not(target_pointer_width = "64"))]
