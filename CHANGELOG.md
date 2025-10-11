@@ -1,5 +1,9 @@
 # Changelog
 
+## \[v0.17.1\]
+
+No visible changes.
+
 ## \[v0.17.0\]
 
 ### Added
