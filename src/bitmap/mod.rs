@@ -44,7 +44,7 @@ pub trait Bitmap: for<'a> WithBitmapSlice<'a> {
 
     /// Return a `<Self as WithBitmapSlice>::S` slice of the current bitmap, starting at
     /// the specified `offset`.
-    fn slice_at(&self, offset: usize) -> <Self as WithBitmapSlice>::S;
+    fn slice_at(&self, offset: usize) -> <Self as WithBitmapSlice<'_>>::S;
 }
 
 /// A `Bitmap` that can be created starting from an initial size.
@@ -100,7 +100,7 @@ impl<B: Bitmap> Bitmap for Option<B> {
         false
     }
 
-    fn slice_at(&self, offset: usize) -> Option<<B as WithBitmapSlice>::S> {
+    fn slice_at(&self, offset: usize) -> Option<<B as WithBitmapSlice<'_>>::S> {
         if let Some(inner) = self {
             return Some(inner.slice_at(offset));
         }

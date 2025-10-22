@@ -455,7 +455,11 @@ pub trait GuestMemory {
 
     /// Returns a [`VolatileSlice`](struct.VolatileSlice.html) of `count` bytes starting at
     /// `addr`.
-    fn get_slice(&self, addr: GuestAddress, count: usize) -> Result<VolatileSlice<MS<Self>>> {
+    fn get_slice(
+        &self,
+        addr: GuestAddress,
+        count: usize,
+    ) -> Result<VolatileSlice<'_, MS<'_, Self>>> {
         self.to_region_addr(addr)
             .ok_or(Error::InvalidGuestAddress(addr))
             .and_then(|(r, addr)| r.get_slice(addr, count))
