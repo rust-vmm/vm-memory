@@ -359,7 +359,7 @@ impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
         &self,
         offset: usize,
         count: usize,
-    ) -> volatile_memory::Result<VolatileSlice<BS<B>>> {
+    ) -> volatile_memory::Result<VolatileSlice<'_, BS<'_, B>>> {
         let _ = self.compute_end_offset(offset, count)?;
 
         let mmap_info = if self.mmap.mmap_in_advance() {

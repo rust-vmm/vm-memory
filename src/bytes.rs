@@ -114,7 +114,7 @@ pub unsafe trait ByteValued: Copy + Send + Sync {
 
     /// Converts a mutable reference to `self` into a `VolatileSlice`.  This is
     /// useful because `VolatileSlice` provides a `Bytes<usize>` implementation.
-    fn as_bytes(&mut self) -> VolatileSlice {
+    fn as_bytes(&mut self) -> VolatileSlice<'_> {
         VolatileSlice::from(self.as_mut_slice())
     }
 

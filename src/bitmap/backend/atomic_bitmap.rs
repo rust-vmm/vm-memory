@@ -176,7 +176,7 @@ impl Bitmap for AtomicBitmap {
         self.is_addr_set(offset)
     }
 
-    fn slice_at(&self, offset: usize) -> <Self as WithBitmapSlice>::S {
+    fn slice_at(&self, offset: usize) -> <Self as WithBitmapSlice<'_>>::S {
         RefSlice::new(self, offset)
     }
 }

@@ -61,7 +61,7 @@ impl<M: GuestMemory> GuestMemoryAtomic<M> {
     /// scoped unlock of the mutex (that is, the mutex will be unlocked when
     /// the guard goes out of scope), and optionally also for replacing the
     /// contents of the `GuestMemoryAtomic` when the lock is dropped.
-    pub fn lock(&self) -> LockResult<GuestMemoryExclusiveGuard<M>> {
+    pub fn lock(&self) -> LockResult<GuestMemoryExclusiveGuard<'_, M>> {
         match self.inner.1.lock() {
             Ok(guard) => Ok(GuestMemoryExclusiveGuard {
                 parent: self,
