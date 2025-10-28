@@ -116,15 +116,15 @@ pub trait VolatileMemory {
     /// Note that the property `get_slice(offset, count).len() == count` MUST NOT be
     /// relied on for the correctness of unsafe code. This is a safe function inside of a
     /// safe trait, and implementors are under no obligation to follow its documentation.
-    fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice<BS<Self::B>>>;
+    fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice<'_, BS<'_, Self::B>>>;
 
     /// Gets a slice of memory for the entire region that supports volatile access.
-    fn as_volatile_slice(&self) -> VolatileSlice<BS<Self::B>> {
+    fn as_volatile_slice(&self) -> VolatileSlice<'_, BS<'_, Self::B>> {
         self.get_slice(0, self.len()).unwrap()
     }
 
     /// Gets a `VolatileRef` at `offset`.
-    fn get_ref<T: ByteValued>(&self, offset: usize) -> Result<VolatileRef<T, BS<Self::B>>> {
+    fn get_ref<T: ByteValued>(&self, offset: usize) -> Result<VolatileRef<'_, T, BS<'_, Self::B>>> {
         let slice = self.get_slice(offset, size_of::<T>())?;
 
         assert_eq!(
@@ -153,7 +153,7 @@ pub trait VolatileMemory {
         &self,
         offset: usize,
         n: usize,
-    ) -> Result<VolatileArrayRef<T, BS<Self::B>>> {
+    ) -> Result<VolatileArrayRef<'_, T, BS<'_, Self::B>>> {
         // Use isize to avoid problems with ptr::offset and ptr::add down the line.
         let nbytes = isize::try_from(n)
             .ok()
@@ -858,7 +858,7 @@ impl<B: BitmapSlice> VolatileMemory for VolatileSlice<'_, B> {
         self.size
     }
 
-    fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice<B>> {
+    fn get_slice(&self, offset: usize, count: usize) -> Result<VolatileSlice<'_, B>> {
         self.subslice(offset, count)
     }
 }

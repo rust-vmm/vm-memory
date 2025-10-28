@@ -115,7 +115,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = GuestMemoryError> {
         &self,
         offset: MemoryRegionAddress,
         count: usize,
-    ) -> Result<VolatileSlice<BS<Self::B>>> {
+    ) -> Result<VolatileSlice<'_, BS<'_, Self::B>>> {
         Err(GuestMemoryError::HostAddressNotAvailable)
     }
 
@@ -143,7 +143,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = GuestMemoryError> {
     /// assert_eq!(r.load(), v);
     /// # }
     /// ```
-    fn as_volatile_slice(&self) -> Result<VolatileSlice<BS<Self::B>>> {
+    fn as_volatile_slice(&self) -> Result<VolatileSlice<'_, BS<'_, Self::B>>> {
         self.get_slice(MemoryRegionAddress(0), self.len() as usize)
     }
 
