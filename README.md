@@ -62,7 +62,7 @@ Then add `extern crate vm-memory;` to your crate root.
 ## Examples
 
 - Creating a VM physical memory object in hypervisor specific ways using the
-  `GuestMemoryMmap` implementation of the `GuestMemory` trait:
+  `GuestMemoryMmap` implementation of the `GuestMemoryBackend` trait:
 
 ```rust
 fn provide_mem_to_virt_dev() {
@@ -77,7 +77,7 @@ fn provide_mem_to_virt_dev() {
 - Consumers accessing the VM's physical memory:
 
 ```rust
-fn virt_device_io<T: GuestMemory>(mem: &T) {
+fn virt_device_io<T: GuestMemoryBackend>(mem: &T) {
     let sample_buf = &[1, 2, 3, 4, 5];
     assert_eq!(mem.write(sample_buf, GuestAddress(0xffc)).unwrap(), 5);
     let buf = &mut [0u8; 5];
