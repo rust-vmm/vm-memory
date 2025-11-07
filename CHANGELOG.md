@@ -6,6 +6,10 @@
 
 - \[[#327](https://github.com/rust-vmm/vm-memory/pull/327)\] I/O virtual memory support via `IoMemory`, `IommuMemory`, and `Iommu`/`Iotlb`
 
+### Fixed
+
+- \[[#361](https://github.com/rust-vmm/vm-memory/pull/361)\] clippy: allow mut_from_ref
+
 ## \[v0.17.1\]
 
 No visible changes.

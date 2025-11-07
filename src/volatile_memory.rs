@@ -228,6 +228,9 @@ pub trait VolatileMemory {
     ///
     /// If the resulting pointer is not aligned, this method will return an
     /// [`Error`](enum.Error.html).
+    // the function is unsafe, and the conversion is safe if following the safety
+    // instrutions above
+    #[allow(clippy::mut_from_ref)]
     unsafe fn aligned_as_mut<T: ByteValued>(&self, offset: usize) -> Result<&mut T> {
         let slice = self.get_slice(offset, size_of::<T>())?;
         slice.check_alignment(align_of::<T>())?;
