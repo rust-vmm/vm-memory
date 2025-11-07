@@ -76,12 +76,13 @@ of the VM using the following traits:
 - `GuestMemoryRegion`: represents a continuous region of the VM memory.
 - `GuestMemoryBackend`: represents a collection of `GuestMemoryRegion` objects. The
   main responsibilities of the `GuestMemoryBackend` trait are:
-  - hide the detail of accessing physical addresses (for example complex
-    hierarchical structures).
   - map an address request to a `GuestMemoryRegion` object and relay the
     request to it.
   - handle cases where an access request is spanning two or more
     `GuestMemoryRegion` objects.
+- `GuestMemory`: the primary external interface; it adds permission checks
+  to `GuestMemoryBackend`, and is more suited to implementations that
+  have a potentially very large set of non-continuous mappings.
 
 The VM memory consumers should only rely on traits and structs defined here to
 access VM's physical memory and not on the implementation of the traits.
@@ -125,25 +126,25 @@ let result = guest_memory_mmap.write(buf, addr);
 ### I/O Virtual Address Space
 
 When using an IOMMU, there no longer is direct access to the guest (physical)
-address space, but instead only to I/O virtual address space.  In this case:
+address space, but instead only to I/O virtual address space.  In order to
+support this usecase, `GuestMemory` (unlike `GuestMemoryBackend`) requires
+specifying the required access permissions (which are relevant for virtual
+memory).
 
-- `GuestMemory` replaces `GuestMemoryBackend`: It requires specifying the required access
-  permissions (which are relevant for virtual memory).  It also removes
-  interfaces that imply a mostly linear memory layout, because virtual memory is
-  fragmented into many pages instead of few (large) memory regions.
-  - Any `GuestMemory` still has a `GuestMemoryBackend` inside as the underlying address
-    space, but if an IOMMU is used, that will generally not be guest physical
-    address space.  With vhost-user, for example, it will be the VMM’s user
-    address space instead.
-  - `IommuMemory` as our only actually IOMMU-supporting `GuestMemory`
-    implementation uses an `Iommu` object to translate I/O virtual addresses
-    (IOVAs) into VMM user addresses (VUAs), which are then passed to the inner
-    `GuestMemoryBackend` implementation (like `GuestMemoryMmap`).
-- `GuestAddress` (for compatibility) refers to an address in any of these
-  address spaces:
-  - Guest physical addresses (GPAs) when no IOMMU is used,
-  - I/O virtual addresses (IOVAs),
-  - VMM user addresses (VUAs).
+`GuestMemory` can still use `GuestMemoryBackend` inside as the underlying
+address space, but if an IOMMU is used, that may not be the guest
+physical address space.  With vhost-user, for example, it will be the
+VMM’s user address space instead.  For compatibility, `GuestAddress`
+can refer to an address in any address space:
+- Guest physical addresses (GPAs) when no IOMMU is used,
+- I/O virtual addresses (IOVAs),
+- VMM user addresses (VUAs).
+
+`vm-memory` provides an example implementation of `GuestMemory` when
+compiled with the `iommu` feature.  `IommuMemory` uses an `Iommu`
+object to translate I/O virtual addresses (IOVAs) into VMM user addresses
+(VUAs), which are then passed to the inner `GuestMemoryBackend`
+implementation (like `GuestMemoryMmap`).
 
 ### Utilities and Helpers
 
