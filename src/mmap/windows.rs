@@ -18,7 +18,7 @@ use crate::volatile_memory::{self, compute_offset, VolatileMemory, VolatileSlice
 
 #[allow(non_snake_case)]
 #[link(name = "kernel32")]
-extern "stdcall" {
+extern "system" {
     pub fn VirtualAlloc(
         lpAddress: *mut c_void,
         dwSize: size_t,
@@ -55,7 +55,7 @@ const MEM_RELEASE: u32 = 0x00008000;
 const FILE_MAP_ALL_ACCESS: u32 = 0xf001f;
 const PAGE_READWRITE: u32 = 0x04;
 
-pub const MAP_FAILED: *mut c_void = 0 as *mut c_void;
+pub const MAP_FAILED: *mut c_void = null_mut::<c_void>();
 pub const INVALID_HANDLE_VALUE: RawHandle = (-1isize) as RawHandle;
 #[allow(dead_code)]
 pub const ERROR_INVALID_PARAMETER: i32 = 87;
@@ -95,7 +95,7 @@ impl<B: NewBitmap> MmapRegion<B> {
         }
         // This is safe because we are creating an anonymous mapping in a place not already used by
         // any other area in this process.
-        let addr = unsafe { VirtualAlloc(0 as *mut c_void, size, MEM_COMMIT, PAGE_READWRITE) };
+        let addr = unsafe { VirtualAlloc(null_mut::<c_void>(), size, MEM_COMMIT, PAGE_READWRITE) };
         if addr == MAP_FAILED {
             return Err(io::Error::last_os_error());
         }
@@ -111,7 +111,7 @@ impl<B: NewBitmap> MmapRegion<B> {
     ///
     /// # Arguments
     /// * `file_offset` - The mapping will be created at offset `file_offset.start` in the file
-    ///                   referred to by `file_offset.file`.
+    ///   referred to by `file_offset.file`.
     /// * `size` - The size of the memory region in bytes.
     pub fn from_file(file_offset: FileOffset, size: usize) -> io::Result<Self> {
         let handle = file_offset.file().as_raw_handle();
@@ -151,7 +151,7 @@ impl<B: NewBitmap> MmapRegion<B> {
             CloseHandle(mapping);
         }
 
-        if addr == null_mut() {
+        if addr.is_null() {
             return Err(io::Error::last_os_error());
         }
         Ok(Self {
@@ -200,7 +200,7 @@ impl<B: Bitmap> VolatileMemory for MmapRegion<B> {
         &self,
         offset: usize,
         count: usize,
-    ) -> volatile_memory::Result<VolatileSlice<BS<Self::B>>> {
+    ) -> volatile_memory::Result<VolatileSlice<'_, BS<'_, Self::B>>> {
         let end = compute_offset(offset, count)?;
         if end > self.size {
             return Err(volatile_memory::Error::OutOfBounds { addr: end });
