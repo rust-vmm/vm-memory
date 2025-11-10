@@ -661,7 +661,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{Error, IotlbIterator, IovaRange, MappedRange};
+    #[cfg(feature = "backend-mmap")]
+    use super::IotlbIterator;
+    use super::{Error, IovaRange, MappedRange};
     #[cfg(all(feature = "backend-bitmap", feature = "backend-mmap"))]
     use crate::bitmap::AtomicBitmap;
     #[cfg(feature = "backend-mmap")]
@@ -670,17 +672,20 @@ mod tests {
     use crate::GuestMemoryRegion;
     #[cfg(feature = "backend-mmap")]
     use crate::{
-        Bytes, GuestMemoryError, GuestMemoryMmap, GuestMemoryResult, IoMemory, IommuMemory,
+        Bytes, GuestMemoryError, GuestMemoryMmap, GuestMemoryResult, IoMemory, Iommu, IommuMemory,
     };
-    use crate::{GuestAddress, Iommu, Iotlb, Permissions};
+    use crate::{GuestAddress, Iotlb, Permissions};
     use std::fmt::Debug;
     #[cfg(all(feature = "backend-bitmap", feature = "backend-mmap"))]
     use std::num::NonZeroUsize;
     use std::ops::Deref;
+    #[cfg(feature = "backend-mmap")]
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+    #[cfg(feature = "backend-mmap")]
     use std::sync::{RwLock, RwLockReadGuard};
 
     #[derive(Debug)]
+    #[cfg(feature = "backend-mmap")]
     struct SimpleIommu {
         iotlb: RwLock<Iotlb>,
         /// Records the last fail event's base IOVA
@@ -693,8 +698,8 @@ mod tests {
         next_map_to: AtomicU64,
     }
 
+    #[cfg(feature = "backend-mmap")]
     impl SimpleIommu {
-        #[cfg(feature = "backend-mmap")]
         fn new() -> Self {
             SimpleIommu {
                 iotlb: Iotlb::new().into(),
@@ -705,7 +710,6 @@ mod tests {
             }
         }
 
-        #[cfg(feature = "backend-mmap")]
         fn expect_mapping_request(&self, to_phys: GuestAddress) {
             // Clear failed range info so it can be tested after the request
             self.fail_base.store(0, Ordering::Relaxed);
@@ -713,7 +717,6 @@ mod tests {
             self.next_map_to.store(to_phys.0, Ordering::Relaxed);
         }
 
-        #[cfg(feature = "backend-mmap")]
         fn verify_mapping_request(&self, virt: GuestAddress, len: usize, was_miss: bool) {
             assert_eq!(self.fail_base.load(Ordering::Relaxed), virt.0);
             assert_eq!(self.fail_len.load(Ordering::Relaxed), len);
@@ -721,6 +724,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "backend-mmap")]
     impl Iommu for SimpleIommu {
         type IotlbGuard<'a> = RwLockReadGuard<'a, Iotlb>;
 
