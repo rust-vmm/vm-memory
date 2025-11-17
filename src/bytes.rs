@@ -442,8 +442,8 @@ pub(crate) mod tests {
         b.store(val, addr, Ordering::Relaxed).unwrap();
         assert_eq!(b.load::<u32>(addr, Ordering::Relaxed).unwrap(), val);
 
-        assert!(b.load::<u32>(bad_addr, Ordering::Relaxed).is_err());
-        assert!(b.store(val, bad_addr, Ordering::Relaxed).is_err());
+        b.load::<u32>(bad_addr, Ordering::Relaxed).unwrap_err();
+        b.store(val, bad_addr, Ordering::Relaxed).unwrap_err();
     }
 
     fn check_byte_valued_type<T>()
@@ -616,13 +616,14 @@ pub(crate) mod tests {
     fn test_bytes() {
         let bytes = MockBytesContainer::new();
 
-        assert!(bytes.write_obj(u64::MAX, 0).is_ok());
+        bytes.write_obj(u64::MAX, 0).unwrap();
         assert_eq!(bytes.read_obj::<u64>(0).unwrap(), u64::MAX);
 
-        assert!(bytes
-            .write_obj(u64::MAX, MOCK_BYTES_CONTAINER_SIZE)
-            .is_err());
-        assert!(bytes.read_obj::<u64>(MOCK_BYTES_CONTAINER_SIZE).is_err());
+        assert_eq!(
+            bytes.write_obj(u64::MAX, MOCK_BYTES_CONTAINER_SIZE),
+            Err(())
+        );
+        assert_eq!(bytes.read_obj::<u64>(MOCK_BYTES_CONTAINER_SIZE), Err(()));
     }
 
     #[repr(C)]

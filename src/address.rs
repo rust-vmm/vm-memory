@@ -324,7 +324,13 @@ mod tests {
         if expected_overflow {
             assert!(MockAddress(a).checked_add(b).is_none());
             #[cfg(debug_assertions)]
-            assert!(std::panic::catch_unwind(|| MockAddress(a).unchecked_add(b)).is_err());
+            {
+                let result = std::panic::catch_unwind(|| MockAddress(a).unchecked_add(b));
+                assert_eq!(
+                    result.unwrap_err().downcast_ref::<&str>().unwrap(),
+                    &"attempt to add with overflow"
+                );
+            }
         } else {
             assert_eq!(
                 Some(MockAddress(expected_result)),
@@ -358,7 +364,13 @@ mod tests {
             assert!(MockAddress(a).checked_sub(b).is_none());
             assert!(MockAddress(a).checked_offset_from(MockAddress(b)).is_none());
             #[cfg(debug_assertions)]
-            assert!(std::panic::catch_unwind(|| MockAddress(a).unchecked_sub(b)).is_err());
+            {
+                let result = std::panic::catch_unwind(|| MockAddress(a).unchecked_sub(b));
+                assert_eq!(
+                    result.unwrap_err().downcast_ref::<&str>().unwrap(),
+                    &"attempt to subtract with overflow"
+                );
+            }
         } else {
             assert_eq!(
                 Some(MockAddress(expected_result)),

@@ -1098,11 +1098,11 @@ mod tests {
         assert_eq!(mem.write(&[], addr).unwrap(), 0);
         assert_eq!(mem.read(&mut [], addr).unwrap(), 0);
 
-        assert!(mem.write_slice(&[], addr).is_ok());
-        assert!(mem.read_slice(&mut [], addr).is_ok());
+        mem.write_slice(&[], addr).unwrap();
+        mem.read_slice(&mut [], addr).unwrap();
 
-        assert!(mem.write_obj(obj, addr).is_ok());
-        assert!(mem.read_obj::<ZeroSizedStruct>(addr).is_ok());
+        mem.write_obj(obj, addr).unwrap();
+        mem.read_obj::<ZeroSizedStruct>(addr).unwrap();
 
         assert_eq!(
             mem.read_volatile_from(addr, &mut image.as_slice(), 0)
@@ -1110,9 +1110,8 @@ mod tests {
             0
         );
 
-        assert!(mem
-            .read_exact_volatile_from(addr, &mut image.as_slice(), 0)
-            .is_ok());
+        mem.read_exact_volatile_from(addr, &mut image.as_slice(), 0)
+            .unwrap();
 
         assert_eq!(
             mem.write_volatile_to(addr, &mut image.as_mut_slice(), 0)
@@ -1120,9 +1119,8 @@ mod tests {
             0
         );
 
-        assert!(mem
-            .write_all_volatile_to(addr, &mut image.as_mut_slice(), 0)
-            .is_ok());
+        mem.write_all_volatile_to(addr, &mut image.as_mut_slice(), 0)
+            .unwrap();
     }
 
     #[cfg(feature = "backend-mmap")]
