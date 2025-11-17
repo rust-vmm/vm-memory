@@ -464,7 +464,7 @@ mod tests {
                 VolatileMemoryError::IOError(ioe) => {
                     assert_eq!(ioe.kind(), ErrorKind::UnexpectedEof)
                 }
-                err => panic!("{:?}", err),
+                err => panic!("{err:?}"),
             }
             assert_eq!(memory, vec![0u8; 5]);
         } else {
@@ -547,7 +547,7 @@ mod tests {
                 VolatileMemoryError::IOError(ioe) => {
                     assert_eq!(ioe.kind(), ErrorKind::WriteZero)
                 }
-                err => panic!("{:?}", err),
+                err => panic!("{err:?}"),
             }
             // This quirky behavior of writing to the slice even in the case of failure is also
             // exhibited by the stdlib
