@@ -15,6 +15,7 @@
 //! without knowing the implementation details of the VM memory provider. Thus hypervisor
 //! components, such as boot loader, virtual device drivers, virtio backend drivers and vhost
 //! drivers etc, could be shared and reused by multiple hypervisors.
+#![warn(clippy::assertions_on_result_states)]
 #![warn(clippy::doc_markdown)]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]

@@ -510,8 +510,6 @@ pub(crate) mod tests {
         maybe_guest_mem: Result<Collection, GuestRegionCollectionError>,
         expected_regions_summary: &[(GuestAddress, u64)],
     ) {
-        assert!(maybe_guest_mem.is_ok());
-
         let guest_mem = maybe_guest_mem.unwrap();
         assert_eq!(guest_mem.num_regions(), expected_regions_summary.len());
         let maybe_last_mem_reg = expected_regions_summary.last();
