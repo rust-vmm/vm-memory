@@ -108,7 +108,7 @@ pub fn benchmark_for_mmap(c: &mut Criterion) {
         let address = GuestAddress(offset);
 
         // Check performance for read operations.
-        c.bench_function(format!("read_from_{:#0X}", offset).as_str(), |b| {
+        c.bench_function(format!("read_from_{offset:#0X}").as_str(), |b| {
             b.iter(|| {
                 black_box(&memory)
                     .read_volatile_from(address, &mut image.as_slice(), ACCESS_SIZE)
@@ -117,7 +117,7 @@ pub fn benchmark_for_mmap(c: &mut Criterion) {
         });
 
         #[cfg(feature = "rawfd")]
-        c.bench_function(format!("read_from_file_{:#0X}", offset).as_str(), |b| {
+        c.bench_function(format!("read_from_file_{offset:#0X}").as_str(), |b| {
             b.iter(|| {
                 black_box(&memory)
                     .read_volatile_from(address, &mut file, ACCESS_SIZE)
@@ -125,7 +125,7 @@ pub fn benchmark_for_mmap(c: &mut Criterion) {
             })
         });
 
-        c.bench_function(format!("read_exact_from_{:#0X}", offset).as_str(), |b| {
+        c.bench_function(format!("read_exact_from_{offset:#0X}").as_str(), |b| {
             b.iter(|| {
                 black_box(&memory)
                     .read_exact_volatile_from(address, &mut image.as_slice(), ACCESS_SIZE)
@@ -134,31 +134,30 @@ pub fn benchmark_for_mmap(c: &mut Criterion) {
         });
 
         c.bench_function(
-            format!("read_entire_slice_from_{:#0X}", offset).as_str(),
+            format!("read_entire_slice_from_{offset:#0X}").as_str(),
             |b| b.iter(|| black_box(&memory).read_slice(buf, address).unwrap()),
         );
 
-        c.bench_function(format!("read_slice_from_{:#0X}", offset).as_str(), |b| {
+        c.bench_function(format!("read_slice_from_{offset:#0X}").as_str(), |b| {
             b.iter(|| black_box(&memory).read(buf, address).unwrap())
         });
 
         let obj_off = access.make_offset(size_of::<SmallDummy>());
         let obj_addr = GuestAddress(obj_off);
 
-        c.bench_function(
-            format!("read_small_obj_from_{:#0X}", obj_off).as_str(),
-            |b| b.iter(|| black_box(&memory).read_obj::<SmallDummy>(obj_addr).unwrap()),
-        );
+        c.bench_function(format!("read_small_obj_from_{obj_off:#0X}").as_str(), |b| {
+            b.iter(|| black_box(&memory).read_obj::<SmallDummy>(obj_addr).unwrap())
+        });
 
         let obj_off = access.make_offset(size_of::<BigDummy>());
         let obj_addr = GuestAddress(obj_off);
 
-        c.bench_function(format!("read_big_obj_from_{:#0X}", obj_off).as_str(), |b| {
+        c.bench_function(format!("read_big_obj_from_{obj_off:#0X}").as_str(), |b| {
             b.iter(|| black_box(&memory).read_obj::<BigDummy>(obj_addr).unwrap())
         });
 
         // Check performance for write operations.
-        c.bench_function(format!("write_to_{:#0X}", offset).as_str(), |b| {
+        c.bench_function(format!("write_to_{offset:#0X}").as_str(), |b| {
             b.iter(|| {
                 black_box(&memory)
                     .write_volatile_to(address, &mut image.as_mut_slice(), ACCESS_SIZE)
@@ -167,7 +166,7 @@ pub fn benchmark_for_mmap(c: &mut Criterion) {
         });
 
         #[cfg(feature = "rawfd")]
-        c.bench_function(format!("write_to_file_{:#0X}", offset).as_str(), |b| {
+        c.bench_function(format!("write_to_file_{offset:#0X}").as_str(), |b| {
             b.iter(|| {
                 black_box(&memory)
                     .write_volatile_to(address, &mut file_to_write, ACCESS_SIZE)
@@ -175,7 +174,7 @@ pub fn benchmark_for_mmap(c: &mut Criterion) {
             })
         });
 
-        c.bench_function(format!("write_exact_to_{:#0X}", offset).as_str(), |b| {
+        c.bench_function(format!("write_exact_to_{offset:#0X}").as_str(), |b| {
             b.iter(|| {
                 black_box(&memory)
                     .write_all_volatile_to(address, &mut image.as_mut_slice(), ACCESS_SIZE)
@@ -184,32 +183,29 @@ pub fn benchmark_for_mmap(c: &mut Criterion) {
         });
 
         c.bench_function(
-            format!("write_entire_slice_to_{:#0X}", offset).as_str(),
+            format!("write_entire_slice_to_{offset:#0X}").as_str(),
             |b| b.iter(|| black_box(&memory).write_slice(buf, address).unwrap()),
         );
 
-        c.bench_function(format!("write_slice_to_{:#0X}", offset).as_str(), |b| {
+        c.bench_function(format!("write_slice_to_{offset:#0X}").as_str(), |b| {
             b.iter(|| black_box(&memory).write(buf, address).unwrap())
         });
 
         let obj_off = access.make_offset(size_of::<SmallDummy>());
         let obj_addr = GuestAddress(obj_off);
 
-        c.bench_function(
-            format!("write_small_obj_to_{:#0X}", obj_off).as_str(),
-            |b| {
-                b.iter(|| {
-                    black_box(&memory)
-                        .write_obj::<SmallDummy>(some_small_dummy, obj_addr)
-                        .unwrap()
-                })
-            },
-        );
+        c.bench_function(format!("write_small_obj_to_{obj_off:#0X}").as_str(), |b| {
+            b.iter(|| {
+                black_box(&memory)
+                    .write_obj::<SmallDummy>(some_small_dummy, obj_addr)
+                    .unwrap()
+            })
+        });
 
         let obj_off = access.make_offset(size_of::<BigDummy>());
         let obj_addr = GuestAddress(obj_off);
 
-        c.bench_function(format!("write_big_obj_to_{:#0X}", obj_off).as_str(), |b| {
+        c.bench_function(format!("write_big_obj_to_{obj_off:#0X}").as_str(), |b| {
             b.iter(|| {
                 black_box(&memory)
                     .write_obj::<BigDummy>(some_big_dummy, obj_addr)
