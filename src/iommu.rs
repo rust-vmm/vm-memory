@@ -18,8 +18,8 @@ use crate::guest_memory::{
     Result as GuestMemoryResult,
 };
 use crate::{
-    Address, GuestAddress, GuestMemoryBackend, GuestMemoryRegion, GuestUsize, GuestMemory, Permissions,
-    VolatileSlice,
+    Address, GuestAddress, GuestMemory, GuestMemoryBackend, GuestMemoryRegion, GuestUsize,
+    Permissions, VolatileSlice,
 };
 use rangemap::RangeMap;
 use std::cmp;
@@ -373,7 +373,12 @@ impl TryFrom<Range<u64>> for IovaRange {
 
 impl<M: GuestMemoryBackend, I: Iommu> IommuMemory<M, I> {
     /// Create a new `IommuMemory` instance.
-    pub fn new(backend: M, iommu: I, use_iommu: bool, bitmap: <Self as GuestMemory>::Bitmap) -> Self {
+    pub fn new(
+        backend: M,
+        iommu: I,
+        use_iommu: bool,
+        bitmap: <Self as GuestMemory>::Bitmap,
+    ) -> Self {
         IommuMemory {
             backend,
             iommu: Arc::new(iommu),
@@ -672,7 +677,8 @@ mod tests {
     use crate::GuestMemoryRegion;
     #[cfg(feature = "backend-mmap")]
     use crate::{
-        Bytes, GuestMemoryError, GuestMemoryMmap, GuestMemoryResult, GuestMemory, Iommu, IommuMemory,
+        Bytes, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryResult, Iommu,
+        IommuMemory,
     };
     use crate::{GuestAddress, Iotlb, Permissions};
     use std::fmt::Debug;
