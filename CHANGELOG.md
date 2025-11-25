@@ -1,6 +1,6 @@
 # Changelog
 
-## Upcoming version
+## 0.18.0
 
 ### Changed
 
