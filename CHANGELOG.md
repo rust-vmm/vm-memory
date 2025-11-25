@@ -1,5 +1,12 @@
 # Changelog
 
+## \[v0.17.2\]
+
+This release re-packages the code of vm-memory 0.18.0 while preserving
+API compatibility with 0.17.1.  All the actual implementation comes from
+version 0.18.0, which this crate re-exports with `GuestMemoryBackend`
+changed back to `GuestMemory`.
+
 ## \[v0.17.1\]
 
 No visible changes.
