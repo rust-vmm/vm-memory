@@ -484,8 +484,8 @@ pub trait GuestMemoryBackend {
         &'a self,
         addr: GuestAddress,
         count: usize,
-    ) -> GuestMemorySliceIterator<'a, Self> {
-        GuestMemorySliceIterator {
+    ) -> GuestMemoryBackendSliceIterator<'a, Self> {
+        GuestMemoryBackendSliceIterator {
             mem: self,
             addr,
             count,
@@ -497,7 +497,7 @@ pub trait GuestMemoryBackend {
 ///
 /// Returned by [`GuestMemoryBackend::get_slices()`].
 #[derive(Debug)]
-pub struct GuestMemorySliceIterator<'a, M: GuestMemoryBackend + ?Sized> {
+pub struct GuestMemoryBackendSliceIterator<'a, M: GuestMemoryBackend + ?Sized> {
     /// Underlying memory
     mem: &'a M,
     /// Next address in the guest memory area
@@ -506,8 +506,8 @@ pub struct GuestMemorySliceIterator<'a, M: GuestMemoryBackend + ?Sized> {
     count: usize,
 }
 
-impl<'a, M: GuestMemoryBackend + ?Sized> GuestMemorySliceIterator<'a, M> {
-    /// Helper function for [`<Self as Iterator>::next()`](GuestMemorySliceIterator::next).
+impl<'a, M: GuestMemoryBackend + ?Sized> GuestMemoryBackendSliceIterator<'a, M> {
+    /// Helper function for [`<Self as Iterator>::next()`](GuestMemoryBackendSliceIterator::next).
     ///
     /// Get the next slice (i.e. the one starting from `self.addr` with a length up to
     /// `self.count`) and update the internal state.
@@ -547,15 +547,15 @@ impl<'a, M: GuestMemoryBackend + ?Sized> GuestMemorySliceIterator<'a, M> {
         }))
     }
 
-    /// Adapts this [`GuestMemorySliceIterator`] to return `None` (e.g. gracefully terminate)
+    /// Adapts this [`GuestMemoryBackendSliceIterator`] to return `None` (e.g. gracefully terminate)
     /// when it encounters an error after successfully producing at least one slice.
     /// Return an error if requesting the first slice returns an error.
     pub fn stop_on_error(self) -> Result<impl Iterator<Item = VolatileSlice<'a, MS<'a, M>>>> {
-        <Self as IoMemorySliceIterator<'a, MS<'a, M>>>::stop_on_error(self)
+        <Self as GuestMemorySliceIterator<'a, MS<'a, M>>>::stop_on_error(self)
     }
 }
 
-impl<'a, M: GuestMemoryBackend + ?Sized> Iterator for GuestMemorySliceIterator<'a, M> {
+impl<'a, M: GuestMemoryBackend + ?Sized> Iterator for GuestMemoryBackendSliceIterator<'a, M> {
     type Item = Result<VolatileSlice<'a, MS<'a, M>>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -572,16 +572,16 @@ impl<'a, M: GuestMemoryBackend + ?Sized> Iterator for GuestMemorySliceIterator<'
     }
 }
 
-impl<'a, M: GuestMemoryBackend + ?Sized> IoMemorySliceIterator<'a, MS<'a, M>>
-    for GuestMemorySliceIterator<'a, M>
+impl<'a, M: GuestMemoryBackend + ?Sized> GuestMemorySliceIterator<'a, MS<'a, M>>
+    for GuestMemoryBackendSliceIterator<'a, M>
 {
 }
 
 /// This iterator continues to return `None` when exhausted.
 ///
-/// [`<Self as Iterator>::next()`](GuestMemorySliceIterator::next) sets `self.count` to 0 when
+/// [`<Self as Iterator>::next()`](GuestMemoryBackendSliceIterator::next) sets `self.count` to 0 when
 /// returning `None`, ensuring that it will only return `None` from that point on.
-impl<M: GuestMemoryBackend + ?Sized> FusedIterator for GuestMemorySliceIterator<'_, M> {}
+impl<M: GuestMemoryBackend + ?Sized> FusedIterator for GuestMemoryBackendSliceIterator<'_, M> {}
 
 /// Allow accessing [`GuestMemory`] (and [`GuestMemoryBackend`]) objects via [`Bytes`].
 ///
@@ -839,7 +839,7 @@ pub trait GuestMemory {
         addr: GuestAddress,
         count: usize,
         access: Permissions,
-    ) -> Result<impl IoMemorySliceIterator<'a, BS<'a, Self::Bitmap>>>;
+    ) -> Result<impl GuestMemorySliceIterator<'a, BS<'a, Self::Bitmap>>>;
 
     /// If this virtual memory is just a plain `GuestMemoryBackend` object underneath without an IOMMU
     /// translation layer in between, return that `GuestMemoryBackend` object.
@@ -851,10 +851,10 @@ pub trait GuestMemory {
 /// Iterates over [`VolatileSlice`]s that together form an I/O memory area.
 ///
 /// Returned by [`GuestMemory::get_slices()`].
-pub trait IoMemorySliceIterator<'a, B: BitmapSlice>:
+pub trait GuestMemorySliceIterator<'a, B: BitmapSlice>:
     Iterator<Item = Result<VolatileSlice<'a, B>>> + FusedIterator + Sized
 {
-    /// Adapts this [`IoMemorySliceIterator`] to return `None` (e.g. gracefully terminate) when it
+    /// Adapts this [`GuestMemorySliceIterator`] to return `None` (e.g. gracefully terminate) when it
     /// encounters an error after successfully producing at least one slice.
     /// Return an error if requesting the first slice returns an error.
     fn stop_on_error(self) -> Result<impl Iterator<Item = VolatileSlice<'a, B>>> {
@@ -889,7 +889,7 @@ impl<M: GuestMemoryBackend + ?Sized> GuestMemory for M {
         addr: GuestAddress,
         count: usize,
         _access: Permissions,
-    ) -> Result<impl IoMemorySliceIterator<'a, BS<'a, Self::Bitmap>>> {
+    ) -> Result<impl GuestMemorySliceIterator<'a, BS<'a, Self::Bitmap>>> {
         Ok(<M as GuestMemoryBackend>::get_slices(self, addr, count))
     }
 

@@ -14,7 +14,7 @@
 
 use crate::bitmap::{self, Bitmap};
 use crate::guest_memory::{
-    Error as GuestMemoryError, GuestMemorySliceIterator, IoMemorySliceIterator,
+    Error as GuestMemoryError, GuestMemoryBackendSliceIterator, GuestMemorySliceIterator,
     Result as GuestMemoryResult,
 };
 use crate::{
@@ -491,7 +491,7 @@ impl<M: GuestMemoryBackend, I: Iommu> GuestMemory for IommuMemory<M, I> {
         addr: GuestAddress,
         count: usize,
         access: Permissions,
-    ) -> GuestMemoryResult<impl IoMemorySliceIterator<'a, bitmap::BS<'a, Self::Bitmap>>> {
+    ) -> GuestMemoryResult<impl GuestMemorySliceIterator<'a, bitmap::BS<'a, Self::Bitmap>>> {
         if self.use_iommu {
             IommuMemorySliceIterator::virt(self, addr, count, access)
                 .map_err(GuestMemoryError::IommuError)
@@ -522,7 +522,7 @@ pub struct IommuMemorySliceIterator<'a, M: GuestMemoryBackend, I: Iommu + 'a> {
     /// IOMMU translation result (i.e. remaining physical regions to visit)
     translation: Option<IotlbIterator<I::IotlbGuard<'a>>>,
     /// Iterator in the currently visited physical region
-    current_translated_iter: Option<GuestMemorySliceIterator<'a, M>>,
+    current_translated_iter: Option<GuestMemoryBackendSliceIterator<'a, M>>,
 }
 
 impl<'a, M: GuestMemoryBackend, I: Iommu> IommuMemorySliceIterator<'a, M, I> {
@@ -638,7 +638,7 @@ impl<'a, M: GuestMemoryBackend, I: Iommu> Iterator for IommuMemorySliceIterator<
 /// `Some(Ok(_))`, ensuring that it will only return `None` from that point on.
 impl<M: GuestMemoryBackend, I: Iommu> FusedIterator for IommuMemorySliceIterator<'_, M, I> {}
 
-impl<'a, M: GuestMemoryBackend, I: Iommu> IoMemorySliceIterator<'a, bitmap::MS<'a, M>>
+impl<'a, M: GuestMemoryBackend, I: Iommu> GuestMemorySliceIterator<'a, bitmap::MS<'a, M>>
     for IommuMemorySliceIterator<'a, M, I>
 {
 }
