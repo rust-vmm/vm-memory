@@ -151,7 +151,7 @@ impl<M: GuestMemory> GuestMemoryExclusiveGuard<'_, M> {
 mod tests {
     use super::*;
     use crate::region::tests::{new_guest_memory_collection_from_regions, Collection, MockRegion};
-    use crate::{GuestAddress, GuestMemoryBackend, GuestMemoryRegion, GuestUsize, GuestMemory};
+    use crate::{GuestAddress, GuestMemory, GuestMemoryBackend, GuestMemoryRegion, GuestUsize};
 
     type GuestMemoryMmapAtomic = GuestMemoryAtomic<Collection>;
 

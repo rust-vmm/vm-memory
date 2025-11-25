@@ -476,7 +476,8 @@ impl<R: GuestMemoryRegionBytes> Bytes<MemoryRegionAddress> for R {
 pub(crate) mod tests {
     use crate::region::{GuestMemoryRegionBytes, GuestRegionCollectionError};
     use crate::{
-        Address, GuestAddress, GuestMemoryBackend, GuestMemoryRegion, GuestRegionCollection, GuestUsize,
+        Address, GuestAddress, GuestMemoryBackend, GuestMemoryRegion, GuestRegionCollection,
+        GuestUsize,
     };
     use matches::assert_matches;
     use std::sync::Arc;
