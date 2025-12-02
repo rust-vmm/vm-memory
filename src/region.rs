@@ -3,7 +3,7 @@
 use crate::bitmap::{Bitmap, BS};
 use crate::guest_memory::Result;
 use crate::{
-    Address, AtomicAccess, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryError,
+    Address, AtomicAccess, Bytes, FileOffset, GuestAddress, GuestMemoryBackend, GuestMemoryError,
     GuestUsize, MemoryRegionAddress, ReadVolatile, VolatileSlice, WriteVolatile,
 };
 use std::sync::atomic::Ordering;
@@ -91,7 +91,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = GuestMemoryError> {
 
     /// Returns the host virtual address corresponding to the region address.
     ///
-    /// Some [`GuestMemory`](trait.GuestMemory.html) implementations, like `GuestMemoryMmap`,
+    /// Some [`GuestMemoryBackend`](trait.GuestMemoryBackend.html) implementations, like `GuestMemoryMmap`,
     /// have the capability to mmap guest address range into host virtual address space for
     /// direct access, so the corresponding host virtual address may be passed to other subsystems.
     ///
@@ -156,7 +156,7 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = GuestMemoryError> {
     /// ```
     /// # #[cfg(feature = "backend-mmap")]
     /// # {
-    /// #   use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestRegionMmap};
+    /// #   use vm_memory::{GuestAddress, GuestMemoryBackend, GuestMemoryMmap, GuestRegionMmap};
     /// let addr = GuestAddress(0x1000);
     /// let mem = GuestMemoryMmap::<()>::from_ranges(&[(addr, 0x1000)]).unwrap();
     /// let r = mem.find_region(addr).unwrap();
@@ -183,7 +183,7 @@ pub enum GuestRegionCollectionError {
     UnsortedMemoryRegions,
 }
 
-/// [`GuestMemory`](trait.GuestMemory.html) implementation based on a homogeneous collection
+/// [`GuestMemoryBackend`](trait.GuestMemoryBackend.html) implementation based on a homogeneous collection
 /// of [`GuestMemoryRegion`] implementations.
 ///
 /// Represents a sorted set of non-overlapping physical guest memory regions.
@@ -300,7 +300,7 @@ impl<R: GuestMemoryRegion> GuestRegionCollection<R> {
     }
 }
 
-impl<R: GuestMemoryRegion> GuestMemory for GuestRegionCollection<R> {
+impl<R: GuestMemoryRegion> GuestMemoryBackend for GuestRegionCollection<R> {
     type R = R;
 
     fn num_regions(&self) -> usize {
@@ -476,7 +476,8 @@ impl<R: GuestMemoryRegionBytes> Bytes<MemoryRegionAddress> for R {
 pub(crate) mod tests {
     use crate::region::{GuestMemoryRegionBytes, GuestRegionCollectionError};
     use crate::{
-        Address, GuestAddress, GuestMemory, GuestMemoryRegion, GuestRegionCollection, GuestUsize,
+        Address, GuestAddress, GuestMemoryBackend, GuestMemoryRegion, GuestRegionCollection,
+        GuestUsize,
     };
     use matches::assert_matches;
     use std::sync::Arc;

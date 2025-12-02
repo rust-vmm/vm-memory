@@ -17,7 +17,7 @@ use std::path::Path;
 use core::hint::black_box;
 use criterion::Criterion;
 
-use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory};
+use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryBackend};
 
 const REGION_SIZE: usize = 0x8000_0000;
 const REGIONS_COUNT: u64 = 8;

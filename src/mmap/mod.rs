@@ -8,7 +8,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-//! The default implementation for the [`GuestMemory`](trait.GuestMemory.html) trait.
+//! The default implementation for the [`GuestMemoryBackend`](trait.GuestMemoryBackend.html) trait.
 //!
 //! This implementation is mmap-ing the memory of the guest into the current process.
 
@@ -179,7 +179,7 @@ impl<B: Bitmap> GuestMemoryRegion for GuestRegionMmap<B> {
 
 impl<B: Bitmap> GuestMemoryRegionBytes for GuestRegionMmap<B> {}
 
-/// [`GuestMemory`](trait.GuestMemory.html) implementation that mmaps the guest's memory
+/// [`GuestMemoryBackend`](trait.GuestMemoryBackend.html) implementation that mmaps the guest's memory
 /// in the current process.
 ///
 /// Represents the entire physical memory of the guest by tracking all its memory regions.
@@ -239,7 +239,7 @@ mod tests {
 
     #[cfg(feature = "backend-bitmap")]
     use crate::bitmap::AtomicBitmap;
-    use crate::{Bytes, GuestMemory, GuestMemoryError};
+    use crate::{Bytes, GuestMemoryBackend, GuestMemoryError};
 
     use std::io::Write;
     #[cfg(feature = "rawfd")]

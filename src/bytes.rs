@@ -333,7 +333,7 @@ pub trait Bytes<A> {
     /// ```
     /// # #[cfg(all(feature = "backend-mmap", feature = "rawfd"))]
     /// # {
-    /// # use vm_memory::{Address, GuestMemory, Bytes, GuestAddress, GuestMemoryMmap};
+    /// # use vm_memory::{Address, GuestMemoryBackend, Bytes, GuestAddress, GuestMemoryMmap};
     /// # use std::fs::File;
     /// # use std::path::Path;
     /// #

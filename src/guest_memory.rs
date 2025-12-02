@@ -22,23 +22,23 @@
 //!   region.
 //! - [`GuestMemoryRegion`](trait.GuestMemoryRegion.html): represent a continuous region of guest's
 //!   physical memory.
-//! - [`GuestMemory`](trait.GuestMemory.html): represent a collection of `GuestMemoryRegion`
+//! - [`GuestMemoryBackend`](trait.GuestMemoryBackend.html): represent a collection of `GuestMemoryRegion`
 //!   objects.
-//!   The main responsibilities of the `GuestMemory` trait are:
+//!   The main responsibilities of the `GuestMemoryBackend` trait are:
 //!     - hide the detail of accessing guest's physical address.
 //!     - map a request address to a `GuestMemoryRegion` object and relay the request to it.
 //!     - handle cases where an access request spanning two or more `GuestMemoryRegion` objects.
 //!
 //! Whenever a collection of `GuestMemoryRegion` objects is mutable,
 //! [`GuestAddressSpace`](trait.GuestAddressSpace.html) should be implemented
-//! for clients to obtain a [`GuestMemory`] reference or smart pointer.
+//! for clients to obtain a [`GuestMemoryBackend`] reference or smart pointer.
 //!
 //! The `GuestMemoryRegion` trait has an associated `B: Bitmap` type which is used to handle
 //! dirty bitmap tracking. Backends are free to define the granularity (or whether tracking is
 //! actually performed at all). Those that do implement tracking functionality are expected to
 //! ensure the correctness of the underlying `Bytes` implementation. The user has to explicitly
 //! record (using the handle returned by `GuestRegionMmap::bitmap`) write accesses performed
-//! via pointers, references, or slices returned by methods of `GuestMemory`,`GuestMemoryRegion`,
+//! via pointers, references, or slices returned by methods of `GuestMemoryBackend`,`GuestMemoryRegion`,
 //! `VolatileSlice`, `VolatileRef`, or `VolatileArrayRef`.
 
 use std::convert::From;
@@ -167,9 +167,9 @@ impl FileOffset {
     }
 }
 
-/// `GuestAddressSpace` provides a way to retrieve a `GuestMemory` object.
+/// `GuestAddressSpace` provides a way to retrieve a `GuestMemoryBackend` object.
 /// The vm-memory crate already provides trivial implementation for
-/// references to `GuestMemory` or reference-counted `GuestMemory` objects,
+/// references to `GuestMemoryBackend` or reference-counted `GuestMemoryBackend` objects,
 /// but the trait can also be implemented by any other struct in order
 /// to provide temporary access to a snapshot of the memory map.
 ///
@@ -185,7 +185,7 @@ impl FileOffset {
 /// # #[cfg(feature = "backend-mmap")]
 /// # {
 /// # use std::sync::Arc;
-/// # use vm_memory::{GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryMmap};
+/// # use vm_memory::{GuestAddress, GuestAddressSpace, GuestMemoryBackend, GuestMemoryMmap};
 /// #
 /// pub struct VirtioDevice<AS: GuestAddressSpace> {
 ///     mem: Option<AS>,
@@ -229,7 +229,7 @@ impl FileOffset {
 /// ```
 pub trait GuestAddressSpace: Clone {
     /// The type that will be used to access guest memory.
-    type M: IoMemory;
+    type M: GuestMemory;
 
     /// A type that provides access to the memory.
     type T: Clone + Deref<Target = Self::M>;
@@ -240,7 +240,7 @@ pub trait GuestAddressSpace: Clone {
     fn memory(&self) -> Self::T;
 }
 
-impl<M: IoMemory> GuestAddressSpace for &M {
+impl<M: GuestMemory> GuestAddressSpace for &M {
     type M = M;
     type T = Self;
 
@@ -249,7 +249,7 @@ impl<M: IoMemory> GuestAddressSpace for &M {
     }
 }
 
-impl<M: IoMemory> GuestAddressSpace for Rc<M> {
+impl<M: GuestMemory> GuestAddressSpace for Rc<M> {
     type M = M;
     type T = Self;
 
@@ -258,7 +258,7 @@ impl<M: IoMemory> GuestAddressSpace for Rc<M> {
     }
 }
 
-impl<M: IoMemory> GuestAddressSpace for Arc<M> {
+impl<M: GuestMemory> GuestAddressSpace for Arc<M> {
     type M = M;
     type T = Self;
 
@@ -267,16 +267,16 @@ impl<M: IoMemory> GuestAddressSpace for Arc<M> {
     }
 }
 
-/// `GuestMemory` represents a container for an *immutable* collection of
-/// `GuestMemoryRegion` objects.  `GuestMemory` provides the `Bytes<GuestAddress>`
+/// `GuestMemoryBackend` represents a container for an *immutable* collection of
+/// `GuestMemoryRegion` objects.  `GuestMemoryBackend` provides the `Bytes<GuestAddress>`
 /// trait to hide the details of accessing guest memory by physical address.
-/// Interior mutability is not allowed for implementations of `GuestMemory` so
+/// Interior mutability is not allowed for implementations of `GuestMemoryBackend` so
 /// that they always provide a consistent view of the memory map.
 ///
-/// The task of the `GuestMemory` trait are:
+/// The task of the `GuestMemoryBackend` trait are:
 /// - map a request address to a `GuestMemoryRegion` object and relay the request to it.
 /// - handle cases where an access request spanning two or more `GuestMemoryRegion` objects.
-pub trait GuestMemory {
+pub trait GuestMemoryBackend {
     /// Type of objects hosted by the address space.
     type R: GuestMemoryRegion;
 
@@ -302,7 +302,7 @@ pub trait GuestMemory {
     /// ```
     /// # #[cfg(feature = "backend-mmap")]
     /// # {
-    /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryRegion, GuestMemoryMmap};
+    /// # use vm_memory::{GuestAddress, GuestMemoryBackend, GuestMemoryRegion, GuestMemoryMmap};
     /// #
     /// let start_addr1 = GuestAddress(0x0);
     /// let start_addr2 = GuestAddress(0x400);
@@ -319,14 +319,14 @@ pub trait GuestMemory {
     fn iter(&self) -> impl Iterator<Item = &Self::R>;
 
     /// Returns the maximum (inclusive) address managed by the
-    /// [`GuestMemory`](trait.GuestMemory.html).
+    /// [`GuestMemoryBackend`](trait.GuestMemoryBackend.html).
     ///
     /// # Examples (uses the `backend-mmap` feature)
     ///
     /// ```
     /// # #[cfg(feature = "backend-mmap")]
     /// # {
-    /// # use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
+    /// # use vm_memory::{Address, GuestAddress, GuestMemoryBackend, GuestMemoryMmap};
     /// #
     /// let start_addr = GuestAddress(0x1000);
     /// let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x400)])
@@ -376,7 +376,7 @@ pub trait GuestMemory {
     ///
     /// The address range `[addr, addr + count)` may span more than one
     /// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) object, or even have holes in it.
-    /// So [`try_access()`](trait.GuestMemory.html#method.try_access) invokes the callback 'f'
+    /// So [`try_access()`](trait.GuestMemoryBackend.html#method.try_access) invokes the callback 'f'
     /// for each [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) object involved and returns:
     /// - the error code returned by the callback 'f'
     /// - the size of the already handled data when encountering the first hole
@@ -423,7 +423,7 @@ pub trait GuestMemory {
 
     /// Get the host virtual address corresponding to the guest address.
     ///
-    /// Some [`GuestMemory`](trait.GuestMemory.html) implementations, like `GuestMemoryMmap`,
+    /// Some [`GuestMemoryBackend`](trait.GuestMemoryBackend.html) implementations, like `GuestMemoryMmap`,
     /// have the capability to mmap the guest address range into virtual address space of the host
     /// for direct access, so the corresponding host virtual address may be passed to other
     /// subsystems.
@@ -441,7 +441,7 @@ pub trait GuestMemory {
     /// ```
     /// # #[cfg(feature = "backend-mmap")]
     /// # {
-    /// # use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
+    /// # use vm_memory::{GuestAddress, GuestMemoryBackend, GuestMemoryMmap};
     /// #
     /// # let start_addr = GuestAddress(0x1000);
     /// # let mut gm = GuestMemoryMmap::<()>::from_ranges(&vec![(start_addr, 0x500)])
@@ -484,8 +484,8 @@ pub trait GuestMemory {
         &'a self,
         addr: GuestAddress,
         count: usize,
-    ) -> GuestMemorySliceIterator<'a, Self> {
-        GuestMemorySliceIterator {
+    ) -> GuestMemoryBackendSliceIterator<'a, Self> {
+        GuestMemoryBackendSliceIterator {
             mem: self,
             addr,
             count,
@@ -495,9 +495,9 @@ pub trait GuestMemory {
 
 /// Iterates over [`VolatileSlice`]s that together form a guest memory area.
 ///
-/// Returned by [`GuestMemory::get_slices()`].
+/// Returned by [`GuestMemoryBackend::get_slices()`].
 #[derive(Debug)]
-pub struct GuestMemorySliceIterator<'a, M: GuestMemory + ?Sized> {
+pub struct GuestMemoryBackendSliceIterator<'a, M: GuestMemoryBackend + ?Sized> {
     /// Underlying memory
     mem: &'a M,
     /// Next address in the guest memory area
@@ -506,8 +506,8 @@ pub struct GuestMemorySliceIterator<'a, M: GuestMemory + ?Sized> {
     count: usize,
 }
 
-impl<'a, M: GuestMemory + ?Sized> GuestMemorySliceIterator<'a, M> {
-    /// Helper function for [`<Self as Iterator>::next()`](GuestMemorySliceIterator::next).
+impl<'a, M: GuestMemoryBackend + ?Sized> GuestMemoryBackendSliceIterator<'a, M> {
+    /// Helper function for [`<Self as Iterator>::next()`](GuestMemoryBackendSliceIterator::next).
     ///
     /// Get the next slice (i.e. the one starting from `self.addr` with a length up to
     /// `self.count`) and update the internal state.
@@ -547,15 +547,15 @@ impl<'a, M: GuestMemory + ?Sized> GuestMemorySliceIterator<'a, M> {
         }))
     }
 
-    /// Adapts this [`GuestMemorySliceIterator`] to return `None` (e.g. gracefully terminate)
+    /// Adapts this [`GuestMemoryBackendSliceIterator`] to return `None` (e.g. gracefully terminate)
     /// when it encounters an error after successfully producing at least one slice.
     /// Return an error if requesting the first slice returns an error.
     pub fn stop_on_error(self) -> Result<impl Iterator<Item = VolatileSlice<'a, MS<'a, M>>>> {
-        <Self as IoMemorySliceIterator<'a, MS<'a, M>>>::stop_on_error(self)
+        <Self as GuestMemorySliceIterator<'a, MS<'a, M>>>::stop_on_error(self)
     }
 }
 
-impl<'a, M: GuestMemory + ?Sized> Iterator for GuestMemorySliceIterator<'a, M> {
+impl<'a, M: GuestMemoryBackend + ?Sized> Iterator for GuestMemoryBackendSliceIterator<'a, M> {
     type Item = Result<VolatileSlice<'a, MS<'a, M>>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -572,23 +572,23 @@ impl<'a, M: GuestMemory + ?Sized> Iterator for GuestMemorySliceIterator<'a, M> {
     }
 }
 
-impl<'a, M: GuestMemory + ?Sized> IoMemorySliceIterator<'a, MS<'a, M>>
-    for GuestMemorySliceIterator<'a, M>
+impl<'a, M: GuestMemoryBackend + ?Sized> GuestMemorySliceIterator<'a, MS<'a, M>>
+    for GuestMemoryBackendSliceIterator<'a, M>
 {
 }
 
 /// This iterator continues to return `None` when exhausted.
 ///
-/// [`<Self as Iterator>::next()`](GuestMemorySliceIterator::next) sets `self.count` to 0 when
+/// [`<Self as Iterator>::next()`](GuestMemoryBackendSliceIterator::next) sets `self.count` to 0 when
 /// returning `None`, ensuring that it will only return `None` from that point on.
-impl<M: GuestMemory + ?Sized> FusedIterator for GuestMemorySliceIterator<'_, M> {}
+impl<M: GuestMemoryBackend + ?Sized> FusedIterator for GuestMemoryBackendSliceIterator<'_, M> {}
 
-/// Allow accessing [`IoMemory`] (and [`GuestMemory`]) objects via [`Bytes`].
+/// Allow accessing [`GuestMemory`] (and [`GuestMemoryBackend`]) objects via [`Bytes`].
 ///
-/// Thanks to the [blanket implementation of `IoMemory` for all `GuestMemory`
-/// types](../io_memory/trait.IoMemory.html#impl-IoMemory-for-M), this blanket implementation
-/// extends to all [`GuestMemory`] types.
-impl<T: IoMemory + ?Sized> Bytes<GuestAddress> for T {
+/// Thanks to the [blanket implementation of `GuestMemory` for all `GuestMemoryBackend`
+/// types](../guest_memory/trait.GuestMemory.html#impl-GuestMemory-for-M), this blanket implementation
+/// extends to all [`GuestMemoryBackend`] types.
+impl<T: GuestMemory + ?Sized> Bytes<GuestAddress> for T {
     type E = Error;
 
     fn write(&self, buf: &[u8], addr: GuestAddress) -> Result<usize> {
@@ -802,19 +802,19 @@ impl std::ops::BitAnd for Permissions {
 
 /// Represents virtual I/O memory.
 ///
-/// `IoMemory` is generally backed by some “physical” `GuestMemory`, which then consists for
+/// `GuestMemory` is generally backed by some “physical” `GuestMemoryBackend`, which then consists for
 /// `GuestMemoryRegion` objects.  However, the mapping from I/O virtual addresses (IOVAs) to
 /// physical addresses may be arbitrarily fragmented.  Translation is done via an IOMMU.
 ///
-/// Note in contrast to `GuestMemory`:
+/// Note in contrast to `GuestMemoryBackend`:
 /// - Any IOVA range may consist of arbitrarily many underlying ranges in physical memory.
 /// - Accessing an IOVA requires passing the intended access mode, and the IOMMU will check whether
 ///   the given access mode is permitted for the given IOVA.
 /// - The translation result for a given IOVA may change over time (i.e. the physical address
 ///   associated with an IOVA may change).
-pub trait IoMemory {
-    /// Underlying `GuestMemory` type.
-    type PhysicalMemory: GuestMemory + ?Sized;
+pub trait GuestMemory {
+    /// Underlying `GuestMemoryBackend` type.
+    type PhysicalMemory: GuestMemoryBackend + ?Sized;
     /// Dirty bitmap type for tracking writes to the IOVA address space.
     type Bitmap: Bitmap;
 
@@ -839,10 +839,10 @@ pub trait IoMemory {
         addr: GuestAddress,
         count: usize,
         access: Permissions,
-    ) -> Result<impl IoMemorySliceIterator<'a, BS<'a, Self::Bitmap>>>;
+    ) -> Result<impl GuestMemorySliceIterator<'a, BS<'a, Self::Bitmap>>>;
 
-    /// If this virtual memory is just a plain `GuestMemory` object underneath without an IOMMU
-    /// translation layer in between, return that `GuestMemory` object.
+    /// If this virtual memory is just a plain `GuestMemoryBackend` object underneath without an IOMMU
+    /// translation layer in between, return that `GuestMemoryBackend` object.
     fn physical_memory(&self) -> Option<&Self::PhysicalMemory> {
         None
     }
@@ -850,11 +850,11 @@ pub trait IoMemory {
 
 /// Iterates over [`VolatileSlice`]s that together form an I/O memory area.
 ///
-/// Returned by [`IoMemory::get_slices()`].
-pub trait IoMemorySliceIterator<'a, B: BitmapSlice>:
+/// Returned by [`GuestMemory::get_slices()`].
+pub trait GuestMemorySliceIterator<'a, B: BitmapSlice>:
     Iterator<Item = Result<VolatileSlice<'a, B>>> + FusedIterator + Sized
 {
-    /// Adapts this [`IoMemorySliceIterator`] to return `None` (e.g. gracefully terminate) when it
+    /// Adapts this [`GuestMemorySliceIterator`] to return `None` (e.g. gracefully terminate) when it
     /// encounters an error after successfully producing at least one slice.
     /// Return an error if requesting the first slice returns an error.
     fn stop_on_error(self) -> Result<impl Iterator<Item = VolatileSlice<'a, B>>> {
@@ -866,22 +866,22 @@ pub trait IoMemorySliceIterator<'a, B: BitmapSlice>:
     }
 }
 
-/// Allow accessing every [`GuestMemory`] via [`IoMemory`].
+/// Allow accessing every [`GuestMemoryBackend`] via [`GuestMemory`].
 ///
-/// [`IoMemory`] is a generalization of [`GuestMemory`]: Every object implementing the former is a
-/// subset of an object implementing the latter (there always is an underlying [`GuestMemory`]),
+/// [`GuestMemory`] is a generalization of [`GuestMemoryBackend`]: Every object implementing the former is a
+/// subset of an object implementing the latter (there always is an underlying [`GuestMemoryBackend`]),
 /// with an opaque internal mapping on top, e.g. provided by an IOMMU.
 ///
-/// Every [`GuestMemory`] is therefore trivially also an [`IoMemory`], assuming a complete identity
+/// Every [`GuestMemoryBackend`] is therefore trivially also an [`GuestMemory`], assuming a complete identity
 /// mapping (which we must assume, so that accessing such objects via either trait will yield the
-/// same result): Basically, all [`IoMemory`] methods are implemented as trivial wrappers around
-/// the same [`GuestMemory`] methods (if available), discarding the `access` parameter.
-impl<M: GuestMemory + ?Sized> IoMemory for M {
+/// same result): Basically, all [`GuestMemory`] methods are implemented as trivial wrappers around
+/// the same [`GuestMemoryBackend`] methods (if available), discarding the `access` parameter.
+impl<M: GuestMemoryBackend + ?Sized> GuestMemory for M {
     type PhysicalMemory = M;
     type Bitmap = <M::R as GuestMemoryRegion>::B;
 
     fn check_range(&self, addr: GuestAddress, count: usize, _access: Permissions) -> bool {
-        <M as GuestMemory>::check_range(self, addr, count)
+        <M as GuestMemoryBackend>::check_range(self, addr, count)
     }
 
     fn get_slices<'a>(
@@ -889,8 +889,8 @@ impl<M: GuestMemory + ?Sized> IoMemory for M {
         addr: GuestAddress,
         count: usize,
         _access: Permissions,
-    ) -> Result<impl IoMemorySliceIterator<'a, BS<'a, Self::Bitmap>>> {
-        Ok(<M as GuestMemory>::get_slices(self, addr, count))
+    ) -> Result<impl GuestMemorySliceIterator<'a, BS<'a, Self::Bitmap>>> {
+        Ok(<M as GuestMemoryBackend>::get_slices(self, addr, count))
     }
 
     fn physical_memory(&self) -> Option<&Self::PhysicalMemory> {
@@ -902,7 +902,7 @@ impl<M: GuestMemory + ?Sized> IoMemory for M {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    // Note that `IoMemory` is tested primarily in src/iommu.rs via `IommuMemory`.
+    // Note that `GuestMemory` is tested primarily in src/iommu.rs via `IommuMemory`.
 
     use super::*;
     #[cfg(feature = "backend-mmap")]

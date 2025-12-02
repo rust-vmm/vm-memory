@@ -1,6 +1,17 @@
 # Changelog
 
-## Upcoming version
+## 0.18.0
+
+### Changed
+
+This release includes a major change to the `vm-memory` API in order to support
+memory access permissions.  The previous `GuestMemory` trait is now renamed
+to `GuestMemoryBackend`, and `GuestMemory` has a completely new definition.
+However, common interfaces such as `GuestAddressSpace` and `Bytes` remain on
+`GuestMemory`; therefore, all callers that just use the `Bytes` interface
+remain completely unchanged.
+
+- \[[#362](https://github.com/rust-vmm/vm-memory/pull/362)\] Rename `GuestMemory` to `GuestMemoryBackend`, `IoMemory` to `GuestMemory`
 
 ### Added
 
