@@ -8,7 +8,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-//! The default implementation for the [`GuestMemory`](trait.GuestMemory.html) trait.
+//! The default implementation for the [`GuestMemoryBackend`](trait.GuestMemoryBackend.html) trait.
 //!
 //! This implementation is mmap-ing the memory of the guest into the current process.
 
@@ -179,7 +179,7 @@ impl<B: Bitmap> GuestMemoryRegion for GuestRegionMmap<B> {
 
 impl<B: Bitmap> GuestMemoryRegionBytes for GuestRegionMmap<B> {}
 
-/// [`GuestMemory`](trait.GuestMemory.html) implementation that mmaps the guest's memory
+/// [`GuestMemoryBackend`](trait.GuestMemoryBackend.html) implementation that mmaps the guest's memory
 /// in the current process.
 ///
 /// Represents the entire physical memory of the guest by tracking all its memory regions.
@@ -239,7 +239,7 @@ mod tests {
 
     #[cfg(feature = "backend-bitmap")]
     use crate::bitmap::AtomicBitmap;
-    use crate::{Bytes, GuestMemory, GuestMemoryError};
+    use crate::{Bytes, GuestMemoryBackend, GuestMemoryError};
 
     use std::io::Write;
     #[cfg(feature = "rawfd")]
@@ -271,7 +271,7 @@ mod tests {
     fn mapped_file_read() {
         let mut f = TempFile::new().unwrap().into_file();
         let sample_buf = &[1, 2, 3, 4, 5];
-        assert!(f.write_all(sample_buf).is_ok());
+        f.write_all(sample_buf).unwrap();
 
         let file = Some(FileOffset::new(f, 0));
         let mem_map = GuestRegionMmap::from_range(GuestAddress(0), sample_buf.len(), file).unwrap();
@@ -330,7 +330,10 @@ mod tests {
 
         let guest_mem_list = [guest_mem, guest_mem_backed_by_file];
         for guest_mem in guest_mem_list.iter() {
-            assert!(guest_mem.get_host_address(GuestAddress(0x600)).is_err());
+            assert_matches!(
+                guest_mem.get_host_address(GuestAddress(0x600)).unwrap_err(),
+                GuestMemoryError::InvalidGuestAddress(GuestAddress(0x600))
+            );
             let ptr0 = guest_mem.get_host_address(GuestAddress(0x800)).unwrap();
             let ptr1 = guest_mem.get_host_address(GuestAddress(0xa00)).unwrap();
             assert_eq!(
@@ -613,7 +616,10 @@ mod tests {
         // Error case when slice_size is beyond the boundary.
         let slice_addr = MemoryRegionAddress(0x300);
         let slice_size = 0x200;
-        assert!(region.get_slice(slice_addr, slice_size).is_err());
+        assert_matches!(
+            region.get_slice(slice_addr, slice_size).unwrap_err(),
+            GuestMemoryError::InvalidBackendAddress
+        );
     }
 
     #[test]
@@ -659,9 +665,18 @@ mod tests {
             .is_empty());
 
         // Error cases, wrong size or base address.
-        assert!(guest_mem.get_slice(GuestAddress(0), 0x500).is_err());
-        assert!(guest_mem.get_slice(GuestAddress(0x600), 0x100).is_err());
-        assert!(guest_mem.get_slice(GuestAddress(0xc00), 0x100).is_err());
+        assert_matches!(
+            guest_mem.get_slice(GuestAddress(0), 0x500).unwrap_err(),
+            GuestMemoryError::InvalidBackendAddress
+        );
+        assert_matches!(
+            guest_mem.get_slice(GuestAddress(0x600), 0x100).unwrap_err(),
+            GuestMemoryError::InvalidGuestAddress(GuestAddress(0x600))
+        );
+        assert_matches!(
+            guest_mem.get_slice(GuestAddress(0xc00), 0x100).unwrap_err(),
+            GuestMemoryError::InvalidGuestAddress(GuestAddress(0xc00))
+        );
     }
 
     #[test]
@@ -698,13 +713,22 @@ mod tests {
         // Error cases, wrong size or base address.
         let mut slices = guest_mem.get_slices(GuestAddress(0), 0x500);
         assert_eq!(slices.next().unwrap().unwrap().len(), 0x400);
-        assert!(slices.next().unwrap().is_err());
+        assert_matches!(
+            slices.next().unwrap().unwrap_err(),
+            GuestMemoryError::InvalidGuestAddress(GuestAddress(0x400))
+        );
         assert!(slices.next().is_none());
         let mut slices = guest_mem.get_slices(GuestAddress(0x600), 0x100);
-        assert!(slices.next().unwrap().is_err());
+        assert_matches!(
+            slices.next().unwrap().unwrap_err(),
+            GuestMemoryError::InvalidGuestAddress(GuestAddress(0x600))
+        );
         assert!(slices.next().is_none());
         let mut slices = guest_mem.get_slices(GuestAddress(0x1000), 0x100);
-        assert!(slices.next().unwrap().is_err());
+        assert_matches!(
+            slices.next().unwrap().unwrap_err(),
+            GuestMemoryError::InvalidGuestAddress(GuestAddress(0x1000))
+        );
         assert!(slices.next().is_none());
 
         // Test fragmented case

@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn test_mmap_region_new() {
-        assert!(MmapRegion::new(0).is_err());
+        assert_matches!(MmapRegion::new(0).unwrap_err(), Error::Mmap(e) if e.kind() == io::ErrorKind::InvalidInput);
 
         let size = 4096;
 
@@ -479,7 +479,7 @@ mod tests {
 
     #[test]
     fn test_mmap_region_set_hugetlbfs() {
-        assert!(MmapRegion::new(0).is_err());
+        assert_matches!(MmapRegion::new(0).unwrap_err(), Error::Mmap(e) if e.kind() == io::ErrorKind::InvalidInput);
 
         let size = 4096;
 

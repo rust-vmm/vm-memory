@@ -14,12 +14,12 @@
 
 use crate::bitmap::{self, Bitmap};
 use crate::guest_memory::{
-    Error as GuestMemoryError, GuestMemorySliceIterator, IoMemorySliceIterator,
+    Error as GuestMemoryError, GuestMemoryBackendSliceIterator, GuestMemorySliceIterator,
     Result as GuestMemoryResult,
 };
 use crate::{
-    Address, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, IoMemory, Permissions,
-    VolatileSlice,
+    Address, GuestAddress, GuestMemory, GuestMemoryBackend, GuestMemoryRegion, GuestUsize,
+    Permissions, VolatileSlice,
 };
 use rangemap::RangeMap;
 use std::cmp;
@@ -182,25 +182,25 @@ pub struct IotlbFails {
     pub access_fails: Vec<IovaRange>,
 }
 
-/// [`IoMemory`] type that consists of an underlying [`GuestMemory`] object plus an [`Iommu`].
+/// [`GuestMemory`] type that consists of an underlying [`GuestMemoryBackend`] object plus an [`Iommu`].
 ///
-/// The underlying [`GuestMemory`] is basically the physical memory, and the [`Iommu`] translates
+/// The underlying [`GuestMemoryBackend`] is basically the physical memory, and the [`Iommu`] translates
 /// the I/O virtual address space that `IommuMemory` provides into that underlying physical address
 /// space.
 ///
 /// Note that this type’s implementation of memory write tracking (“logging”) is specific to what
 /// is required by vhost-user:
 /// - When the IOMMU is disabled ([`IommuMemory::set_iommu_enabled()`]), writes to memory are
-///   tracked by the underlying [`GuestMemory`] in its bitmap(s).
+///   tracked by the underlying [`GuestMemoryBackend`] in its bitmap(s).
 /// - When it is enabled, they are instead tracked in the [`IommuMemory`]’s dirty bitmap; the
 ///   offset in the bitmap is calculated from the write’s IOVA.
 ///
-/// That is, there are two bitmap levels, one in the underlying [`GuestMemory`], and one in
+/// That is, there are two bitmap levels, one in the underlying [`GuestMemoryBackend`], and one in
 /// [`IommuMemory`].  The former is used when the IOMMU is disabled, the latter when it is enabled.
 ///
-/// If you need a different model (e.g. always use the [`GuestMemory`] bitmaps), you should not use
+/// If you need a different model (e.g. always use the [`GuestMemoryBackend`] bitmaps), you should not use
 /// this type.
-pub struct IommuMemory<M: GuestMemory, I: Iommu> {
+pub struct IommuMemory<M: GuestMemoryBackend, I: Iommu> {
     /// Physical memory
     backend: M,
     /// IOMMU to translate IOVAs into physical addresses
@@ -371,9 +371,14 @@ impl TryFrom<Range<u64>> for IovaRange {
     }
 }
 
-impl<M: GuestMemory, I: Iommu> IommuMemory<M, I> {
+impl<M: GuestMemoryBackend, I: Iommu> IommuMemory<M, I> {
     /// Create a new `IommuMemory` instance.
-    pub fn new(backend: M, iommu: I, use_iommu: bool, bitmap: <Self as IoMemory>::Bitmap) -> Self {
+    pub fn new(
+        backend: M,
+        iommu: I,
+        use_iommu: bool,
+        bitmap: <Self as GuestMemory>::Bitmap,
+    ) -> Self {
         IommuMemory {
             backend,
             iommu: Arc::new(iommu),
@@ -399,7 +404,7 @@ impl<M: GuestMemory, I: Iommu> IommuMemory<M, I> {
     /// Return a reference to the IOVA address space's dirty bitmap.
     ///
     /// This bitmap tracks write accesses done while the IOMMU is enabled.
-    pub fn bitmap(&self) -> &Arc<<Self as IoMemory>::Bitmap> {
+    pub fn bitmap(&self) -> &Arc<<Self as GuestMemory>::Bitmap> {
         &self.bitmap
     }
 
@@ -430,7 +435,7 @@ impl<M: GuestMemory, I: Iommu> IommuMemory<M, I> {
     }
 }
 
-impl<M: GuestMemory + Clone, I: Iommu> Clone for IommuMemory<M, I> {
+impl<M: GuestMemoryBackend + Clone, I: Iommu> Clone for IommuMemory<M, I> {
     fn clone(&self) -> Self {
         IommuMemory {
             backend: self.backend.clone(),
@@ -441,7 +446,7 @@ impl<M: GuestMemory + Clone, I: Iommu> Clone for IommuMemory<M, I> {
     }
 }
 
-impl<M: GuestMemory + Debug, I: Iommu> Debug for IommuMemory<M, I>
+impl<M: GuestMemoryBackend + Debug, I: Iommu> Debug for IommuMemory<M, I>
 where
     <M::R as GuestMemoryRegion>::B: Debug,
 {
@@ -455,7 +460,7 @@ where
     }
 }
 
-impl<M: GuestMemory + Default, I: Iommu + Default> Default for IommuMemory<M, I>
+impl<M: GuestMemoryBackend + Default, I: Iommu + Default> Default for IommuMemory<M, I>
 where
     <M::R as GuestMemoryRegion>::B: Default,
 {
@@ -469,7 +474,7 @@ where
     }
 }
 
-impl<M: GuestMemory, I: Iommu> IoMemory for IommuMemory<M, I> {
+impl<M: GuestMemoryBackend, I: Iommu> GuestMemory for IommuMemory<M, I> {
     type PhysicalMemory = M;
     type Bitmap = <M::R as GuestMemoryRegion>::B;
 
@@ -491,7 +496,7 @@ impl<M: GuestMemory, I: Iommu> IoMemory for IommuMemory<M, I> {
         addr: GuestAddress,
         count: usize,
         access: Permissions,
-    ) -> GuestMemoryResult<impl IoMemorySliceIterator<'a, bitmap::BS<'a, Self::Bitmap>>> {
+    ) -> GuestMemoryResult<impl GuestMemorySliceIterator<'a, bitmap::BS<'a, Self::Bitmap>>> {
         if self.use_iommu {
             IommuMemorySliceIterator::virt(self, addr, count, access)
                 .map_err(GuestMemoryError::IommuError)
@@ -512,7 +517,7 @@ impl<M: GuestMemory, I: Iommu> IoMemory for IommuMemory<M, I> {
 /// Iterates over [`VolatileSlice`]s that together form an area in an `IommuMemory`.
 ///
 /// Returned by [`IommuMemory::get_slices()`]
-pub struct IommuMemorySliceIterator<'a, M: GuestMemory, I: Iommu + 'a> {
+pub struct IommuMemorySliceIterator<'a, M: GuestMemoryBackend, I: Iommu + 'a> {
     /// Current IOVA (needed to access the right slice of the IOVA space dirty bitmap)
     iova: GuestAddress,
     /// IOVA space dirty bitmap
@@ -522,14 +527,14 @@ pub struct IommuMemorySliceIterator<'a, M: GuestMemory, I: Iommu + 'a> {
     /// IOMMU translation result (i.e. remaining physical regions to visit)
     translation: Option<IotlbIterator<I::IotlbGuard<'a>>>,
     /// Iterator in the currently visited physical region
-    current_translated_iter: Option<GuestMemorySliceIterator<'a, M>>,
+    current_translated_iter: Option<GuestMemoryBackendSliceIterator<'a, M>>,
 }
 
-impl<'a, M: GuestMemory, I: Iommu> IommuMemorySliceIterator<'a, M, I> {
+impl<'a, M: GuestMemoryBackend, I: Iommu> IommuMemorySliceIterator<'a, M, I> {
     /// Create an iterator over the physical region `[addr, addr + count)`.
     ///
     /// “Physical” means that the IOMMU is not used to translate this address range.  The resulting
-    /// iterator is effectively the same as would be returned by [`GuestMemory::get_slices()`] on
+    /// iterator is effectively the same as would be returned by [`GuestMemoryBackend::get_slices()`] on
     /// the underlying physical memory for the given address range.
     fn phys(mem: &'a IommuMemory<M, I>, addr: GuestAddress, count: usize) -> Self {
         IommuMemorySliceIterator {
@@ -544,7 +549,7 @@ impl<'a, M: GuestMemory, I: Iommu> IommuMemorySliceIterator<'a, M, I> {
     /// Create an iterator over the IOVA region `[addr, addr + count)`.
     ///
     /// This address range is translated using the IOMMU, and the resulting mappings are then
-    /// separately visited via [`GuestMemory::get_slices()`].
+    /// separately visited via [`GuestMemoryBackend::get_slices()`].
     fn virt(
         mem: &'a IommuMemory<M, I>,
         addr: GuestAddress,
@@ -613,7 +618,7 @@ impl<'a, M: GuestMemory, I: Iommu> IommuMemorySliceIterator<'a, M, I> {
     }
 }
 
-impl<'a, M: GuestMemory, I: Iommu> Iterator for IommuMemorySliceIterator<'a, M, I> {
+impl<'a, M: GuestMemoryBackend, I: Iommu> Iterator for IommuMemorySliceIterator<'a, M, I> {
     type Item = GuestMemoryResult<VolatileSlice<'a, bitmap::MS<'a, M>>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -636,14 +641,14 @@ impl<'a, M: GuestMemory, I: Iommu> Iterator for IommuMemorySliceIterator<'a, M, 
 /// [`<Self as Iterator>::next()`](IommuMemorySliceIterator::next) sets both
 /// `self.current_translated_iter` and `self.translation` to `None` when returning anything but
 /// `Some(Ok(_))`, ensuring that it will only return `None` from that point on.
-impl<M: GuestMemory, I: Iommu> FusedIterator for IommuMemorySliceIterator<'_, M, I> {}
+impl<M: GuestMemoryBackend, I: Iommu> FusedIterator for IommuMemorySliceIterator<'_, M, I> {}
 
-impl<'a, M: GuestMemory, I: Iommu> IoMemorySliceIterator<'a, bitmap::MS<'a, M>>
+impl<'a, M: GuestMemoryBackend, I: Iommu> GuestMemorySliceIterator<'a, bitmap::MS<'a, M>>
     for IommuMemorySliceIterator<'a, M, I>
 {
 }
 
-impl<'a, M: GuestMemory + Debug, I: Iommu> Debug for IommuMemorySliceIterator<'a, M, I>
+impl<'a, M: GuestMemoryBackend + Debug, I: Iommu> Debug for IommuMemorySliceIterator<'a, M, I>
 where
     I::IotlbGuard<'a>: Debug,
     <M::R as GuestMemoryRegion>::B: Debug,
@@ -672,7 +677,8 @@ mod tests {
     use crate::GuestMemoryRegion;
     #[cfg(feature = "backend-mmap")]
     use crate::{
-        Bytes, GuestMemoryError, GuestMemoryMmap, GuestMemoryResult, IoMemory, Iommu, IommuMemory,
+        Bytes, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryResult, Iommu,
+        IommuMemory,
     };
     use crate::{GuestAddress, Iotlb, Permissions};
     use std::fmt::Debug;
@@ -1150,7 +1156,7 @@ mod tests {
     /// Return an error if mapping fails, but just panic if there is a content mismatch.
     #[cfg(feature = "backend-mmap")]
     fn check_virt_mem_content(
-        mem: &impl IoMemory,
+        mem: &impl GuestMemory,
         start: GuestAddress,
         len: usize,
         value_offset: u8,
@@ -1173,7 +1179,7 @@ mod tests {
 
     #[cfg(feature = "backend-mmap")]
     fn verify_virt_mem_content(
-        m: &impl IoMemory,
+        m: &impl GuestMemory,
         start: GuestAddress,
         len: usize,
         value_offset: u8,
@@ -1188,7 +1194,7 @@ mod tests {
     /// starting at `fail_start` (i.e. `start + len - fail_start`).
     #[cfg(feature = "backend-mmap")]
     fn verify_virt_mem_error(
-        m: &impl IoMemory,
+        m: &impl GuestMemory,
         start: GuestAddress,
         len: usize,
         fail_start: Option<GuestAddress>,
@@ -1412,11 +1418,11 @@ mod tests {
     /// In `mem`'s dirty bitmap, verify that the given `clean` addresses are clean, and the `dirty`
     /// addresses are dirty.  Auto-clear the dirty addresses checked.
     ///
-    /// Cannot import `GuestMemory` in this module, as that would interfere with `IoMemory` for
+    /// Cannot import `GuestMemoryBackend` in this module, as that would interfere with `GuestMemory` for
     /// methods that have the same name between the two.
     #[cfg(all(feature = "backend-bitmap", feature = "backend-mmap"))]
     fn verify_mem_bitmap<
-        M: crate::GuestMemory<R = R>,
+        M: crate::GuestMemoryBackend<R = R>,
         R: GuestMemoryRegion<B = AtomicBitmap>,
         I: Iommu,
     >(

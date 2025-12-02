@@ -15,6 +15,7 @@
 //! without knowing the implementation details of the VM memory provider. Thus hypervisor
 //! components, such as boot loader, virtual device drivers, virtio backend drivers and vhost
 //! drivers etc, could be shared and reused by multiple hypervisors.
+#![warn(clippy::assertions_on_result_states)]
 #![warn(clippy::doc_markdown)]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
@@ -53,7 +54,7 @@ pub use endian::{Be16, Be32, Be64, BeSize, Le16, Le32, Le64, LeSize};
 pub mod guest_memory;
 pub use guest_memory::{
     Error as GuestMemoryError, FileOffset, GuestAddress, GuestAddressSpace, GuestMemory,
-    GuestUsize, IoMemory, MemoryRegionAddress, Permissions, Result as GuestMemoryResult,
+    GuestMemoryBackend, GuestUsize, MemoryRegionAddress, Permissions, Result as GuestMemoryResult,
 };
 
 pub mod region;

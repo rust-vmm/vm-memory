@@ -85,10 +85,17 @@ pub type Result<T> = result::Result<T, Error>;
 /// # Examples
 ///
 /// ```
-/// # use vm_memory::volatile_memory::compute_offset;
+/// # use matches::assert_matches;
+/// # use vm_memory::volatile_memory::{compute_offset, Error};
 /// #
 /// assert_eq!(108, compute_offset(100, 8).unwrap());
-/// assert!(compute_offset(usize::MAX, 6).is_err());
+/// assert_matches!(
+///     compute_offset(usize::MAX, 6).unwrap_err(),
+///     Error::Overflow {
+///         base: usize::MAX,
+///         offset: 6
+///     }
+/// );
 /// ```
 pub fn compute_offset(base: usize, offset: usize) -> Result<usize> {
     match base.checked_add(offset) {
@@ -1560,8 +1567,11 @@ mod tests {
         let mut a = [5usize, 5usize];
         let a_ref =
             unsafe { VolatileSlice::new(&mut a[0] as *mut usize as *mut u8, size_of::<usize>()) };
-        assert!(a_ref.get_atomic_ref::<AtomicUsize>(0).is_ok());
-        assert!(a_ref.get_atomic_ref::<AtomicUsize>(1).is_err());
+        a_ref.get_atomic_ref::<AtomicUsize>(0).unwrap();
+        assert_matches!(
+            a_ref.get_atomic_ref::<AtomicUsize>(1).unwrap_err(),
+            Error::OutOfBounds { addr: 9 }
+        );
     }
 
     #[test]
@@ -1677,31 +1687,56 @@ mod tests {
         let mut backing = vec![0u8; 100];
         let mem = VolatileSlice::from(backing.as_mut_slice());
         let slice = mem.get_slice(0, 100).unwrap();
-        assert!(slice.write(&[1; 80], 10).is_ok());
+        slice.write(&[1; 80], 10).unwrap();
 
-        assert!(slice.subslice(0, 0).is_ok());
-        assert!(slice.subslice(0, 101).is_err());
+        slice.subslice(0, 0).unwrap();
+        assert_matches!(
+            slice.subslice(0, 101).unwrap_err(),
+            Error::OutOfBounds { addr: 101 }
+        );
 
-        assert!(slice.subslice(99, 0).is_ok());
-        assert!(slice.subslice(99, 1).is_ok());
-        assert!(slice.subslice(99, 2).is_err());
+        slice.subslice(99, 0).unwrap();
+        slice.subslice(99, 1).unwrap();
+        assert_matches!(
+            slice.subslice(99, 2).unwrap_err(),
+            Error::OutOfBounds { addr: 101 }
+        );
 
-        assert!(slice.subslice(100, 0).is_ok());
-        assert!(slice.subslice(100, 1).is_err());
+        slice.subslice(100, 0).unwrap();
+        assert_matches!(
+            slice.subslice(100, 1).unwrap_err(),
+            Error::OutOfBounds { addr: 101 }
+        );
 
-        assert!(slice.subslice(101, 0).is_err());
-        assert!(slice.subslice(101, 1).is_err());
+        assert_matches!(
+            slice.subslice(101, 0).unwrap_err(),
+            Error::OutOfBounds { addr: 101 }
+        );
+        assert_matches!(
+            slice.subslice(101, 1).unwrap_err(),
+            Error::OutOfBounds { addr: 102 }
+        );
 
-        assert!(slice.subslice(usize::MAX, 2).is_err());
-        assert!(slice.subslice(2, usize::MAX).is_err());
+        assert_matches!(
+            slice.subslice(usize::MAX, 2).unwrap_err(),
+            Error::Overflow {
+                base: usize::MAX,
+                offset: 2
+            }
+        );
+        assert_matches!(
+            slice.subslice(2, usize::MAX).unwrap_err(),
+            Error::Overflow {
+                base: 2,
+                offset: usize::MAX
+            }
+        );
 
-        let maybe_offset_slice = slice.subslice(10, 80);
-        assert!(maybe_offset_slice.is_ok());
-        let offset_slice = maybe_offset_slice.unwrap();
+        let offset_slice = slice.subslice(10, 80).unwrap();
         assert_eq!(offset_slice.len(), 80);
 
         let mut buf = [0; 80];
-        assert!(offset_slice.read(&mut buf, 0).is_ok());
+        offset_slice.read(&mut buf, 0).unwrap();
         assert_eq!(&buf[0..80], &[1; 80][0..80]);
     }
 
@@ -1710,16 +1745,17 @@ mod tests {
         let mut backing = vec![0u8; 100];
         let mem = VolatileSlice::from(backing.as_mut_slice());
         let slice = mem.get_slice(0, 100).unwrap();
-        assert!(slice.write(&[1; 80], 10).is_ok());
+        slice.write(&[1; 80], 10).unwrap();
 
-        assert!(slice.offset(101).is_err());
+        assert_matches!(
+            slice.offset(101).unwrap_err(),
+            Error::OutOfBounds { addr } if addr == slice.addr as usize + 101
+        );
 
-        let maybe_offset_slice = slice.offset(10);
-        assert!(maybe_offset_slice.is_ok());
-        let offset_slice = maybe_offset_slice.unwrap();
+        let offset_slice = slice.offset(10).unwrap();
         assert_eq!(offset_slice.len(), 90);
         let mut buf = [0; 90];
-        assert!(offset_slice.read(&mut buf, 0).is_ok());
+        offset_slice.read(&mut buf, 0).unwrap();
         assert_eq!(&buf[0..80], &[1; 80][0..80]);
         assert_eq!(&buf[80..90], &[0; 10][0..10]);
     }
@@ -1869,7 +1905,6 @@ mod tests {
         let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
         let res = s.write(&[1, 2, 3, 4, 5, 6], 0);
-        assert!(res.is_ok());
         assert_eq!(res.unwrap(), 5);
     }
 
@@ -1879,11 +1914,17 @@ mod tests {
         let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
         let sample_buf = [1, 2, 3];
-        assert!(s.write(&sample_buf, 5).is_err());
-        assert!(s.write(&sample_buf, 2).is_ok());
+        assert_matches!(
+            s.write(&sample_buf, 5).unwrap_err(),
+            Error::OutOfBounds { addr: 5 }
+        );
+        s.write(&sample_buf, 2).unwrap();
         let mut buf = [0u8; 3];
-        assert!(s.read(&mut buf, 5).is_err());
-        assert!(s.read_slice(&mut buf, 2).is_ok());
+        assert_matches!(
+            s.read(&mut buf, 5).unwrap_err(),
+            Error::OutOfBounds { addr: 5 }
+        );
+        s.read_slice(&mut buf, 2).unwrap();
         assert_eq!(buf, sample_buf);
 
         // Writing an empty buffer at the end of the volatile slice works.
@@ -1904,12 +1945,30 @@ mod tests {
         let mut backing = vec![0u8; 5];
         let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
-        assert!(s.write_obj(55u16, 4).is_err());
-        assert!(s.write_obj(55u16, usize::MAX).is_err());
-        assert!(s.write_obj(55u16, 2).is_ok());
+        assert_matches!(
+            s.write_obj(55u16, 4).unwrap_err(),
+            Error::PartialBuffer {
+                expected: 2,
+                completed: 1
+            }
+        );
+        assert_matches!(
+            s.write_obj(55u16, usize::MAX).unwrap_err(),
+            Error::OutOfBounds { addr: usize::MAX }
+        );
+        s.write_obj(55u16, 2).unwrap();
         assert_eq!(s.read_obj::<u16>(2).unwrap(), 55u16);
-        assert!(s.read_obj::<u16>(4).is_err());
-        assert!(s.read_obj::<u16>(usize::MAX).is_err());
+        assert_matches!(
+            s.read_obj::<u16>(4).unwrap_err(),
+            Error::PartialBuffer {
+                expected: 2,
+                completed: 1
+            }
+        );
+        assert_matches!(
+            s.read_obj::<u16>(usize::MAX).unwrap_err(),
+            Error::OutOfBounds { addr: usize::MAX }
+        );
     }
 
     #[test]
@@ -1918,16 +1977,15 @@ mod tests {
         let mut backing = vec![0u8; 5];
         let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
-        assert!(s.write_obj(!0u32, 1).is_ok());
+        s.write_obj(!0u32, 1).unwrap();
         let mut file = if cfg!(target_family = "unix") {
             File::open(Path::new("/dev/zero")).unwrap()
         } else {
             File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
         };
 
-        assert!(file
-            .read_exact_volatile(&mut s.get_slice(1, size_of::<u32>()).unwrap())
-            .is_ok());
+        file.read_exact_volatile(&mut s.get_slice(1, size_of::<u32>()).unwrap())
+            .unwrap();
 
         let mut f = TempFile::new().unwrap().into_file();
         assert!(f
@@ -1942,10 +2000,9 @@ mod tests {
         }
 
         let mut sink = vec![0; size_of::<u32>()];
-        assert!(sink
-            .as_mut_slice()
+        sink.as_mut_slice()
             .write_all_volatile(&s.get_slice(1, size_of::<u32>()).unwrap())
-            .is_ok());
+            .unwrap();
 
         if cfg!(target_family = "unix") {
             assert_eq!(sink, vec![0; size_of::<u32>()]);
@@ -1960,14 +2017,14 @@ mod tests {
         let a = VolatileSlice::from(backing.as_mut_slice());
         let s = a.as_volatile_slice();
         let sample_buf: [u8; 7] = [1, 2, 0xAA, 0xAA, 0xAA, 0xAA, 4];
-        assert!(s.write_slice(&sample_buf, 0).is_ok());
+        s.write_slice(&sample_buf, 0).unwrap();
         let r = a.get_ref::<u32>(2).unwrap();
         assert_eq!(r.load(), 0xAAAA_AAAA);
 
         r.store(0x5555_5555);
         let sample_buf: [u8; 7] = [1, 2, 0x55, 0x55, 0x55, 0x55, 4];
         let mut buf: [u8; 7] = Default::default();
-        assert!(s.read_slice(&mut buf, 0).is_ok());
+        s.read_slice(&mut buf, 0).unwrap();
         assert_eq!(buf, sample_buf);
     }
 

@@ -7,7 +7,7 @@ use core::hint::black_box;
 pub use criterion::Criterion;
 
 use vm_memory::bitmap::Bitmap;
-use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
+use vm_memory::{GuestAddress, GuestMemoryBackend, GuestMemoryMmap};
 
 const REGION_SIZE: usize = 0x10_0000;
 const REGIONS_COUNT: u64 = 256;
