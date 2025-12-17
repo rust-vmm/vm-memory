@@ -1,5 +1,11 @@
 # Changelog
 
+## Upcoming version
+
+### Fixed
+
+- \[[#369](https://github.com/rust-vmm/vm-memory/pull/369)\] Make `GuestAddressSpace` usable for 0.17 users
+
 ## \[v0.17.2\]
 
 This release re-packages the code of vm-memory 0.18.0 while preserving
