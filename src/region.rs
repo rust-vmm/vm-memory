@@ -43,14 +43,34 @@ pub trait GuestMemoryRegion: Bytes<MemoryRegionAddress, E = GuestMemoryError> {
     type B: Bitmap;
 
     /// Returns the size of the region.
+    ///
+    /// # Invariant
+    ///
+    /// Implementations of this trait must always return a non-zero value. The default
+    /// implementation of [`last_addr`](GuestMemoryRegion::last_addr) relies on this: it computes
+    /// `self.len() - 1`, which underflows if `len()` returns `0`. Built-in mmap-backed regions
+    /// already enforce this when constructed; custom implementations of `GuestMemoryRegion` are
+    /// responsible for upholding the same invariant.
     fn len(&self) -> GuestUsize;
 
     /// Returns the minimum (inclusive) address managed by the region.
     fn start_addr(&self) -> GuestAddress;
 
     /// Returns the maximum (inclusive) address managed by the region.
+    ///
+    /// # Panics (debug builds only)
+    ///
+    /// Panics in debug builds if `self.len()` returns `0`, since a zero-length region has no
+    /// valid "last address". See the invariant documented on [`len`](GuestMemoryRegion::len).
     fn last_addr(&self) -> GuestAddress {
-        // unchecked_add is safe as the region bounds were checked when it was created.
+        debug_assert!(
+            self.len() > 0,
+            "GuestMemoryRegion::len() must not return 0; last_addr() is undefined for a \
+             zero-length region"
+        );
+        // unchecked_add is safe because GuestMemoryRegion::len() is documented to always
+        // return a non-zero value (see the invariant on `len`), and built-in mmap-backed
+        // regions enforce this at construction time. Custom implementations must do the same.
         self.start_addr().unchecked_add(self.len() - 1)
     }
 
